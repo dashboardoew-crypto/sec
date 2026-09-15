@@ -49,3 +49,9 @@ export const requireRole = (...roles: string[]) =>
     if (!roles.includes(req.user.role)) return res.status(403).json({ error: "You do not have permission for this action" });
     return next();
   };
+
+export const canAccessModule = (role: string | undefined, module: "security" | "main-gate") => {
+  // Security staff operate across both security workspaces.
+  if (role === "security") return true;
+  return module === "security" || module === "main-gate";
+};

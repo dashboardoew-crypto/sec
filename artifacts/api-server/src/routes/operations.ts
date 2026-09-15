@@ -18,14 +18,14 @@ import {
   sampleRecords,
   type RegisterDefinition,
 } from "../data/registers";
-import { requireAuth } from "../middlewares/authMiddleware";
+import { canAccessModule, requireAuth } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
 router.use(requireAuth);
 let seedPromise: Promise<void> | undefined;
 const EDIT_WINDOW_DAYS = 3;
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
-  req.user?.role !== "security" || definition.module === "security";
+  canAccessModule(req.user?.role, definition.module);
 
 const minutesBetween = (from: unknown, to: unknown) => {
   if (typeof from !== "string" || typeof to !== "string") return undefined;

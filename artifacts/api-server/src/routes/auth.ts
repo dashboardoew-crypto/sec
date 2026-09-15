@@ -164,4 +164,66 @@ router.patch("/auth/users/:id/role", requireRole("admin"), async (req: Request, 
   return res.json({ user: publicUser(user) });
 });
 
+router.patch("/auth/users/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  const actor = req.user;
+  if (!actor) return res.status(401).json({ error: "Authentication required" });
+
+  const targetId = String(req.params.id);
+  const existing = await db.select().from(authUsersTable).where(eq(authUsersTable.id, targetId)).limit(1);
+  if (!existing[0]) return res.status(404).json({ error: "User not found" });
+
+  const input = req.body ?? {};
+  const displayName = typeof input.displayName === "string" ? input.displayName.trim() : existing[0].displayName;
+  const email = input.email === undefined ? existing[0].email : normalizeEmail(input.email);
+  const password = input.password === undefined ? "" : typeof input.password === "string" ? input.password : "";
+  const role = input.role === undefined ? existing[0].role as UserRole : input.role as UserRole;
+
+  if (!displayName || !email || !email.includes("@") || !USER_ROLES.includes(role)) {
+    return res.status(400).json({ error: "Enter a name, valid email, and role" });
+  }
+  if (input.password !== undefined && password.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  }
+  if (targetId === actor.id && role !== "admin") {
+    return res.status(400).json({ error: "You cannot remove your own admin access" });
+  }
+  if (role !== "admin") {
+    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(eq(authUsersTable.role, "admin"));
+    if (admins.length === 1 && admins[0].id === targetId) {
+      return res.status(400).json({ error: "The workspace must keep at least one admin" });
+    }
+  }
+  const duplicate = await db.select({ id: authUsersTable.id }).from(authUsersTable)
+    .where(eq(authUsersTable.email, email)).limit(1);
+  if (duplicate[0] && duplicate[0].id !== targetId) {
+    return res.status(409).json({ error: "That ID is already in use" });
+  }
+
+  const [user] = await db.update(authUsersTable).set({
+    displayName,
+    email,
+    role,
+    ...(input.password !== undefined ? { passwordHash: passwordHash(password) } : {}),
+    updatedAt: new Date(),
+  }).where(eq(authUsersTable.id, targetId)).returning();
+  return res.json({ user: publicUser(user) });
+});
+
+router.delete("/auth/users/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  const actor = req.user;
+  if (!actor) return res.status(401).json({ error: "Authentication required" });
+  const targetId = String(req.params.id);
+  if (targetId === actor.id) return res.status(400).json({ error: "You cannot delete your own account" });
+
+  const target = await db.select().from(authUsersTable).where(eq(authUsersTable.id, targetId)).limit(1);
+  if (!target[0]) return res.status(404).json({ error: "User not found" });
+  if (target[0].role === "admin") {
+    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(eq(authUsersTable.role, "admin"));
+    if (admins.length === 1) return res.status(400).json({ error: "The workspace must keep at least one admin" });
+  }
+
+  await db.delete(authUsersTable).where(eq(authUsersTable.id, targetId));
+  return res.json({ success: true });
+});
+
 export default router;

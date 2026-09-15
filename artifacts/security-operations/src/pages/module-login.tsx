@@ -19,7 +19,7 @@ const modules = [
 
 export default function ModuleLogin() {
   const { user } = useAuth();
-  const availableModules = user?.role === 'security' ? modules.filter((module) => module.slug === 'security') : modules;
+  const availableModules = modules;
   return (
     <main className="module-login min-h-[100dvh] bg-[#061a2b] text-white">
 
