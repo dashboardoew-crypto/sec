@@ -33,16 +33,28 @@ const fieldType = (label: string): FieldType => {
   return "text";
 };
 
-const makeFields = (labels: string[]): FieldDefinition[] =>
+type RegisterFieldOptions = {
+  required?: string[];
+  optional?: string[];
+};
+
+const labelMatches = (label: string, configuredLabels: string[] | undefined) =>
+  configuredLabels?.some((configuredLabel) => configuredLabel.toLowerCase() === label.toLowerCase()) ?? false;
+
+const makeFields = (labels: string[], options: RegisterFieldOptions = {}): FieldDefinition[] =>
   labels
     .filter((label) => label.trim() && label.toLowerCase() !== "id")
-    .map((label) => ({
-      key: keyFor(label),
-      label: label.trim(),
-      type: fieldType(label),
-      required: !/(sign|remark|status|final|in-time|out-time|time|date)/i.test(label),
-      derived: /(total|minutes consumed|per minute|time duration|total hours|time taken|fetched phone)/i.test(label),
-    }));
+    .map((label) => {
+      const explicitlyRequired = labelMatches(label, options.required);
+      const explicitlyOptional = labelMatches(label, options.optional);
+      return {
+        key: keyFor(label),
+        label: label.trim(),
+        type: fieldType(label),
+        required: explicitlyRequired || (!explicitlyOptional && !/(sign|remark|status|final|in-time|out-time|time|date)/i.test(label)),
+        derived: /(total|minutes consumed|per minute|time duration|total hours|time taken|fetched phone)/i.test(label),
+      };
+    });
 
 const register = (
   slug: string,
@@ -50,12 +62,13 @@ const register = (
   module: RegisterModule,
   labels: string[],
   description: string,
+  options: RegisterFieldOptions = {},
 ): RegisterDefinition => ({
   slug,
   title,
   module,
   description,
-  fields: makeFields(labels),
+  fields: makeFields(labels, options),
 });
 
 const meterFields: FieldDefinition[] = [
@@ -74,7 +87,7 @@ const keyMovementFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
   { key: "key_out_time", label: "KEY OUT TIME", type: "time", required: true },
   { key: "key_return", label: "KEY RETURN", type: "time" },
-  { key: "location", label: "LOCATION", type: "text" },
+  { key: "location", label: "LOCATION", type: "text", required: true },
 ];
 
 const solarPanelCleaningFields: FieldDefinition[] = [
@@ -125,7 +138,7 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
   { ...register("key-movement", "Key Movement Register", "security", [], "Record who takes keys, where they go, and when the keys return."), fields: keyMovementFields },
   register("chowk-labour", "Chowk Labour", "security", ["NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TIME DURATION", "WORK LOCATION", "payment status"], "Track chowk labour attendance and payment status."),
-  register("daily-attendance", "Daily Attendance Log", "security", ["LABOUR NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TOTAL HOURS", "payment status", "Overtime payment status"], "Track daily labour attendance, hours, and payments."),
+   register("daily-attendance", "Training Register", "security", ["LABOUR NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TOTAL HOURS", "payment status", "Overtime payment status"], "Track daily training attendance, hours, and payments."),
   { ...register("solar-panel-cleaning", "Solar Panel Cleaning Record", "security", [], "Record cleaning work across solar panel zones."), fields: solarPanelCleaningFields },
   register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments."),
   { ...register("service-bill", "Service Bill Entry", "security", [], "Record service bills and invoice details."), fields: serviceBillFields },
@@ -139,11 +152,11 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   register("visitor-record", "Visitor Record Register", "main-gate", ["Date", "Name of Visitor", "Location of Visitor", "Mobile no", "Purpose", "Whom to Meet", "In-Time", "Out-Time", "Sign of Security"], "Maintain the visitor log and visit purpose."),
   register("kothi-attendance", "Kothi Attendance Register", "main-gate", ["Date", "Name", "Morning In-Time", "Morning out-Time", "Evening In-Time", "Evening Out-Time", "Sign of Security"], "Track household attendance across morning and evening shifts."),
   register("outgoing-vehicle-log", "Outgoing Vehicle Log", "main-gate", ["Date", "Driver Name", "Car Name", "Out Time", "Station", "Initial reading", "Final reading", "Total km car run", "In Time", "Name of the Person in Car", "Sign"], "Track secondary outgoing vehicle records."),
-  register("contractor-gate-pass", "Contractor Personal Gate Pass", "main-gate", ["Date", "Name", "Department", "Code", "Out Time", "In Time", "Security sign"], "Manage contractor and personal gate pass movements."),
-  register("guest-food", "Guest Food Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record guest meal requirements for the kitchen."),
-  register("jain-food-service", "Jain Food Service Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record Jain food service requirements."),
+   register("contractor-gate-pass", "Contractor Personal Gate Pass", "main-gate", ["Date", "Name", "Department", "Code", "Out Time", "In Time", "Security sign"], "Manage contractor and personal gate pass movements.", { required: ["Out Time"] }),
+   register("guest-food", "Guest Food Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record guest meal requirements for the kitchen.", { optional: ["Add", "Breakfast", "Lunch", "Dinner", "Sign"] }),
+   register("jain-food-service", "Jain Food Service Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record Jain food service requirements.", { optional: ["Add", "Breakfast", "Lunch", "Dinner", "Sign"] }),
   register("unit-2-gate-pass", "Unit 2 Gate Pass Register", "main-gate", ["Date", "Name", "Department", "Out Time from unit 1", "IN Time in unit 2", "Out Time from unit 2", "In Time in unit 1", "security sign", "time taken to travel from unit1 to 2", "time taken to travel from unit 2 to 1"], "Track Unit 1 to Unit 2 movements and travel times."),
-  register("driver-attendance", "Driver Attendance Record", "main-gate", ["Date", "Name", "In-Time", "Out-Time", "Station", "Station Out Time", "Station In Date", "Station In Time", "Sign", "Payment Status", "Day Allowance", "Night Allowance"], "Track driver attendance, station movements, and allowances."),
+   register("driver-attendance", "Driver Attendance Record", "main-gate", ["Date", "Name", "In-Time", "Out-Time", "Station", "Station Out Time", "Station In Date", "Station In Time", "Sign", "Payment Status", "Day Allowance", "Night Allowance"], "Track driver attendance, station movements, and allowances.", { required: ["In-Time"] }),
 ];
 
 export const getRegister = (slug: string) => REGISTER_DEFINITIONS.find((item) => item.slug === slug);
