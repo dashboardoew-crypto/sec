@@ -18,7 +18,7 @@ import {
   sampleRecords,
   type RegisterDefinition,
 } from "../data/registers";
-import { canAccessModule, requireAuth } from "../middlewares/authMiddleware";
+import { canAccessModule, canCreateRegisterRecord, requireAuth } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
 router.use(requireAuth);
@@ -265,6 +265,9 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   await seedIfEmpty();
+  if (!canCreateRegisterRecord(req.user?.role)) {
+    return res.status(403).json({ error: "This role cannot add register records" });
+  }
   const { slug } = CreateRegisterRecordParams.parse(req.params);
   const body = CreateRegisterRecordBody.parse(req.body);
   const definition = getRegister(slug);

@@ -73,6 +73,8 @@ const meterFields: FieldDefinition[] = [
 const keyMovementFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
   { key: "key_out_time", label: "KEY OUT TIME", type: "time", required: true },
+  { key: "key_return", label: "KEY RETURN", type: "time" },
+  { key: "location", label: "LOCATION", type: "text" },
 ];
 
 const solarPanelCleaningFields: FieldDefinition[] = [
@@ -104,7 +106,7 @@ const jackRegisterFields: FieldDefinition[] = [
 export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
-  { ...register("key-movement", "Key Movement Register", "security", [], "Record who takes keys and when they leave."), fields: keyMovementFields },
+  { ...register("key-movement", "Key Movement Register", "security", [], "Record who takes keys, where they go, and when the keys return."), fields: keyMovementFields },
   register("chowk-labour", "Chowk Labour", "security", ["NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TIME DURATION", "WORK LOCATION", "payment status"], "Track chowk labour attendance and payment status."),
   register("labour-master", "Labour Master", "security", ["NAME", "FATHER NAME", "ADDRESS", "WORK LOCATION", "WAGES PER DAY"], "Maintain the labour directory and daily wage rates."),
   register("daily-attendance", "Daily Attendance Log", "security", ["LABOUR NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TOTAL HOURS", "payment status", "Overtime payment status"], "Track daily labour attendance, hours, and payments."),
@@ -130,7 +132,7 @@ export const getRegister = (slug: string) => REGISTER_DEFINITIONS.find((item) =>
 export const sampleRecords: Array<{ registerSlug: string; recordDate: string; data: Record<string, unknown> }> = [
   { registerSlug: "mango-tree-meter", recordDate: "2026-08-21", data: { date: "2026-08-21", on_time: "08:42", off_time: "12:37", office_initial: 570739, office_final: 571115, kothi_initial: 21290086, kothi_final: 21317326 } },
   { registerSlug: "clinic-gate-meter", recordDate: "2026-08-14", data: { date: "2026-08-14", on_time: "08:48", off_time: "11:15", office_initial: 439119, office_final: 439355, kothi_initial: 23924354, kothi_final: 23964678 } },
-  { registerSlug: "key-movement", recordDate: "2026-07-31", data: { date: "2026-07-31", name: "Sanjay", key_out_time: "06:18" } },
+  { registerSlug: "key-movement", recordDate: "2026-07-31", data: { date: "2026-07-31", name: "Sanjay", key_out_time: "06:18", key_return: "08:05", location: "Workshop" } },
   { registerSlug: "daily-attendance", recordDate: "2026-08-01", data: { labour_name: "ASHWANI KUMAR", date: "2026-08-01", morning_in: "08:00", morning_out: "13:00", evening_in: "14:00", evening_out: "19:05", payment_status: "Paid" } },
   { registerSlug: "driver-schedule", recordDate: "2026-07-27", data: { choosen_driver: "JASPAL", date: "2026-07-27", schedule_time: "09:00", car_name: "Hyrdere, Cng", location: "Company" } },
   { registerSlug: "official-gate-pass", recordDate: "2026-09-11", data: { date: "2026-09-11", name: "Subhash Rai", department: "Office", out_time: "11:37", in_time: "12:20", station: "Kumar Mall", signature: "Security" } },

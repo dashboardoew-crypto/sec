@@ -9,6 +9,9 @@ export type AuthUser = {
   createdAt: string;
 };
 
+export const canCreateRegisterRecord = (role?: UserRole | null) =>
+  role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
+
 type AuthContextValue = {
   user: AuthUser | null;
   isLoading: boolean;

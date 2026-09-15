@@ -50,6 +50,9 @@ export const requireRole = (...roles: string[]) =>
     return next();
   };
 
+export const canCreateRegisterRecord = (role: string | undefined) =>
+  role === "admin" || role === "manager" || role === "hr" || role === "security";
+
 export const canAccessModule = (role: string | undefined, module: "security" | "main-gate") => {
   // Security staff operate across both security workspaces.
   if (role === "security") return true;
