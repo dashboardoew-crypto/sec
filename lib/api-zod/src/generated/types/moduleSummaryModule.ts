@@ -12,4 +12,5 @@ export type ModuleSummaryModule = typeof ModuleSummaryModule[keyof typeof Module
 export const ModuleSummaryModule = {
   security: 'security',
   'main-gate': 'main-gate',
+  master: 'master',
 } as const;

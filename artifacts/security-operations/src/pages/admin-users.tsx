@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Pencil, Trash2, UserPlus, UsersRound, X } from 'lucide-react';
-import { PageIntro } from '@/components/ops-shell';
+import { PageIntro } from '@/components/ops-ui';
 import { useAuth, type AuthUser, type UserRole } from '@/lib/auth';
 
 const roles: Array<{ value: UserRole; label: string }> = [
@@ -117,7 +117,7 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="ops-grid min-h-[calc(100dvh-68px)] px-5 py-8 md:px-8 lg:px-10">
+    <div className="ops-grid min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10">
       <PageIntro eyebrow="Administration" title="User access" description="Create accounts, update user details, assign roles, or remove access to the workspace." />
       {error && <div className="mb-5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive" role="alert">{error}</div>}
       {notice && <div className="mb-5 rounded-lg border border-[hsl(var(--chart-3))]/30 bg-[hsl(var(--chart-3))]/10 px-4 py-3 text-sm text-[hsl(var(--chart-3))]">{notice}</div>}

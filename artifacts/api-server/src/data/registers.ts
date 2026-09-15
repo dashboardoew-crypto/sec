@@ -1,4 +1,4 @@
-export type RegisterModule = "security" | "main-gate";
+export type RegisterModule = "security" | "main-gate" | "master";
 export type FieldType = "text" | "number" | "date" | "time" | "select" | "textarea" | "checkbox";
 
 export type FieldDefinition = {
@@ -103,17 +103,36 @@ const jackRegisterFields: FieldDefinition[] = [
   { key: "challan_date", label: "CHALLAN DATE", type: "date", required: true },
 ];
 
+const driverMasterFields: FieldDefinition[] = [
+  { key: "name", label: "NAME", type: "text", required: true },
+  { key: "code", label: "CODE", type: "number", required: true },
+  { key: "mobile_no", label: "MOBILE NO", type: "number", required: true },
+  { key: "license_no", label: "LICENSE NO", type: "text", required: true },
+  { key: "address", label: "ADDRESS", type: "textarea" },
+];
+
+const securityMasterFields: FieldDefinition[] = [
+  { key: "name", label: "NAME", type: "text", required: true },
+  { key: "code", label: "CODE", type: "number", required: true },
+  { key: "mobile_no", label: "MOBILE NO", type: "number", required: true },
+  { key: "department", label: "DEPARTMENT", type: "text", required: true },
+  { key: "shift", label: "SHIFT", type: "text" },
+  { key: "address", label: "ADDRESS", type: "textarea" },
+];
+
 export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
   { ...register("key-movement", "Key Movement Register", "security", [], "Record who takes keys, where they go, and when the keys return."), fields: keyMovementFields },
   register("chowk-labour", "Chowk Labour", "security", ["NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TIME DURATION", "WORK LOCATION", "payment status"], "Track chowk labour attendance and payment status."),
-  register("labour-master", "Labour Master", "security", ["NAME", "FATHER NAME", "ADDRESS", "WORK LOCATION", "WAGES PER DAY"], "Maintain the labour directory and daily wage rates."),
   register("daily-attendance", "Daily Attendance Log", "security", ["LABOUR NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TOTAL HOURS", "payment status", "Overtime payment status"], "Track daily labour attendance, hours, and payments."),
   { ...register("solar-panel-cleaning", "Solar Panel Cleaning Record", "security", [], "Record cleaning work across solar panel zones."), fields: solarPanelCleaningFields },
   register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments."),
   { ...register("service-bill", "Service Bill Entry", "security", [], "Record service bills and invoice details."), fields: serviceBillFields },
   { ...register("jack-register", "Jack Register OEW", "security", [], "Track jack issue and challan records."), fields: jackRegisterFields },
+  register("labour-master", "Labour Master", "master", ["NAME", "FATHER NAME", "ADDRESS", "WORK LOCATION", "WAGES PER DAY"], "Maintain the labour directory and daily wage rates."),
+  { ...register("driver-master", "Driver Master", "master", [], "Maintain the driver directory for HR and management."), fields: driverMasterFields },
+  { ...register("security-master", "Security Master", "master", [], "Maintain the security staff directory for HR and management."), fields: securityMasterFields },
   register("personal-gate-pass", "Personal Gate Pass Register", "main-gate", ["Date", "Name", "Code", "Dept Name", "Out-Time", "In-Time", "Sign of Security"], "Manage personal movement through the main gate."),
   register("official-gate-pass", "Official Gate Pass Register", "main-gate", ["Date", "Name", "Department", "Out Time", "In Time", "Station", "Signature"], "Record official staff and work-related gate movements."),
   register("outgoing-vehicles", "Outgoing Vehicles Register", "main-gate", ["Date", "Driver Name", "Car Name", "Out Time", "Location", "Initial Reading", "Final Reading", "Total KM Car Run", "In Time", "Name of the Person in Car", "Signature"], "Track outgoing vehicles, trips, and odometer readings."),

@@ -12,4 +12,5 @@ export type RegisterDefinitionModule = typeof RegisterDefinitionModule[keyof typ
 export const RegisterDefinitionModule = {
   security: 'security',
   'main-gate': 'main-gate',
+  master: 'master',
 } as const;

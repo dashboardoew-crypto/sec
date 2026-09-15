@@ -41,6 +41,7 @@ export type RegisterDefinitionModule = typeof RegisterDefinitionModule[keyof typ
 export const RegisterDefinitionModule = {
   security: 'security',
   'main-gate': 'main-gate',
+  master: 'master',
 } as const;
 
 export interface RegisterDefinition {
@@ -99,6 +100,7 @@ export type ModuleSummaryModule = typeof ModuleSummaryModule[keyof typeof Module
 export const ModuleSummaryModule = {
   security: 'security',
   'main-gate': 'main-gate',
+  master: 'master',
 } as const;
 
 export interface ModuleSummary {

@@ -241,7 +241,7 @@ components:
           type: string
         module:
           type: string
-          enum: [security, main-gate]
+          enum: [security, main-gate, master]
         description:
           type: string
         fields:
@@ -320,7 +320,7 @@ components:
       properties:
         module:
           type: string
-          enum: [security, main-gate]
+          enum: [security, main-gate, master]
         label:
           type: string
         totalRecords:

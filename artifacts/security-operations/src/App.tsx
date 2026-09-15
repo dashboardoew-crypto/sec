@@ -6,44 +6,34 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import Dashboard from '@/pages/dashboard';
 import RegistersPage from '@/pages/registers';
-import SettingsPage from '@/pages/settings';
 import ModuleLogin from '@/pages/module-login';
 import LoginPage from '@/pages/login';
 import AdminUsersPage from '@/pages/admin-users';
-import { OpsShell } from '@/components/ops-shell';
-import { AuthProvider, useAuth } from '@/lib/auth';
+import PaymentsPage from '@/pages/payments';
+import { AuthProvider, canAccessWorkspace, useAuth } from '@/lib/auth';
 import {
   Route,
   Switch,
-  useParams,
   useLocation,
   Router as WouterRouter,
 } from 'wouter';
-import {
-  getListRegistersQueryKey,
-  useListRegisters,
-} from '@workspace/api-client-react';
 
 const queryClient = new QueryClient();
 
 function Router() {
   return (
-    // Keep a shared shell (sidebar, navbar) outside the boundary so it
-    // survives a page crash.
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/" component={ModuleLogin} />
         <Route path="/registers/:slug" component={RegisterAccessRoute} />
         <Route>
-          <OpsShell>
-            <Switch>
-              <Route path="/dashboard" component={Dashboard} />
-              <Route path="/registers/:slug" component={RegistersPage} />
-              <Route path="/settings" component={SettingsPage} />
-              <Route path="/admin/users" component={AdminUsersPage} />
-              <Route component={NotFound} />
-            </Switch>
-          </OpsShell>
+          <Switch>
+            <Route path="/dashboard" component={Dashboard} />
+            <Route path="/registers/:slug" component={RegistersPage} />
+            <Route path="/admin/users" component={AdminUsersPage} />
+            <Route path="/payments" component={PaymentAccessRoute} />
+            <Route component={NotFound} />
+          </Switch>
         </Route>
       </Switch>
     </RoutedErrorBoundary>
@@ -51,23 +41,12 @@ function Router() {
 }
 
 function RegisterAccessRoute() {
-  const { slug = '' } = useParams<{ slug: string }>();
-  const isModuleLibrary = slug === 'security' || slug === 'main-gate';
-  const registers = useListRegisters({
-    query: {
-      enabled: !isModuleLibrary,
-      queryKey: getListRegistersQueryKey(),
-    },
-  });
-  const definition = registers.data?.find((register) => register.slug === slug);
+  return <RegistersPage />;
+}
 
-  if (isModuleLibrary) return <RegistersPage />;
-
-  return (
-    <OpsShell restrictedModule={definition?.module} hideSidebar>
-      <RegistersPage />
-    </OpsShell>
-  );
+function PaymentAccessRoute() {
+  const { user } = useAuth();
+  return canAccessWorkspace(user?.role, 'payments') ? <PaymentsPage /> : <NotFound />;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {

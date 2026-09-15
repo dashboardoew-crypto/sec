@@ -194,9 +194,9 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     return definition ? canAccessDefinition(req, definition) : false;
   });
   const definitions = REGISTER_DEFINITIONS.filter((definition) => canAccessDefinition(req, definition));
-  const modules = ["security", "main-gate"].map((module) => ({
+  const modules = ["security", "main-gate", "master"].map((module) => ({
     module,
-    label: module === "security" ? "Security Operations" : "Main Gate Security",
+    label: module === "security" ? "Security Operations" : module === "main-gate" ? "Main Gate Security" : "Master",
     totalRecords: rows.filter((row) => getRegister(row.registerSlug)?.module === module).length,
     registerCount: definitions.filter((item) => item.module === module).length,
   }));

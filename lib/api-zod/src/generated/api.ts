@@ -23,7 +23,7 @@ export const GetDashboardResponse = zod.object({
   "totalRecords": zod.number().int(),
   "totalRegisters": zod.number().int(),
   "modules": zod.array(zod.object({
-  "module": zod.enum(['security', 'main-gate']),
+  "module": zod.enum(['security', 'main-gate', 'master']),
   "label": zod.string(),
   "totalRecords": zod.number().int(),
   "registerCount": zod.number().int()
@@ -61,7 +61,7 @@ export const GetActivityResponse = zod.array(GetActivityResponseItem)
 export const ListRegistersResponseItem = zod.object({
   "slug": zod.string(),
   "title": zod.string(),
-  "module": zod.enum(['security', 'main-gate']),
+  "module": zod.enum(['security', 'main-gate', 'master']),
   "description": zod.string(),
   "fields": zod.array(zod.object({
   "key": zod.string(),

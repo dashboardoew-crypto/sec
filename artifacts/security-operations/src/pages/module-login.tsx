@@ -1,25 +1,47 @@
-import { ArrowRight, Gauge, LogOut, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
-import { useAuth } from '@/lib/auth';
+import { canAccessWorkspace, useAuth, type WorkspaceSlug } from '@/lib/auth';
 
-const modules = [
+const modules: Array<{
+  slug: WorkspaceSlug;
+  href: string;
+  label: string;
+  description: string;
+  icon: typeof ShieldCheck;
+}> = [
   {
     slug: 'security',
+    href: '/registers/security',
     label: 'Security',
     description: 'Security operations registers',
     icon: ShieldCheck,
   },
   {
     slug: 'main-gate',
+    href: '/registers/main-gate',
     label: 'Main Gate Security',
     description: 'Gate, visitor, vehicle and pass registers',
     icon: Gauge,
+  },
+  {
+    slug: 'master',
+    href: '/registers/master',
+    label: 'Master',
+    description: 'Labour, driver and security master registers',
+    icon: UsersRound,
+  },
+  {
+    slug: 'payments',
+    href: '/payments',
+    label: 'Payment',
+    description: 'HR payment workspace with role-based access',
+    icon: WalletCards,
   },
 ];
 
 export default function ModuleLogin() {
   const { user, logout } = useAuth();
-  const availableModules = modules;
+  const availableModules = modules.filter(({ slug }) => canAccessWorkspace(user?.role, slug));
   return (
     <main className="module-login min-h-[100dvh] bg-[#061a2b] text-white">
 
@@ -49,10 +71,10 @@ export default function ModuleLogin() {
         </div>
 
         <div className="grid max-w-5xl gap-5 sm:grid-cols-2">
-          {availableModules.map(({ slug, label, description, icon: Icon }) => (
+          {availableModules.map(({ slug, href, label, description, icon: Icon }) => (
             <Link
               key={slug}
-              href={`/registers/${slug}`}
+              href={href}
               className="group flex min-h-[156px] items-center gap-5 rounded-xl border border-white/35 bg-white px-6 py-6 text-slate-900 shadow-[0_18px_55px_rgba(0,0,0,.25)] transition duration-200 hover:-translate-y-1 hover:border-[#f5c34b] hover:shadow-[0_24px_70px_rgba(0,0,0,.36)] focus:outline-none focus:ring-4 focus:ring-[#f5c34b]/40 sm:px-8"
               data-testid={`link-login-module-${slug}`}
             >
