@@ -13,6 +13,7 @@ An operations workspace that replaces the Security and Main Gate Security workbo
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Required Replit Secrets for email backups: `GMAIL_USER` and `GMAIL_APP_PASSWORD`
 
 ## Stack
 
@@ -46,6 +47,7 @@ An operations workspace that replaces the Security and Main Gate Security workbo
 - Dashboard for both modules with totals, recent activity, attention items, and register counts.
 - Searchable module libraries for all Security Operations and Main Gate Security registers.
 - Register-level add, edit, delete, date filtering, free-text search, CSV export, and print support.
+- Admin data tools support one-CSV imports across all registers and daily multi-tab workbook backups at 6:00 PM Asia/Kolkata to an admin-configured email.
 - Server-side automatic calculations for meter usage, travel time, attendance duration, and vehicle kilometres.
 
 ## User preferences

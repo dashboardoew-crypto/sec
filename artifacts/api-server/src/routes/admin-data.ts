@@ -148,9 +148,11 @@ const sendBackupEmail = async (recipientEmail: string) => {
 };
 
 const saveSentDate = async (sentAt: Date) => {
+  const current = await getSettings();
   await db.insert(backupSettingsTable).values({
     id: SETTINGS_ID,
-    enabled: true,
+    recipientEmail: current?.recipientEmail ?? null,
+    enabled: current?.enabled ?? false,
     lastSentDate: indiaDateKey(sentAt),
     lastSentAt: sentAt,
     updatedAt: sentAt,
@@ -203,7 +205,15 @@ const parseImportedRows = (source: string) => {
     for (const [header, value] of Object.entries(raw)) {
       if (!value || ["register", "register_slug", "register_name", "register_title", "record_date"].includes(header)) continue;
       const field = fieldByHeader.get(header);
-      if (field) data[field.key] = field.type === "number" ? Number(value) : field.type === "checkbox" ? value.toLowerCase() === "true" : value;
+      if (field?.type === "number") {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) throw new Error(`Row ${rowIndex + 2}: "${value}" is not a valid number for ${field.label}.`);
+        data[field.key] = numericValue;
+      } else if (field?.type === "checkbox") {
+        data[field.key] = value.toLowerCase() === "true";
+      } else if (field) {
+        data[field.key] = value;
+      }
     }
     const recordDate = raw.record_date || (data.date as string | undefined) || null;
     const processed = applyDerivedValues(definition, data);
