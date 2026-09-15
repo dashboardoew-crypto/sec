@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { Pencil, Trash2, UserPlus, UsersRound, X } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { Clock3, Download, FileSpreadsheet, Mail, Pencil, Send, Trash2, Upload, UserPlus, UsersRound, X } from 'lucide-react';
 import { PageIntro } from '@/components/ops-ui';
 import { useAuth, type AuthUser, type UserRole } from '@/lib/auth';
 
@@ -28,6 +28,12 @@ export default function AdminUsersPage() {
   const [form, setForm] = useState<UserForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<UserForm>(emptyForm);
+  const [backupEmail, setBackupEmail] = useState('');
+  const [backupEnabled, setBackupEnabled] = useState(false);
+  const [backupLastSentAt, setBackupLastSentAt] = useState<string | null>(null);
+  const [backupPending, setBackupPending] = useState(false);
+  const [importPending, setImportPending] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadUsers = async () => {
     const response = await fetch('/api/auth/users', { credentials: 'include' });
@@ -40,7 +46,18 @@ export default function AdminUsersPage() {
   };
 
   useEffect(() => {
-    if (user?.role === 'admin') void loadUsers();
+    if (user?.role === 'admin') {
+      void loadUsers();
+      fetch('/api/admin/data/backup', { credentials: 'include' })
+        .then(async (response) => {
+          if (!response.ok) return;
+          const payload = await response.json();
+          setBackupEmail(payload.recipientEmail ?? '');
+          setBackupEnabled(payload.enabled === true);
+          setBackupLastSentAt(payload.lastSentAt ?? null);
+        })
+        .catch(() => setError('Backup settings could not be loaded.'));
+    }
   }, [user?.role]);
 
   const resetMessages = () => {
@@ -112,6 +129,81 @@ export default function AdminUsersPage() {
     setEditForm({ displayName: item.displayName, email: item.email, password: '', role: item.role });
   };
 
+  const saveBackupSettings = async (event: FormEvent) => {
+    event.preventDefault();
+    resetMessages();
+    setBackupPending(true);
+    const response = await fetch('/api/admin/data/backup', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ recipientEmail: backupEmail, enabled: backupEnabled }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    setBackupPending(false);
+    if (!response.ok) {
+      setError(payload.error ?? 'Backup settings could not be saved.');
+      return;
+    }
+    setBackupEmail(payload.recipientEmail ?? '');
+    setBackupEnabled(payload.enabled === true);
+    setBackupLastSentAt(payload.lastSentAt ?? null);
+    setNotice('Daily backup settings saved.');
+  };
+
+  const sendBackupNow = async () => {
+    resetMessages();
+    setBackupPending(true);
+    const response = await fetch('/api/admin/data/backup/send-now', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const payload = await response.json().catch(() => ({}));
+    setBackupPending(false);
+    if (!response.ok) {
+      setError(payload.error ?? 'The backup email could not be sent.');
+      return;
+    }
+    setBackupLastSentAt(payload.lastSentAt ?? null);
+    setNotice('Backup workbook sent.');
+  };
+
+  const importAllRegisters = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    resetMessages();
+    setImportPending(true);
+    const response = await fetch('/api/admin/data/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv' },
+      credentials: 'include',
+      body: await file.text(),
+    });
+    const payload = await response.json().catch(() => ({}));
+    setImportPending(false);
+    if (!response.ok) {
+      setError(payload.error ?? 'The CSV could not be imported.');
+      return;
+    }
+    setNotice(`${payload.imported} records imported across ${payload.registers} registers.`);
+  };
+
+  const downloadImportTemplate = async () => {
+    const response = await fetch('/api/admin/data/import-template', { credentials: 'include' });
+    if (!response.ok) {
+      setError('The import template could not be downloaded.');
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'register-import-template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (user?.role !== 'admin') {
     return <div className="p-8 text-sm text-destructive">You do not have permission to manage users.</div>;
   }
@@ -163,6 +255,33 @@ export default function AdminUsersPage() {
             <label className="block"><span className="mb-1.5 block text-xs font-semibold">Role</span><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as UserRole })} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary">{roles.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></label>
             <button disabled={pending} type="submit" className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">{pending ? 'Creating…' : 'Create user'}</button>
           </form>
+        </section>
+        <section className="rounded-xl border border-border bg-card shadow-sm lg:col-span-2">
+          <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+            <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary"><FileSpreadsheet size={17} /></span>
+            <div><h2 className="font-serif text-lg font-bold">Register data tools</h2><p className="text-xs text-muted-foreground">Import every register from one CSV and keep a daily workbook backup.</p></div>
+          </div>
+          <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="rounded-xl border border-border bg-muted/20 p-4">
+              <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><Upload size={16} /></span><div><h3 className="text-sm font-semibold">Import all registers</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Upload one CSV containing a Register column and rows for any register. The import is validated before anything is saved.</p></div></div>
+              <input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importAllRegisters(event)} />
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button disabled={importPending} onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Upload size={15} />{importPending ? 'Importing…' : 'Import CSV'}</button>
+                <button onClick={() => void downloadImportTemplate()} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm font-semibold hover:bg-muted"><Download size={15} /> CSV template</button>
+              </div>
+              <p className="mt-3 text-[11px] text-muted-foreground">Use each register’s slug or title in the Register column. Existing records are not overwritten; uploaded rows are added.</p>
+            </div>
+            <form onSubmit={(event) => void saveBackupSettings(event)} className="rounded-xl border border-border bg-muted/20 p-4">
+              <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><Mail size={16} /></span><div><h3 className="text-sm font-semibold">Daily email backup</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Every day at 6:00 PM India time, all registers are sent as one workbook with a separate tab for each register.</p></div></div>
+              <label className="mt-4 block"><span className="mb-1.5 block text-xs font-semibold">Backup recipient email</span><input required={backupEnabled} type="email" value={backupEmail} onChange={(event) => setBackupEmail(event.target.value)} placeholder="admin@example.com" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary" /></label>
+              <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={backupEnabled} onChange={(event) => setBackupEnabled(event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" /><span className="font-semibold">Enable daily backup at 6:00 PM</span></label>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button disabled={backupPending} type="submit" className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Clock3 size={15} />{backupPending ? 'Saving…' : 'Save schedule'}</button>
+                <button disabled={backupPending || !backupEmail} type="button" onClick={() => void sendBackupNow()} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"><Send size={15} /> Send now</button>
+              </div>
+              <p className="mt-3 text-[11px] text-muted-foreground">{backupLastSentAt ? `Last sent ${new Date(backupLastSentAt).toLocaleString('en-IN')}.` : 'No backup has been sent yet.'} Gmail delivery uses the server-side Replit Secrets configuration.</p>
+            </form>
+          </div>
         </section>
       </div>
     </div>

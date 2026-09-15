@@ -111,7 +111,7 @@ const trainingDurationMinutes = (data: Record<string, unknown>) => {
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
 };
 
-const applyDerivedValues = (register: RegisterDefinition, input: Record<string, unknown>) => {
+export const applyDerivedValues = (register: RegisterDefinition, input: Record<string, unknown>) => {
   const data = { ...input };
   const keys = new Set(register.fields.map((field) => field.key));
   const setIfKnown = (key: string, value: unknown) => {
@@ -183,7 +183,7 @@ const applyDerivedValues = (register: RegisterDefinition, input: Record<string, 
   return data;
 };
 
-const validateRequiredFields = (register: RegisterDefinition, recordDate: string | null, data: Record<string, unknown>) => {
+export const validateRequiredFields = (register: RegisterDefinition, recordDate: string | null, data: Record<string, unknown>) => {
   const missing = register.fields
     .filter((field) => field.required)
     .filter((field) => data[field.key] === undefined || data[field.key] === null || data[field.key] === "");

@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { startDailyBackupScheduler } from "./routes/admin-data";
 
 const app: Express = express();
 
@@ -34,5 +35,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
 
 app.use("/api", router);
+startDailyBackupScheduler();
 
 export default app;
