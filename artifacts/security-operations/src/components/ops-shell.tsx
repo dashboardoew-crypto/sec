@@ -18,7 +18,7 @@ export function OpsShell({
   restrictedModule?: 'security' | 'main-gate';
   hideSidebar?: boolean;
 }) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const { user, logout } = useAuth();
   const isRegister = location.startsWith('/registers/');
@@ -45,7 +45,7 @@ export function OpsShell({
             {moduleLinks.filter(({ slug }) => !restrictedModule || slug === restrictedModule).map(({ slug, label, icon: Icon }) => <Link key={slug} href={`/registers/${slug}`} onClick={() => setOpen(false)} className={`mb-1 flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium ${isRegister && location.includes(slug) ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid={`link-module-${slug}`}><span className="flex items-center gap-3"><Icon size={16} />{label}</span><ChevronRight size={14} className="opacity-40" /></Link>)}
           </div>
            <div className="mt-auto space-y-3 p-4">
-            <div className="flex items-center justify-between rounded-xl border border-sidebar-border bg-sidebar-accent/45 px-3 py-3"><div className="min-w-0"><div className="truncate text-xs font-semibold">{user?.displayName}</div><div className="font-mono text-[9px] uppercase tracking-wider text-sidebar-foreground/50">{user?.role}</div></div><button onClick={() => void logout()} className="rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" title="Sign out" data-testid="button-logout"><LogOut size={15} /></button></div>
+             <div className="flex items-center justify-between rounded-xl border border-sidebar-border bg-sidebar-accent/45 px-3 py-3"><div className="min-w-0"><div className="truncate text-xs font-semibold">{user?.displayName}</div><div className="font-mono text-[9px] uppercase tracking-wider text-sidebar-foreground/50">{user?.role}</div></div><button onClick={() => void logout()} className="rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" title="Sign out" data-testid="button-logout"><LogOut size={15} /></button></div>
             <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-4">
               <div className="mb-3 flex items-center gap-2"><span className="pulse-dot size-2 rounded-full bg-sidebar-primary" /><span className="font-mono text-[10px] uppercase tracking-[.14em] text-sidebar-foreground/70">System online</span></div>
               <p className="text-xs leading-relaxed text-sidebar-foreground/50">Records are synced and ready for the next shift.</p>
@@ -57,7 +57,7 @@ export function OpsShell({
       <main className={hideSidebar ? '' : 'md:pl-[264px]'}>
         <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-border/80 bg-background/90 px-5 backdrop-blur-md md:px-8">
           <div className="flex items-center gap-3">{!hideSidebar && <button className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setOpen(true)} data-testid="button-open-menu"><Menu size={20} /></button>}<div className="flex items-center gap-2 text-xs text-muted-foreground"><BookOpen size={14} /><span>Shift control /</span><span className="font-medium text-foreground">{location === '/' ? 'Overview' : location === '/settings' ? 'Settings' : 'Registers'}</span></div></div>
-          <div className="flex items-center gap-4"><div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-[hsl(var(--chart-3))]" />Live workspace</div><div className="grid size-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">AS</div></div>
+           <div className="flex items-center gap-3"><div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-[hsl(var(--chart-3))]" />Live workspace</div><span className="hidden text-xs font-medium text-muted-foreground sm:inline">{user?.displayName}</span><button onClick={() => { void (async () => { await logout(); setLocation('/'); })(); }} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-muted" data-testid="button-header-logout"><LogOut size={14} />Sign out</button></div>
         </header>
         {children}
       </main>

@@ -1,4 +1,4 @@
-import { ArrowRight, Gauge, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Gauge, LogOut, ShieldCheck } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAuth } from '@/lib/auth';
 
@@ -18,12 +18,18 @@ const modules = [
 ];
 
 export default function ModuleLogin() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const availableModules = modules;
   return (
     <main className="module-login min-h-[100dvh] bg-[#061a2b] text-white">
 
       <section className="relative mx-auto flex min-h-[100dvh] w-full max-w-[1280px] flex-col justify-center px-6 py-12 sm:px-10 lg:px-16">
+        <div className="absolute right-6 top-6 flex items-center gap-3 sm:right-10 sm:top-8">
+          <span className="hidden text-xs text-white/60 sm:inline">{user?.displayName}</span>
+          <button onClick={() => void logout()} className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15" data-testid="button-module-logout">
+            <LogOut size={14} /> Sign out
+          </button>
+        </div>
         <div className="mb-12 max-w-2xl">
           <div className="mb-5 flex items-center gap-3 text-xs font-semibold uppercase tracking-[.26em] text-white/65">
             <span className="grid size-9 place-items-center rounded-lg border border-white/20 bg-white/10 text-[#f5c34b] shadow-lg backdrop-blur-sm">
