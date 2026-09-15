@@ -4,8 +4,8 @@ import { eq } from "drizzle-orm";
 import { db, authSessionsTable, authUsersTable, type AuthUser } from "@workspace/db";
 import { hashSessionToken, requireAuth, requireRole, SESSION_COOKIE } from "../middlewares/authMiddleware";
 
-type UserRole = "admin" | "manager" | "hr";
-const USER_ROLES: UserRole[] = ["admin", "manager", "hr"];
+type UserRole = "admin" | "manager" | "hr" | "security";
+const USER_ROLES: UserRole[] = ["admin", "manager", "hr", "security"];
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
 const bootstrapUsers = [
@@ -26,6 +26,12 @@ const bootstrapUsers = [
     displayName: "HR",
     role: "hr" as const,
     passwordHash: "scrypt$3c124eb750c0c57595dd5218429d9332$68ce8c39d285e7753e91ea2d8fadc2b0908b89cd847195f5d080da62b58aad59cbb26e20b5f984f3f803b12634e60f1fae4b655ae09eeafabb1ef09c32a09f11",
+  },
+  {
+    email: "security@gmail.com",
+    displayName: "Security",
+    role: "security" as const,
+    passwordHash: "scrypt$26cba84808b990131f878cf568d0382c$d538ae9552f7ea7201489580855b9bd25f2caad4e44b1bfcd2ed49296de1f43557648e8e458d18487fc9f9b91d1f557b4ee213a6b0d73acbb65906e7d997421a",
   },
 ];
 
@@ -142,7 +148,7 @@ router.patch("/auth/users/:id/role", requireRole("admin"), async (req: Request, 
   const actor = req.user;
   if (!actor) return res.status(401).json({ error: "Authentication required" });
   const role = req.body?.role as UserRole;
-  if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Choose admin, manager, or HR" });
+  if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Choose admin, manager, HR, or Security" });
   const targetId = String(req.params.id);
   if (targetId === actor.id && role !== "admin") {
     return res.status(400).json({ error: "You cannot remove your own admin access" });

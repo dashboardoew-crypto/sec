@@ -1,5 +1,6 @@
 import { ArrowRight, Gauge, ShieldCheck } from 'lucide-react';
 import { Link } from 'wouter';
+import { useAuth } from '@/lib/auth';
 
 const modules = [
   {
@@ -17,6 +18,8 @@ const modules = [
 ];
 
 export default function ModuleLogin() {
+  const { user } = useAuth();
+  const availableModules = user?.role === 'security' ? modules.filter((module) => module.slug === 'security') : modules;
   return (
     <main className="module-login min-h-[100dvh] bg-[#061a2b] text-white">
 
@@ -40,7 +43,7 @@ export default function ModuleLogin() {
         </div>
 
         <div className="grid max-w-5xl gap-5 sm:grid-cols-2">
-          {modules.map(({ slug, label, description, icon: Icon }) => (
+          {availableModules.map(({ slug, label, description, icon: Icon }) => (
             <Link
               key={slug}
               href={`/registers/${slug}`}

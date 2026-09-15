@@ -24,6 +24,8 @@ const router: IRouter = Router();
 router.use(requireAuth);
 let seedPromise: Promise<void> | undefined;
 const EDIT_WINDOW_DAYS = 3;
+const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
+  req.user?.role !== "security" || definition.module === "security";
 
 const minutesBetween = (from: unknown, to: unknown) => {
   if (typeof from !== "string" || typeof to !== "string") return undefined;
@@ -175,20 +177,25 @@ const canEditRecord = (createdAt: Date) => {
   return daysSinceCreation >= 0 && daysSinceCreation <= EDIT_WINDOW_DAYS;
 };
 
-router.get("/dashboard", async (_req: Request, res: Response) => {
+router.get("/dashboard", async (req: Request, res: Response) => {
   await seedIfEmpty();
-  const rows = await db.select().from(registerRecordsTable);
+  const allRows = await db.select().from(registerRecordsTable);
+  const rows = allRows.filter((row) => {
+    const definition = getRegister(row.registerSlug);
+    return definition ? canAccessDefinition(req, definition) : false;
+  });
+  const definitions = REGISTER_DEFINITIONS.filter((definition) => canAccessDefinition(req, definition));
   const modules = ["security", "main-gate"].map((module) => ({
     module,
     label: module === "security" ? "Security Operations" : "Main Gate Security",
     totalRecords: rows.filter((row) => getRegister(row.registerSlug)?.module === module).length,
-    registerCount: REGISTER_DEFINITIONS.filter((item) => item.module === module).length,
+    registerCount: definitions.filter((item) => item.module === module).length,
   }));
   const latest = rows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 5);
   const latestDate = rows.map((row) => row.recordDate).filter(Boolean).sort().at(-1) ?? null;
   return res.json({
     totalRecords: rows.length,
-    totalRegisters: REGISTER_DEFINITIONS.length,
+    totalRegisters: definitions.length,
     modules,
     attentionItems: [
       "Open gate passes can be reviewed from their register",
@@ -203,7 +210,13 @@ router.get("/dashboard", async (_req: Request, res: Response) => {
 router.get("/activity", async (req: Request, res: Response) => {
   await seedIfEmpty();
   const query = GetActivityQueryParams.parse(req.query);
-  const rows = await db.select().from(registerRecordsTable).orderBy(desc(registerRecordsTable.updatedAt)).limit(query.limit ?? 100);
+  const allRows = await db.select().from(registerRecordsTable).orderBy(desc(registerRecordsTable.updatedAt));
+  const rows = allRows
+    .filter((row) => {
+      const definition = getRegister(row.registerSlug);
+      return definition ? canAccessDefinition(req, definition) : false;
+    })
+    .slice(0, query.limit ?? 100);
   return res.json(rows.map((row) => {
     const definition = getRegister(row.registerSlug)!;
     return {
@@ -216,10 +229,11 @@ router.get("/activity", async (req: Request, res: Response) => {
   }));
 });
 
-router.get("/registers", async (_req: Request, res: Response) => {
+router.get("/registers", async (req: Request, res: Response) => {
   await seedIfEmpty();
   const counts = await db.select({ registerSlug: registerRecordsTable.registerSlug }).from(registerRecordsTable);
-  return res.json(REGISTER_DEFINITIONS.map((definition) => ({
+  const definitions = REGISTER_DEFINITIONS.filter((definition) => canAccessDefinition(req, definition));
+  return res.json(definitions.map((definition) => ({
     ...definition,
     recordCount: counts.filter((row) => row.registerSlug === definition.slug).length,
   })));
@@ -231,6 +245,7 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
   const query = ListRegisterRecordsQueryParams.parse(req.query);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
+  if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
   let rows = await db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, slug)).orderBy(desc(registerRecordsTable.updatedAt));
   const search = query.search?.trim().toLowerCase();
   if (search) rows = rows.filter((row) => JSON.stringify(row.data).toLowerCase().includes(search));

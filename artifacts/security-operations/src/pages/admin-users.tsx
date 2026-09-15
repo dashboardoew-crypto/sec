@@ -7,6 +7,7 @@ const roles: Array<{ value: UserRole; label: string }> = [
   { value: 'admin', label: 'Admin' },
   { value: 'manager', label: 'Manager' },
   { value: 'hr', label: 'HR' },
+  { value: 'security', label: 'Security' },
 ];
 
 export default function AdminUsersPage() {
