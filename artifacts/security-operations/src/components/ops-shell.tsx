@@ -8,7 +8,13 @@ const moduleLinks = [
   { slug: 'main-gate', label: 'Main Gate Security', icon: Gauge },
 ];
 
-export function OpsShell({ children }: { children: ReactNode }) {
+export function OpsShell({
+  children,
+  restrictedModule,
+}: {
+  children: ReactNode;
+  restrictedModule?: 'security' | 'main-gate';
+}) {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
   const isRegister = location.startsWith('/registers/');
@@ -24,13 +30,14 @@ export function OpsShell({ children }: { children: ReactNode }) {
             <button className="text-sidebar-foreground/60 md:hidden" onClick={() => setOpen(false)} data-testid="button-close-menu"><X size={18} /></button>
           </div>
           <div className="px-3 py-5">
-            <div className="mb-2 px-3 font-mono text-[10px] uppercase tracking-[.18em] text-sidebar-foreground/45">Workspace</div>
-            <Link href="/" onClick={() => setOpen(false)} className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${location === '/' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid="link-overview"><Activity size={16} /><span>Operations overview</span></Link>
-            <Link href="/settings" onClick={() => setOpen(false)} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid="link-settings"><Settings2 size={16} /><span>Workspace settings</span></Link>
+            {!restrictedModule && <><div className="mb-2 px-3 font-mono text-[10px] uppercase tracking-[.18em] text-sidebar-foreground/45">Workspace</div>
+              <Link href="/" onClick={() => setOpen(false)} className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${location === '/' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid="link-overview"><Activity size={16} /><span>Operations overview</span></Link>
+              <Link href="/settings" onClick={() => setOpen(false)} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid="link-settings"><Settings2 size={16} /><span>Workspace settings</span></Link>
+            </>}
           </div>
           <div className="px-3">
             <div className="mb-2 px-3 font-mono text-[10px] uppercase tracking-[.18em] text-sidebar-foreground/45">Registers</div>
-            {moduleLinks.map(({ slug, label, icon: Icon }) => <Link key={slug} href={`/registers/${slug}`} onClick={() => setOpen(false)} className={`mb-1 flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium ${isRegister && location.includes(slug) ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid={`link-module-${slug}`}><span className="flex items-center gap-3"><Icon size={16} />{label}</span><ChevronRight size={14} className="opacity-40" /></Link>)}
+            {moduleLinks.filter(({ slug }) => !restrictedModule || slug === restrictedModule).map(({ slug, label, icon: Icon }) => <Link key={slug} href={`/registers/${slug}`} onClick={() => setOpen(false)} className={`mb-1 flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium ${isRegister && location.includes(slug) ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid={`link-module-${slug}`}><span className="flex items-center gap-3"><Icon size={16} />{label}</span><ChevronRight size={14} className="opacity-40" /></Link>)}
           </div>
           <div className="mt-auto p-4">
             <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-4">

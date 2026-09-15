@@ -12,9 +12,14 @@ import { OpsShell } from '@/components/ops-shell';
 import {
   Route,
   Switch,
+  useParams,
   useLocation,
   Router as WouterRouter,
 } from 'wouter';
+import {
+  getListRegistersQueryKey,
+  useListRegisters,
+} from '@workspace/api-client-react';
 
 const queryClient = new QueryClient();
 
@@ -25,6 +30,7 @@ function Router() {
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/" component={ModuleLogin} />
+        <Route path="/registers/:slug" component={RegisterAccessRoute} />
         <Route>
           <OpsShell>
             <Switch>
@@ -37,6 +43,26 @@ function Router() {
         </Route>
       </Switch>
     </RoutedErrorBoundary>
+  );
+}
+
+function RegisterAccessRoute() {
+  const { slug = '' } = useParams<{ slug: string }>();
+  const isModuleLibrary = slug === 'security' || slug === 'main-gate';
+  const registers = useListRegisters({
+    query: {
+      enabled: !isModuleLibrary,
+      queryKey: getListRegistersQueryKey(),
+    },
+  });
+  const definition = registers.data?.find((register) => register.slug === slug);
+
+  if (isModuleLibrary) return <RegistersPage />;
+
+  return (
+    <OpsShell restrictedModule={definition?.module}>
+      <RegistersPage />
+    </OpsShell>
   );
 }
 
