@@ -21,6 +21,7 @@ import {
 
 const router: IRouter = Router();
 let seedPromise: Promise<void> | undefined;
+const EDIT_WINDOW_DAYS = 3;
 
 const minutesBetween = (from: unknown, to: unknown) => {
   if (typeof from !== "string" || typeof to !== "string") return undefined;
@@ -154,6 +155,24 @@ const recordSummary = (definition: RegisterDefinition, data: Record<string, unkn
 const calendarDate = (value: string | Date | null | undefined) =>
   value instanceof Date ? value.toISOString().slice(0, 10) : value ?? null;
 
+const dateInIndia = (value: Date) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+};
+
+const canEditRecord = (createdAt: Date) => {
+  const createdDate = new Date(`${dateInIndia(createdAt)}T00:00:00Z`);
+  const today = new Date(`${dateInIndia(new Date())}T00:00:00Z`);
+  const daysSinceCreation = Math.floor((today.getTime() - createdDate.getTime()) / 86_400_000);
+  return daysSinceCreation >= 0 && daysSinceCreation <= EDIT_WINDOW_DAYS;
+};
+
 router.get("/dashboard", async (_req: Request, res: Response) => {
   await seedIfEmpty();
   const rows = await db.select().from(registerRecordsTable);
@@ -245,6 +264,9 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   if (!definition) return res.status(404).json({ error: "Register not found" });
   const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
+  if (!canEditRecord(existing[0].createdAt)) {
+    return res.status(403).json({ error: "This record can no longer be edited. Records are editable for three days after entry." });
+  }
   const recordDate = body.recordDate === undefined ? existing[0].recordDate : calendarDate(body.recordDate);
   const data = body.data ? applyDerivedValues(definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }) : existing[0].data;
   const missing = validateRequiredFields(definition, recordDate, data);
@@ -258,11 +280,8 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
 });
 
 router.delete("/registers/:slug/records/:id", async (req: Request, res: Response) => {
-  await seedIfEmpty();
-  const { slug, id } = DeleteRegisterRecordParams.parse(req.params);
-  const deleted = await db.delete(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).returning({ id: registerRecordsTable.id });
-  if (!deleted[0]) return res.status(404).json({ error: "Record not found" });
-  return res.status(204).send();
+  DeleteRegisterRecordParams.parse(req.params);
+  return res.status(403).json({ error: "Deleting register records is disabled." });
 });
 
 export default router;
