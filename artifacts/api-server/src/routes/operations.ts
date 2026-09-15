@@ -26,6 +26,10 @@ let seedPromise: Promise<void> | undefined;
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
+const canReadDefinition = (req: Request, definition: RegisterDefinition) =>
+  canAccessDefinition(req, definition) ||
+  (req.user?.role === "security" && definition.slug === "labour-master");
+
 const minutesBetween = (from: unknown, to: unknown) => {
   if (typeof from !== "string" || typeof to !== "string") return undefined;
   const parse = (value: string) => {
@@ -48,6 +52,53 @@ const minutesFromTime = (value: unknown) => {
 const timeFromMinutes = (value: number) => {
   const total = ((Math.round(value) % 1440) + 1440) % 1440;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+};
+
+const formatClockDuration = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+const trainingDurationMinutes = (data: Record<string, unknown>) => {
+  const morningIn = minutesFromTime(data.morning_in);
+  const morningOut = minutesFromTime(data.morning_out);
+  const eveningIn = minutesFromTime(data.evening_in);
+  const eveningOut = minutesFromTime(data.evening_out);
+
+  if (
+    morningIn !== undefined &&
+    morningOut !== undefined &&
+    eveningIn !== undefined &&
+    eveningOut !== undefined
+  ) {
+    return (
+      (morningOut - morningIn + 1440) % 1440 +
+      (eveningOut - eveningIn + 1440) % 1440
+    );
+  }
+
+  if (
+    morningIn !== undefined &&
+    eveningOut !== undefined &&
+    morningOut === undefined &&
+    eveningIn === undefined
+  ) {
+    return (eveningOut - morningIn + 1440) % 1440;
+  }
+
+  if (
+    eveningIn !== undefined &&
+    morningOut !== undefined &&
+    morningIn === undefined &&
+    eveningOut === undefined
+  ) {
+    return (morningOut - eveningIn + 1440) % 1440;
+  }
+
+  const durations = [
+    morningIn !== undefined && morningOut !== undefined ? (morningOut - morningIn + 1440) % 1440 : undefined,
+    eveningIn !== undefined && eveningOut !== undefined ? (eveningOut - eveningIn + 1440) % 1440 : undefined,
+  ].filter((value): value is number => value !== undefined);
+
+  return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
 };
 
 const applyDerivedValues = (register: RegisterDefinition, input: Record<string, unknown>) => {
@@ -80,6 +131,14 @@ const applyDerivedValues = (register: RegisterDefinition, input: Record<string, 
     }
   }
 
+  if (register.slug === "daily-attendance") {
+    const totalMinutes = trainingDurationMinutes(data);
+    if (totalMinutes !== undefined) {
+      setIfKnown("total_hours", formatClockDuration(totalMinutes));
+      setIfKnown("overtime", formatClockDuration(Math.max(totalMinutes - 480, 0)));
+    }
+  }
+
   const initialReading = Number(data.initial_reading);
   const finalReading = Number(data.final_reading);
   if (Number.isFinite(initialReading) && Number.isFinite(finalReading)) {
@@ -87,19 +146,21 @@ const applyDerivedValues = (register: RegisterDefinition, input: Record<string, 
     setIfKnown("total_km_run", finalReading - initialReading);
   }
 
-  const durationPairs: Array<[string, string]> = [
-    ["morning_in", "morning_out"],
-    ["evening_in", "evening_out"],
-    ["in_time", "out_time"],
-    ["key_out", "key_returned"],
-  ];
-  const durations = durationPairs
-    .map(([from, to]) => minutesBetween(data[from], data[to]))
-    .filter((value): value is number => value !== undefined);
-  if (durations.length) {
-    const total = durations.reduce((sum, value) => sum + value, 0);
-    setIfKnown("time_duration", `${Math.floor(total / 60)}h ${total % 60}m`);
-    setIfKnown("total_hours", `${Math.floor(total / 60)}h ${total % 60}m`);
+  if (register.slug !== "daily-attendance") {
+    const durationPairs: Array<[string, string]> = [
+      ["morning_in", "morning_out"],
+      ["evening_in", "evening_out"],
+      ["in_time", "out_time"],
+      ["key_out", "key_returned"],
+    ];
+    const durations = durationPairs
+      .map(([from, to]) => minutesBetween(data[from], data[to]))
+      .filter((value): value is number => value !== undefined);
+    if (durations.length) {
+      const total = durations.reduce((sum, value) => sum + value, 0);
+      setIfKnown("time_duration", `${Math.floor(total / 60)}h ${total % 60}m`);
+      setIfKnown("total_hours", `${Math.floor(total / 60)}h ${total % 60}m`);
+    }
   }
 
   const unit12 = minutesBetween(data.out_time_from_unit_1, data.in_time_in_unit_2);
@@ -117,11 +178,37 @@ const validateRequiredFields = (register: RegisterDefinition, recordDate: string
   return missing;
 };
 
-const toResponse = (row: typeof registerRecordsTable.$inferSelect) => ({
+const responseDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
+  if (req.user?.role === "security" && definition.slug === "labour-master") {
+    return { name: data.name };
+  }
+
+  if (req.user?.role === "security" && definition.slug === "daily-attendance") {
+    const visible = { ...data };
+    delete visible.payment_status;
+    delete visible.overtime_payment_status;
+    return visible;
+  }
+
+  return data;
+};
+
+const inputDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
+  if (req.user?.role === "security" && definition.slug === "daily-attendance") {
+    const sanitized = { ...data };
+    delete sanitized.payment_status;
+    delete sanitized.overtime_payment_status;
+    return sanitized;
+  }
+
+  return data;
+};
+
+const toResponse = (row: typeof registerRecordsTable.$inferSelect, data = row.data) => ({
   id: row.id,
   registerSlug: row.registerSlug,
   recordDate: row.recordDate,
-  data: row.data,
+  data,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
 });
@@ -254,13 +341,16 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
   const query = ListRegisterRecordsQueryParams.parse(req.query);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
-  if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
+  if (!canReadDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
   let rows = await db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, slug)).orderBy(desc(registerRecordsTable.updatedAt));
   const search = query.search?.trim().toLowerCase();
-  if (search) rows = rows.filter((row) => JSON.stringify(row.data).toLowerCase().includes(search));
+  if (search) rows = rows.filter((row) => JSON.stringify(responseDataForRole(req, definition, row.data)).toLowerCase().includes(search));
   if (query.from) rows = rows.filter((row) => !row.recordDate || row.recordDate >= calendarDate(query.from)!);
   if (query.to) rows = rows.filter((row) => !row.recordDate || row.recordDate <= calendarDate(query.to)!);
-  return res.json({ records: rows.slice(0, query.limit ?? 100).map(toResponse), total: rows.length });
+  return res.json({
+    records: rows.slice(0, query.limit ?? 100).map((row) => toResponse(row, responseDataForRole(req, definition, row.data))),
+    total: rows.length,
+  });
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {
@@ -272,8 +362,12 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   const body = CreateRegisterRecordBody.parse(req.body);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
+  if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
   const recordDate = calendarDate(body.recordDate) ?? (body.data.date as string | undefined) ?? null;
-  const data = applyDerivedValues(definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) });
+  const data = applyDerivedValues(
+    definition,
+    inputDataForRole(req, definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }),
+  );
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
   const row = await db.insert(registerRecordsTable).values({
@@ -282,7 +376,7 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
     recordDate,
     data,
   }).returning();
-  return res.status(201).json(toResponse(row[0]));
+  return res.status(201).json(toResponse(row[0], responseDataForRole(req, definition, row[0].data)));
 });
 
 router.patch("/registers/:slug/records/:id", async (req: Request, res: Response) => {
@@ -291,6 +385,7 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   const body = UpdateRegisterRecordBody.parse(req.body);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
+  if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
   const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
   const editWindowDays = editWindowForRole(req.user?.role);
@@ -305,7 +400,12 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     });
   }
   const recordDate = body.recordDate === undefined ? existing[0].recordDate : calendarDate(body.recordDate);
-  const data = body.data ? applyDerivedValues(definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }) : existing[0].data;
+  const data = body.data
+    ? applyDerivedValues(
+        definition,
+        inputDataForRole(req, definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }),
+      )
+    : existing[0].data;
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
   const row = await db.update(registerRecordsTable).set({
@@ -313,7 +413,7 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     data,
     updatedAt: new Date(),
   }).where(eq(registerRecordsTable.id, id)).returning();
-  return res.json(toResponse(row[0]));
+  return res.json(toResponse(row[0], responseDataForRole(req, definition, row[0].data)));
 });
 
 router.delete("/registers/:slug/records/:id", async (req: Request, res: Response) => {

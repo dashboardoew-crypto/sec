@@ -67,10 +67,27 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const [notice, setNotice] = useState('');
   const params = useMemo(() => ({ search: search || undefined, from: from || undefined, to: to || undefined, limit: 500 }), [search, from, to]);
   const recordsQuery = useListRegisterRecords(definition.slug, params, { query: { enabled: true, queryKey: getListRegisterRecordsQueryKey(definition.slug, params) } });
+  const labourMasterParams = useMemo(() => ({ limit: 500 }), []);
+  const labourMasterQuery = useListRegisterRecords('labour-master', labourMasterParams, {
+    query: {
+      enabled: definition.slug === 'daily-attendance',
+      queryKey: getListRegisterRecordsQueryKey('labour-master', labourMasterParams),
+    },
+  });
   const invalidate = () => { queryClient.invalidateQueries({ queryKey: getListRegisterRecordsQueryKey(definition.slug, params) }); queryClient.invalidateQueries({ queryKey: getListRegistersQueryKey() }); };
   const create = useCreateRegisterRecord();
   const update = useUpdateRegisterRecord();
   const records = recordsQuery.data?.records ?? [];
+  const visibleFields = useMemo(
+    () => definition.fields.filter((field) => !(definition.slug === 'daily-attendance' && user?.role === 'security' && ['payment_status', 'overtime_payment_status'].includes(field.key))),
+    [definition.fields, definition.slug, user?.role],
+  );
+  const labourNames = useMemo(() => {
+    const names = (labourMasterQuery.data?.records ?? [])
+      .map((record) => String(record.data.name ?? '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [labourMasterQuery.data?.records]);
   const passCounts = useMemo(() => {
     if (!['personal-gate-pass', 'official-gate-pass', 'unit-2-gate-pass'].includes(definition.slug)) return [];
     const counts = new Map<string, number>();
@@ -82,7 +99,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [definition.slug, records]);
   const exportCsv = () => {
-    const cols = ['recordDate', ...definition.fields.map((f) => f.key)];
+    const cols = ['recordDate', ...visibleFields.map((f) => f.key)];
     const rows = records.map((r) => cols.map((c) => JSON.stringify(c === 'recordDate' ? r.recordDate ?? '' : String(r.data[c] ?? ''))).join(','));
     const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${definition.slug}.csv`; a.click(); URL.revokeObjectURL(url); setNotice('CSV export ready');
@@ -96,8 +113,8 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     {notice && <div className="mb-5 flex items-center gap-2 rounded-lg border border-[hsl(var(--chart-3))]/30 bg-[hsl(var(--chart-3))]/10 px-4 py-3 text-sm text-[hsl(var(--chart-3))]" data-testid="status-success"><Check size={16} />{notice}</div>}
       <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card p-3 shadow-sm lg:flex-row"><div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted/60 px-3"><Search size={16} className="shrink-0 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search records…" className="w-full bg-transparent py-2 text-sm outline-none" data-testid="input-search-records" /></div><div className="flex items-center gap-2"><div className="flex items-center gap-2 rounded-lg border border-border px-3"><CalendarDays size={14} className="text-muted-foreground" /><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-transparent py-2 text-xs outline-none" data-testid="input-from-date" /><span className="text-muted-foreground">→</span><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-transparent py-2 text-xs outline-none" data-testid="input-to-date" /></div><button onClick={() => { setSearch(''); setFrom(''); setTo(''); }} className="rounded-lg border border-border p-2.5 text-muted-foreground hover:bg-muted" data-testid="button-clear-filters"><Filter size={15} /></button><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold hover:bg-muted" data-testid="button-export-csv"><Download size={15} /> <span className="hidden sm:inline">Export</span></button></div></div>
        {passCounts.length > 0 && <section className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm" data-testid="section-pass-counts"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold"><span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary"><Check size={14} /></span>Gate passes by person</div><p className="mt-1 text-xs text-muted-foreground">Auto-counted from the records currently shown.</p></div><span className="rounded-full border border-primary/20 bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">Auto-counted</span></div><div className="mt-4 flex flex-wrap gap-2">{passCounts.map(({ name, count }) => <span key={name} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"><span className="font-semibold">{name}</span><span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-primary">{count}</span></span>)}</div></section>}
-       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">{recordsQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-muted" />)}</div> : recordsQuery.isError ? <div className="p-8 text-center text-sm text-destructive">Records could not be loaded. <button onClick={() => recordsQuery.refetch()} className="font-semibold underline" data-testid="button-retry-records">Retry</button></div> : records.length === 0 ? <div className="p-5"><EmptyState title="This register is clear" description="Start the shift by adding the first record." /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left"><thead className="border-b border-border bg-muted/45"><tr><th className="px-5 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Date</th>{definition.fields.map((field) => <th key={field.key} className="px-4 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{field.label}{field.derived && <span className="ml-1 text-primary">(auto)</span>}</th>)}<th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Actions</th></tr></thead><tbody className="divide-y divide-border">{records.map((record) => { const editable = canEditRecord(record.createdAt, user?.role); return <tr key={record.id} className="group hover:bg-secondary/35" data-testid={`row-record-${record.id}`}><td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-muted-foreground">{niceDate(record.recordDate)}</td>{definition.fields.map((field) => <td key={field.key} className={`max-w-[190px] truncate px-4 py-4 text-sm ${field.derived ? 'font-medium text-primary' : ''}`}>{formatValue(record.data[field.key], field)}</td>)}<td className="px-5 py-4"><div className="flex justify-end gap-1">{editable ? <button onClick={() => setDialog(record)} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" data-testid={`button-edit-record-${record.id}`} title={user?.role === 'admin' ? 'Edit record' : `Edit within ${editWindowLabel(user?.role)} of entry`}><Edit3 size={14} /></button> : user?.role === 'manager' || user?.role === 'security' ? <span className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground" title={`Editing is locked after ${editWindowLabel(user?.role)}`}><LockKeyhole size={13} /> Locked</span> : <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">View only</span>}</div></td></tr>; })}</tbody></table></div>}<div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">Showing <span className="font-mono text-foreground">{records.length}</span> of <span className="font-mono text-foreground">{recordsQuery.data?.total ?? definition.recordCount}</span> records</div></div>
-    {dialog && <RecordDialog definition={definition} initial={dialog === 'create' ? undefined : dialog} pending={create.isPending || update.isPending} onClose={() => setDialog(null)} onSubmit={onSubmit} />}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">{recordsQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-muted" />)}</div> : recordsQuery.isError ? <div className="p-8 text-center text-sm text-destructive">Records could not be loaded. <button onClick={() => recordsQuery.refetch()} className="font-semibold underline" data-testid="button-retry-records">Retry</button></div> : records.length === 0 ? <div className="p-5"><EmptyState title="This register is clear" description="Start the shift by adding the first record." /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left"><thead className="border-b border-border bg-muted/45"><tr><th className="px-5 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Date</th>{visibleFields.map((field) => <th key={field.key} className="px-4 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{field.label}{field.derived && <span className="ml-1 text-primary">(auto)</span>}</th>)}<th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Actions</th></tr></thead><tbody className="divide-y divide-border">{records.map((record) => { const editable = canEditRecord(record.createdAt, user?.role); return <tr key={record.id} className="group hover:bg-secondary/35" data-testid={`row-record-${record.id}`}><td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-muted-foreground">{niceDate(record.recordDate)}</td>{visibleFields.map((field) => <td key={field.key} className={`max-w-[190px] truncate px-4 py-4 text-sm ${field.derived ? 'font-medium text-primary' : ''}`}>{formatValue(record.data[field.key], field)}</td>)}<td className="px-5 py-4"><div className="flex justify-end gap-1">{editable ? <button onClick={() => setDialog(record)} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" data-testid={`button-edit-record-${record.id}`} title={user?.role === 'admin' ? 'Edit record' : `Edit within ${editWindowLabel(user?.role)} of entry`}><Edit3 size={14} /></button> : user?.role === 'manager' || user?.role === 'security' ? <span className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground" title={`Editing is locked after ${editWindowLabel(user?.role)}`}><LockKeyhole size={13} /> Locked</span> : <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">View only</span>}</div></td></tr>; })}</tbody></table></div>}<div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">Showing <span className="font-mono text-foreground">{records.length}</span> of <span className="font-mono text-foreground">{recordsQuery.data?.total ?? definition.recordCount}</span> records</div></div>
+     {dialog && <RecordDialog definition={definition} fields={visibleFields} labourNames={labourNames} initial={dialog === 'create' ? undefined : dialog} pending={create.isPending || update.isPending} onClose={() => setDialog(null)} onSubmit={onSubmit} />}
   </div>;
 }
 
@@ -110,14 +127,62 @@ const timeToMinutes = (value: unknown) => {
 };
 
 const formatDuration = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+const formatClockDuration = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
-function RecordDialog({ definition, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { recordDate?: string | null; data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
+const trainingDurationMinutes = (values: Record<string, unknown>) => {
+  const morningIn = timeToMinutes(values.morning_in);
+  const morningOut = timeToMinutes(values.morning_out);
+  const eveningIn = timeToMinutes(values.evening_in);
+  const eveningOut = timeToMinutes(values.evening_out);
+  const difference = (from: number, to: number) => (to - from + 1440) % 1440;
+
+  if (morningIn !== undefined && morningOut !== undefined && eveningIn !== undefined && eveningOut !== undefined) {
+    return difference(morningIn, morningOut) + difference(eveningIn, eveningOut);
+  }
+
+  if (morningIn !== undefined && eveningOut !== undefined && morningOut === undefined && eveningIn === undefined) {
+    return difference(morningIn, eveningOut);
+  }
+
+  if (eveningIn !== undefined && morningOut !== undefined && morningIn === undefined && eveningOut === undefined) {
+    return difference(eveningIn, morningOut);
+  }
+
+  const durations = [
+    morningIn !== undefined && morningOut !== undefined ? difference(morningIn, morningOut) : undefined,
+    eveningIn !== undefined && eveningOut !== undefined ? difference(eveningIn, eveningOut) : undefined,
+  ].filter((value): value is number => value !== undefined);
+
+  return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
+};
+
+function RecordDialog({ definition, fields, labourNames, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { recordDate?: string | null; data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
   const [date, setDate] = useState(initial?.recordDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10));
   const [values, setValues] = useState<Record<string, unknown>>(initial?.data ?? {});
   const [error, setError] = useState('');
   const setValue = (key: string, value: unknown) => setValues((prev) => ({ ...prev, [key]: value }));
+  const orderedFields = useMemo(() => {
+    if (definition.slug !== 'daily-attendance') return fields;
+    const timeOrder = String(values.shift ?? '').toLowerCase() === 'evening'
+      ? ['evening_in', 'evening_out', 'morning_in', 'morning_out']
+      : ['morning_in', 'morning_out', 'evening_in', 'evening_out'];
+    const orderedKeys = ['labour_name', 'shift', ...timeOrder];
+    const ordered = orderedKeys
+      .map((key) => fields.find((field) => field.key === key))
+      .filter((field): field is FieldDefinition => Boolean(field));
+    const orderedKeySet = new Set(ordered.map((field) => field.key));
+    return [...ordered, ...fields.filter((field) => !orderedKeySet.has(field.key))];
+  }, [definition.slug, fields, values.shift]);
   const derivedValues = useMemo(() => {
     const calculated: Record<string, unknown> = {};
+    if (definition.slug === 'daily-attendance') {
+      const totalMinutes = trainingDurationMinutes(values);
+      if (totalMinutes !== undefined) {
+        calculated.total_hours = formatClockDuration(totalMinutes);
+        calculated.overtime = formatClockDuration(Math.max(totalMinutes - 480, 0));
+      }
+    }
+
     if (definition.slug === 'mango-tree-meter' || definition.slug === 'clinic-gate-meter') {
       const officeInitial = Number(values.office_initial);
       const officeFinal = Number(values.office_final);
@@ -153,16 +218,19 @@ function RecordDialog({ definition, initial, pending, onClose, onSubmit }: { def
   useEffect(() => { setValues(initial?.data ?? {}); setDate(initial?.recordDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)); setError(''); }, [initial?.id]);
   const displayValues: Record<string, unknown> = { ...values, ...derivedValues };
   const submit = () => {
-    const missing = definition.fields.filter((field) => field.required && !field.derived && (displayValues[field.key] === undefined || displayValues[field.key] === '')).map((field) => field.label);
+    const missing = fields.filter((field) => field.required && !field.derived && (displayValues[field.key] === undefined || displayValues[field.key] === '')).map((field) => field.label);
     if (!date) missing.unshift('Date');
     if (missing.length) { setError(`Enter the required fields: ${missing.join(', ')}`); return; }
     onSubmit({ recordDate: date, data: { ...displayValues, date } }, initial);
   };
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4" role="dialog" aria-modal="true"><div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"><div className="sticky top-0 flex items-start justify-between border-b border-border bg-card px-6 py-5"><div><div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">{initial ? 'Edit record' : 'New record'}</div><h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2><p className="mt-2 text-xs text-muted-foreground">Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated from the values you enter.</p></div><button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted" data-testid="button-close-record-dialog"><X size={18} /></button></div><div className="grid gap-4 p-6 sm:grid-cols-2"><label className="sm:col-span-2"><span className="mb-1.5 block text-xs font-semibold">Record date<span className="ml-1 text-destructive">*</span></span><input required type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary" data-testid="input-record-date" /></label>{definition.fields.map((field) => <FieldInput key={field.key} field={field} value={displayValues[field.key]} onChange={(v) => setValue(field.key, v)} />)}</div>{error && <div className="mx-6 mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}<div className="flex justify-end gap-3 border-t border-border px-6 py-4"><button onClick={onClose} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted" data-testid="button-cancel-record">Cancel</button><button disabled={pending} onClick={submit} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50" data-testid="button-save-record">{pending ? 'Saving…' : initial ? 'Save changes' : 'Add record'}</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4" role="dialog" aria-modal="true"><div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"><div className="sticky top-0 flex items-start justify-between border-b border-border bg-card px-6 py-5"><div><div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">{initial ? 'Edit record' : 'New record'}</div><h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2><p className="mt-2 text-xs text-muted-foreground">Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated from the values you enter.</p></div><button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted" data-testid="button-close-record-dialog"><X size={18} /></button></div><div className="grid gap-4 p-6 sm:grid-cols-2"><label className="sm:col-span-2"><span className="mb-1.5 block text-xs font-semibold">Record date<span className="ml-1 text-destructive">*</span></span><input required type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary" data-testid="input-record-date" /></label>{orderedFields.map((field) => <FieldInput key={field.key} field={field} value={displayValues[field.key]} labourNames={labourNames} onChange={(v) => setValue(field.key, v)} />)}</div>{error && <div className="mx-6 mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}<div className="flex justify-end gap-3 border-t border-border px-6 py-4"><button onClick={onClose} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted" data-testid="button-cancel-record">Cancel</button><button disabled={pending} onClick={submit} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50" data-testid="button-save-record">{pending ? 'Saving…' : initial ? 'Save changes' : 'Add record'}</button></div></div></div>;
 }
 
-function FieldInput({ field, value, onChange }: { field: FieldDefinition; value: unknown; onChange: (value: unknown) => void }) {
+function FieldInput({ field, value, labourNames, onChange }: { field: FieldDefinition; value: unknown; labourNames: string[]; onChange: (value: unknown) => void }) {
   const common = { value: String(value ?? ''), required: Boolean(field.required && !field.derived), onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value), className: 'w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary' };
   const inputClass = `${common.className} ${field.derived ? 'border-primary/30 bg-primary/5 font-semibold text-primary' : ''}`;
-  return <label className={field.type === 'textarea' ? 'sm:col-span-2' : ''}><span className="mb-1.5 block text-xs font-semibold">{field.label}{field.required && <span className="ml-1 text-destructive">*</span>}{field.derived && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Auto-filled</span>}</span>{field.type === 'textarea' ? <textarea {...common} className={inputClass} readOnly={field.derived} rows={3} data-testid={`input-field-${field.key}`} /> : field.type === 'select' ? <select {...common} className={inputClass} disabled={field.derived} data-testid={`input-field-${field.key}`}><option value="">Select…</option>{(field.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === 'checkbox' ? <input type="checkbox" checked={Boolean(value)} disabled={field.derived} onChange={(e) => onChange(e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" data-testid={`input-field-${field.key}`} /> : <input {...common} className={inputClass} readOnly={field.derived} type={field.type} data-testid={`input-field-${field.key}`} />}</label>;
+  const options = field.key === 'labour_name' ? labourNames : field.options ?? [];
+  const currentValue = String(value ?? '');
+  const selectOptions = currentValue && !options.includes(currentValue) ? [currentValue, ...options] : options;
+  return <label className={field.type === 'textarea' ? 'sm:col-span-2' : ''}><span className="mb-1.5 block text-xs font-semibold">{field.label}{field.required && <span className="ml-1 text-destructive">*</span>}{field.derived && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Auto-filled</span>}</span>{field.type === 'textarea' ? <textarea {...common} className={inputClass} readOnly={field.derived} rows={3} data-testid={`input-field-${field.key}`} /> : field.type === 'select' ? <select {...common} className={inputClass} disabled={field.derived} data-testid={`input-field-${field.key}`}><option value="">Select…</option>{selectOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === 'checkbox' ? <input type="checkbox" checked={Boolean(value)} disabled={field.derived} onChange={(e) => onChange(e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" data-testid={`input-field-${field.key}`} /> : <input {...common} className={inputClass} readOnly={field.derived} type={field.type} data-testid={`input-field-${field.key}`} />}</label>;
 }
