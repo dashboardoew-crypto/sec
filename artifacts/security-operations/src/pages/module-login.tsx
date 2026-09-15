@@ -1,6 +1,5 @@
 import { ArrowRight, Gauge, ShieldCheck } from 'lucide-react';
 import { Link } from 'wouter';
-import erpBackground from '@assets/image_1789449458467.png';
 
 const modules = [
   {
@@ -19,15 +18,7 @@ const modules = [
 
 export default function ModuleLogin() {
   return (
-    <main className="module-login relative min-h-[100dvh] overflow-hidden bg-[#061a2b] text-white">
-      <img
-        src={erpBackground}
-        alt=""
-        className="absolute inset-0 size-full object-cover object-center opacity-80"
-        aria-hidden="true"
-      />
-      <div className="absolute inset-0 bg-[linear-gradient(110deg,rgba(3,20,34,.96),rgba(4,33,52,.78)_48%,rgba(5,17,28,.9))]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_18%,rgba(55,190,204,.18),transparent_34%),linear-gradient(transparent_96%,rgba(0,0,0,.35))]" />
+    <main className="module-login min-h-[100dvh] bg-[#061a2b] text-white">
 
       <section className="relative mx-auto flex min-h-[100dvh] w-full max-w-[1280px] flex-col justify-center px-6 py-12 sm:px-10 lg:px-16">
         <div className="mb-12 max-w-2xl">

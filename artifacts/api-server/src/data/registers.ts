@@ -75,6 +75,32 @@ const keyMovementFields: FieldDefinition[] = [
   { key: "key_out_time", label: "KEY OUT TIME", type: "time", required: true },
 ];
 
+const solarPanelCleaningFields: FieldDefinition[] = [
+  { key: "date", label: "DATE", type: "date", required: true },
+  { key: "name", label: "NAME", type: "text", required: true },
+  { key: "in_time", label: "IN-TIME", type: "time", required: true },
+  { key: "out_time", label: "OUT-TIME", type: "time" },
+  { key: "yard", label: "YARD", type: "text" },
+  { key: "canopy_zone_i", label: "CANOPY ZONE I", type: "text" },
+  { key: "foundry_zone_ii", label: "FOUNDRY ZONE II", type: "text" },
+  { key: "machine_shop_iii", label: "MACHINE SHOP III", type: "text" },
+  { key: "remark", label: "REMARK", type: "textarea" },
+];
+
+const serviceBillFields: FieldDefinition[] = [
+  { key: "date", label: "DATE", type: "date", required: true },
+  { key: "party_name", label: "PARTY NAME", type: "text", required: true },
+  { key: "invoice_number", label: "INVOICE NUMBER", type: "text", required: true },
+  { key: "invoice_date", label: "INVOICE DATE", type: "date", required: true },
+];
+
+const jackRegisterFields: FieldDefinition[] = [
+  { key: "date", label: "DATE", type: "date", required: true },
+  { key: "name_of_party", label: "NAME OF PARTY", type: "text", required: true },
+  { key: "challan_no", label: "CHALLAN NO.", type: "text", required: true },
+  { key: "challan_date", label: "CHALLAN DATE", type: "date", required: true },
+];
+
 export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
@@ -82,11 +108,10 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   register("chowk-labour", "Chowk Labour", "security", ["NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TIME DURATION", "WORK LOCATION", "payment status"], "Track chowk labour attendance and payment status."),
   register("labour-master", "Labour Master", "security", ["NAME", "FATHER NAME", "ADDRESS", "WORK LOCATION", "WAGES PER DAY"], "Maintain the labour directory and daily wage rates."),
   register("daily-attendance", "Daily Attendance Log", "security", ["LABOUR NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TOTAL HOURS", "payment status", "Overtime payment status"], "Track daily labour attendance, hours, and payments."),
-  register("solar-panel-cleaning", "Solar Panel Cleaning Record", "security", ["DATE", "NAME", "IN-TIME", "OUT-TIME", "YARD", "CANOPY ZONE I", "FOUNDRY ZONE II", "MACHINE SHOP III", "REMARK"], "Record cleaning work across solar panel zones."),
-  register("driver-master", "Driver Master", "security", ["DRIVER NAME", "MOBILE NUMBER"], "Maintain driver contact details."),
+  { ...register("solar-panel-cleaning", "Solar Panel Cleaning Record", "security", [], "Record cleaning work across solar panel zones."), fields: solarPanelCleaningFields },
   register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments."),
-  register("service-bill", "Service Bill Entry", "security", ["DATE", "TYPE OF PAYMENT", "PARTY NAME", "QUANTITY", "PARTICULARS", "INVOICE NUMBER", "INVOICE DATE", "AMOUNT"], "Record service bills, invoices, and payment amounts."),
-  register("jack-register", "Jack Register OEW", "security", ["DATE", "NAME OF PARTY", "CHALLAN NO.", "CHALLAN DATE"], "Track jack issue and challan records."),
+  { ...register("service-bill", "Service Bill Entry", "security", [], "Record service bills and invoice details."), fields: serviceBillFields },
+  { ...register("jack-register", "Jack Register OEW", "security", [], "Track jack issue and challan records."), fields: jackRegisterFields },
   register("personal-gate-pass", "Personal Gate Pass Register", "main-gate", ["Date", "Name", "Code", "Dept Name", "Out-Time", "In-Time", "Sign of Security"], "Manage personal movement through the main gate."),
   register("official-gate-pass", "Official Gate Pass Register", "main-gate", ["Date", "Name", "Department", "Out Time", "In Time", "Station", "Signature"], "Record official staff and work-related gate movements."),
   register("outgoing-vehicles", "Outgoing Vehicles Register", "main-gate", ["Date", "Driver Name", "Car Name", "Out Time", "Location", "Initial Reading", "Final Reading", "Total KM Car Run", "In Time", "Name of the Person in Car", "Signature"], "Track outgoing vehicles, trips, and odometer readings."),
