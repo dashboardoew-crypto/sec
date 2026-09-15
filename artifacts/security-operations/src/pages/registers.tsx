@@ -118,7 +118,12 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   </div>;
 }
 
-function formatValue(value: unknown, field: FieldDefinition) { if (value === undefined || value === null || value === '') return <span className="text-muted-foreground/60">—</span>; if (field.type === 'checkbox') return value ? <Check size={15} className="text-[hsl(var(--chart-3))]" /> : <X size={15} className="text-muted-foreground" />; return String(value); }
+function formatValue(value: unknown, field: FieldDefinition) {
+  if (value === undefined || value === null || value === '') return <span className="text-muted-foreground/60">—</span>;
+  if (field.type === 'checkbox') return value ? <Check size={15} className="text-[hsl(var(--chart-3))]" /> : <X size={15} className="text-muted-foreground" />;
+  if (field.key === 'overtime' && String(value).startsWith('-')) return <span className="font-semibold text-destructive">{String(value)}</span>;
+  return String(value);
+}
 
 const timeToMinutes = (value: unknown) => {
   if (typeof value !== 'string') return undefined;
@@ -128,12 +133,27 @@ const timeToMinutes = (value: unknown) => {
 
 const formatDuration = (minutes: number) => `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 const formatClockDuration = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+const formatSignedClockDuration = (minutes: number) => {
+  const sign = minutes < 0 ? '-' : '';
+  const absolute = Math.abs(minutes);
+  return `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
+};
+const formatTotalDays = (minutes: number) => {
+  const days = minutes / 480;
+  return Number.isInteger(days) ? String(days) : days.toFixed(2);
+};
 
 const trainingDurationMinutes = (values: Record<string, unknown>) => {
-  const morningIn = timeToMinutes(values.morning_in);
-  const morningOut = timeToMinutes(values.morning_out);
-  const eveningIn = timeToMinutes(values.evening_in);
-  const eveningOut = timeToMinutes(values.evening_out);
+  const periodMinutes = (value: unknown, period: 'morning' | 'evening') => {
+    const minutes = timeToMinutes(value);
+    if (minutes === undefined) return undefined;
+    const hour = Math.floor(minutes / 60);
+    return period === 'evening' && hour < 12 ? minutes + 720 : minutes;
+  };
+  const morningIn = periodMinutes(values.morning_in, 'morning');
+  const morningOut = periodMinutes(values.morning_out, 'morning');
+  const eveningIn = periodMinutes(values.evening_in, 'evening');
+  const eveningOut = periodMinutes(values.evening_out, 'evening');
   const difference = (from: number, to: number) => (to - from + 1440) % 1440;
 
   if (morningIn !== undefined && morningOut !== undefined && eveningIn !== undefined && eveningOut !== undefined) {
@@ -141,11 +161,11 @@ const trainingDurationMinutes = (values: Record<string, unknown>) => {
   }
 
   if (morningIn !== undefined && eveningOut !== undefined && morningOut === undefined && eveningIn === undefined) {
-    return difference(morningIn, eveningOut);
+    return Math.max(difference(morningIn, eveningOut) - 60, 0);
   }
 
   if (eveningIn !== undefined && morningOut !== undefined && morningIn === undefined && eveningOut === undefined) {
-    return difference(eveningIn, morningOut);
+    return Math.max(difference(eveningIn, morningOut) - 60, 0);
   }
 
   const durations = [
@@ -179,7 +199,8 @@ function RecordDialog({ definition, fields, labourNames, initial, pending, onClo
       const totalMinutes = trainingDurationMinutes(values);
       if (totalMinutes !== undefined) {
         calculated.total_hours = formatClockDuration(totalMinutes);
-        calculated.overtime = formatClockDuration(Math.max(totalMinutes - 480, 0));
+        calculated.total_days = formatTotalDays(totalMinutes);
+        calculated.overtime = formatSignedClockDuration(totalMinutes - 480);
       }
     }
 
@@ -228,7 +249,8 @@ function RecordDialog({ definition, fields, labourNames, initial, pending, onClo
 
 function FieldInput({ field, value, labourNames, onChange }: { field: FieldDefinition; value: unknown; labourNames: string[]; onChange: (value: unknown) => void }) {
   const common = { value: String(value ?? ''), required: Boolean(field.required && !field.derived), onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value), className: 'w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary' };
-  const inputClass = `${common.className} ${field.derived ? 'border-primary/30 bg-primary/5 font-semibold text-primary' : ''}`;
+  const negativeOvertime = field.key === 'overtime' && String(value ?? '').startsWith('-');
+  const inputClass = `${common.className} ${field.derived ? `border-primary/30 bg-primary/5 font-semibold ${negativeOvertime ? 'text-destructive' : 'text-primary'}` : ''}`;
   const options = field.key === 'labour_name' ? labourNames : field.options ?? [];
   const currentValue = String(value ?? '');
   const selectOptions = currentValue && !options.includes(currentValue) ? [currentValue, ...options] : options;

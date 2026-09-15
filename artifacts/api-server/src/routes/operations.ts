@@ -42,11 +42,12 @@ const minutesBetween = (from: unknown, to: unknown) => {
   return (end - start + 1440) % 1440;
 };
 
-const minutesFromTime = (value: unknown) => {
+const minutesFromTime = (value: unknown, period?: "morning" | "evening") => {
   if (typeof value !== "string") return undefined;
   const [hours, minutes] = value.split(":").map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return undefined;
-  return hours * 60 + minutes;
+  const normalizedHours = period === "evening" && hours < 12 ? hours + 12 : hours;
+  return normalizedHours * 60 + minutes;
 };
 
 const timeFromMinutes = (value: number) => {
@@ -57,11 +58,23 @@ const timeFromMinutes = (value: number) => {
 const formatClockDuration = (minutes: number) =>
   `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
+const formatSignedClockDuration = (minutes: number) => {
+  const sign = minutes < 0 ? "-" : "";
+  const absolute = Math.abs(minutes);
+  return `${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
+};
+
+const formatTotalDays = (minutes: number) => {
+  const days = minutes / 480;
+  return Number.isInteger(days) ? String(days) : days.toFixed(2);
+};
+
 const trainingDurationMinutes = (data: Record<string, unknown>) => {
-  const morningIn = minutesFromTime(data.morning_in);
-  const morningOut = minutesFromTime(data.morning_out);
-  const eveningIn = minutesFromTime(data.evening_in);
-  const eveningOut = minutesFromTime(data.evening_out);
+  const morningIn = minutesFromTime(data.morning_in, "morning");
+  const morningOut = minutesFromTime(data.morning_out, "morning");
+  const eveningIn = minutesFromTime(data.evening_in, "evening");
+  const eveningOut = minutesFromTime(data.evening_out, "evening");
+  const difference = (from: number, to: number) => (to - from + 1440) % 1440;
 
   if (
     morningIn !== undefined &&
@@ -69,10 +82,7 @@ const trainingDurationMinutes = (data: Record<string, unknown>) => {
     eveningIn !== undefined &&
     eveningOut !== undefined
   ) {
-    return (
-      (morningOut - morningIn + 1440) % 1440 +
-      (eveningOut - eveningIn + 1440) % 1440
-    );
+    return difference(morningIn, morningOut) + difference(eveningIn, eveningOut);
   }
 
   if (
@@ -81,7 +91,7 @@ const trainingDurationMinutes = (data: Record<string, unknown>) => {
     morningOut === undefined &&
     eveningIn === undefined
   ) {
-    return (eveningOut - morningIn + 1440) % 1440;
+    return Math.max(difference(morningIn, eveningOut) - 60, 0);
   }
 
   if (
@@ -90,12 +100,12 @@ const trainingDurationMinutes = (data: Record<string, unknown>) => {
     morningIn === undefined &&
     eveningOut === undefined
   ) {
-    return (morningOut - eveningIn + 1440) % 1440;
+    return Math.max(difference(eveningIn, morningOut) - 60, 0);
   }
 
   const durations = [
-    morningIn !== undefined && morningOut !== undefined ? (morningOut - morningIn + 1440) % 1440 : undefined,
-    eveningIn !== undefined && eveningOut !== undefined ? (eveningOut - eveningIn + 1440) % 1440 : undefined,
+    morningIn !== undefined && morningOut !== undefined ? difference(morningIn, morningOut) : undefined,
+    eveningIn !== undefined && eveningOut !== undefined ? difference(eveningIn, eveningOut) : undefined,
   ].filter((value): value is number => value !== undefined);
 
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
@@ -132,10 +142,13 @@ const applyDerivedValues = (register: RegisterDefinition, input: Record<string, 
   }
 
   if (register.slug === "daily-attendance") {
+    delete data.payment_status;
+    delete data.overtime_payment_status;
     const totalMinutes = trainingDurationMinutes(data);
     if (totalMinutes !== undefined) {
       setIfKnown("total_hours", formatClockDuration(totalMinutes));
-      setIfKnown("overtime", formatClockDuration(Math.max(totalMinutes - 480, 0)));
+      setIfKnown("total_days", formatTotalDays(totalMinutes));
+      setIfKnown("overtime", formatSignedClockDuration(totalMinutes - 480));
     }
   }
 
@@ -179,18 +192,22 @@ const validateRequiredFields = (register: RegisterDefinition, recordDate: string
 };
 
 const responseDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
+  const calculatedData = definition.slug === "daily-attendance"
+    ? applyDerivedValues(definition, data)
+    : data;
+
   if (req.user?.role === "security" && definition.slug === "labour-master") {
-    return { name: data.name };
+    return { name: calculatedData.name };
   }
 
   if (req.user?.role === "security" && definition.slug === "daily-attendance") {
-    const visible = { ...data };
+    const visible = { ...calculatedData };
     delete visible.payment_status;
     delete visible.overtime_payment_status;
     return visible;
   }
 
-  return data;
+  return calculatedData;
 };
 
 const inputDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
