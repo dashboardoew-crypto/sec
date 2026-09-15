@@ -1,0 +1,1 @@
+- [API Zod generation](api-zod-generation.md) — parameterized endpoints can create duplicate barrel exports; keep generated API schemas as the public validation surface.

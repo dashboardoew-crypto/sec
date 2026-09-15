@@ -1,6 +1,6 @@
-# [Project name]
+# Security Operations Management
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An operations workspace that replaces the Security and Main Gate Security workbooks with searchable, structured registers and automatic operational calculations.
 
 ## Run & Operate
 
@@ -22,23 +22,35 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/security-operations/` — the deployable React/Vite operations workspace.
+- `artifacts/api-server/src/routes/operations.ts` — dashboard, activity, register metadata, and register CRUD routes.
+- `artifacts/api-server/src/data/registers.ts` — the two modules, 22 submodules, field definitions, and starter records.
+- `lib/api-spec/openapi.yaml` — the source of truth for generated API hooks and validation schemas.
+- `lib/db/src/schema/register-records.ts` — the shared JSON-backed register record table.
+- `artifacts/security-operations/src/pages/` — dashboard, register library/detail, and settings surfaces.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The two workbook concepts are modeled as `security` and `main-gate` modules, with each worksheet represented as a register definition.
+- Register records use a shared PostgreSQL table with JSON data because the workbook tabs have different fields but identical operational CRUD needs.
+- Register field definitions are the source for forms and tables; derived values such as water usage, durations, and vehicle kilometres are calculated on the server.
+- The first build uses a small set of representative starter records so the dashboard and register flows are useful immediately without silently importing every historical row.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Dashboard for both modules with totals, recent activity, attention items, and register counts.
+- Searchable module libraries for all Security Operations and Main Gate Security registers.
+- Register-level add, edit, delete, date filtering, free-text search, CSV export, and print support.
+- Server-side automatic calculations for meter usage, travel time, attendance duration, and vehicle kilometres.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+The user wants the two uploaded workbooks treated as the primary modules and their worksheets treated as submodules.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- After changing `lib/api-spec/openapi.yaml`, run Orval code generation before consuming new hooks.
+- The generated Zod barrel can produce a duplicate export for endpoint parameter schemas; keep the barrel exporting `generated/api` only when that collision occurs.
 
 ## Pointers
 

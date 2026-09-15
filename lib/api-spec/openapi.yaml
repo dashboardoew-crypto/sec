@@ -1,22 +1,21 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Security Operations Management API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: operations
+    description: Security and gate operations
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +23,326 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [operations]
+      summary: Get operations dashboard
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /activity:
+    get:
+      operationId: getActivity
+      tags: [operations]
+      summary: Get recent register activity
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+  /registers:
+    get:
+      operationId: listRegisters
+      tags: [operations]
+      summary: List all register definitions
+      responses:
+        "200":
+          description: Register definitions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegisterDefinition"
+  /registers/{slug}/records:
+    get:
+      operationId: listRegisterRecords
+      tags: [operations]
+      summary: List records for a register
+      parameters:
+        - $ref: "#/components/parameters/RegisterSlug"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Register records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterRecordPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createRegisterRecord
+      tags: [operations]
+      summary: Create a register record
+      parameters:
+        - $ref: "#/components/parameters/RegisterSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRecordInput"
+      responses:
+        "201":
+          description: Created record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /registers/{slug}/records/{id}:
+    patch:
+      operationId: updateRegisterRecord
+      tags: [operations]
+      summary: Update a register record
+      parameters:
+        - $ref: "#/components/parameters/RegisterSlug"
+        - $ref: "#/components/parameters/RecordId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRecordUpdate"
+      responses:
+        "200":
+          description: Updated record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteRegisterRecord
+      tags: [operations]
+      summary: Delete a register record
+      parameters:
+        - $ref: "#/components/parameters/RegisterSlug"
+        - $ref: "#/components/parameters/RecordId"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
+  parameters:
+    RegisterSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    RecordId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    Search:
+      name: search
+      in: query
+      schema:
+        type: string
+    From:
+      name: from
+      in: query
+      schema:
+        type: string
+        format: date
+    To:
+      name: to
+      in: query
+      schema:
+        type: string
+        format: date
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
-
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    FieldDefinition:
+      type: object
+      required: [key, label, type]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        type:
+          type: string
+          enum: [text, number, date, time, select, textarea, checkbox]
+        required:
+          type: boolean
+        derived:
+          type: boolean
+        options:
+          type: array
+          items:
+            type: string
+    RegisterDefinition:
+      type: object
+      required: [slug, title, module, description, fields, recordCount]
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        module:
+          type: string
+          enum: [security, main-gate]
+        description:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldDefinition"
+        recordCount:
+          type: integer
+    RegisterRecord:
+      type: object
+      required: [id, registerSlug, data, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        registerSlug:
+          type: string
+        recordDate:
+          type: ["string", "null"]
+          format: date
+        data:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RegisterRecordInput:
+      type: object
+      required: [data]
+      properties:
+        recordDate:
+          type: ["string", "null"]
+          format: date
+        data:
+          type: object
+          additionalProperties: true
+    RegisterRecordUpdate:
+      type: object
+      properties:
+        recordDate:
+          type: ["string", "null"]
+          format: date
+        data:
+          type: object
+          additionalProperties: true
+    RegisterRecordPage:
+      type: object
+      required: [records, total]
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/RegisterRecord"
+        total:
+          type: integer
+    ActivityItem:
+      type: object
+      required: [id, registerSlug, registerTitle, summary, timestamp]
+      properties:
+        id:
+          type: string
+        registerSlug:
+          type: string
+        registerTitle:
+          type: string
+        summary:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    ModuleSummary:
+      type: object
+      required: [module, label, totalRecords, registerCount]
+      properties:
+        module:
+          type: string
+          enum: [security, main-gate]
+        label:
+          type: string
+        totalRecords:
+          type: integer
+        registerCount:
+          type: integer
+    DashboardSummary:
+      type: object
+      required: [totalRecords, totalRegisters, modules, attentionItems, latestDate]
+      properties:
+        totalRecords:
+          type: integer
+        totalRegisters:
+          type: integer
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModuleSummary"
+        attentionItems:
+          type: array
+          items:
+            type: string
+        latestDate:
+          type: ["string", "null"]
+          format: date
