@@ -4,7 +4,10 @@ An operations workspace that replaces the Security and Main Gate Security workbo
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- After importing the zip, run `pnpm install --frozen-lockfile` once from the project root. This restores every workspace package from `pnpm-lock.yaml`; without it, the workflows fail with `vite: not found` or `Cannot find package 'esbuild'`.
+- The Replit preview should use the managed workflows: `artifacts/api-server: API Server` and `artifacts/security-operations: web`. Restart those workflows after code changes.
+- Manual API command: `PORT=5000 pnpm --filter @workspace/api-server run dev` (requires the workspace `DATABASE_URL` environment variable).
+- Manual frontend build command: `PORT=20169 BASE_PATH=/ pnpm --filter @workspace/security-operations run build`.
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec

@@ -11,16 +11,18 @@ const moduleLinks = [
 export function OpsShell({
   children,
   restrictedModule,
+  hideSidebar = false,
 }: {
   children: ReactNode;
   restrictedModule?: 'security' | 'main-gate';
+  hideSidebar?: boolean;
 }) {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
   const isRegister = location.startsWith('/registers/');
   return (
     <div className="ops-noise min-h-[100dvh] bg-background text-foreground">
-      <aside className={`fixed inset-y-0 left-0 z-40 w-[264px] border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+      {!hideSidebar && <aside className={`fixed inset-y-0 left-0 z-40 w-[264px] border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-sidebar-border px-5 py-5">
             <Link href="/" onClick={() => setOpen(false)} className="flex items-center gap-3" data-testid="link-brand">
@@ -46,11 +48,11 @@ export function OpsShell({
             </div>
           </div>
         </div>
-      </aside>
-      {open && <button className="fixed inset-0 z-30 bg-foreground/30 md:hidden" onClick={() => setOpen(false)} aria-label="Close navigation" data-testid="button-overlay" />}
-      <main className="md:pl-[264px]">
+      </aside>}
+      {!hideSidebar && open && <button className="fixed inset-0 z-30 bg-foreground/30 md:hidden" onClick={() => setOpen(false)} aria-label="Close navigation" data-testid="button-overlay" />}
+      <main className={hideSidebar ? '' : 'md:pl-[264px]'}>
         <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-border/80 bg-background/90 px-5 backdrop-blur-md md:px-8">
-          <div className="flex items-center gap-3"><button className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setOpen(true)} data-testid="button-open-menu"><Menu size={20} /></button><div className="hidden items-center gap-2 text-xs text-muted-foreground md:flex"><BookOpen size={14} /><span>Shift control /</span><span className="font-medium text-foreground">{location === '/' ? 'Overview' : location === '/settings' ? 'Settings' : 'Registers'}</span></div></div>
+          <div className="flex items-center gap-3">{!hideSidebar && <button className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setOpen(true)} data-testid="button-open-menu"><Menu size={20} /></button>}<div className="flex items-center gap-2 text-xs text-muted-foreground"><BookOpen size={14} /><span>Shift control /</span><span className="font-medium text-foreground">{location === '/' ? 'Overview' : location === '/settings' ? 'Settings' : 'Registers'}</span></div></div>
           <div className="flex items-center gap-4"><div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-[hsl(var(--chart-3))]" />Live workspace</div><div className="grid size-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">AS</div></div>
         </header>
         {children}

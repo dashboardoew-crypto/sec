@@ -34,6 +34,18 @@ const minutesBetween = (from: unknown, to: unknown) => {
   return (end - start + 1440) % 1440;
 };
 
+const minutesFromTime = (value: unknown) => {
+  if (typeof value !== "string") return undefined;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return undefined;
+  return hours * 60 + minutes;
+};
+
+const timeFromMinutes = (value: number) => {
+  const total = ((Math.round(value) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+};
+
 const applyDerivedValues = (register: RegisterDefinition, input: Record<string, unknown>) => {
   const data = { ...input };
   const keys = new Set(register.fields.map((field) => field.key));
@@ -41,15 +53,27 @@ const applyDerivedValues = (register: RegisterDefinition, input: Record<string, 
     if (keys.has(key) && value !== undefined) data[key] = value;
   };
 
-  const totalMinutes = minutesBetween(data.on_time, data.off_time);
-  if (totalMinutes !== undefined) setIfKnown("minutes_consumed", totalMinutes);
+  const isMeterRegister = register.slug === "mango-tree-meter" || register.slug === "clinic-gate-meter";
+  if (isMeterRegister) {
+    const officeInitial = Number(data.office_initial);
+    const officeFinal = Number(data.office_final);
+    const minutesConsumed =
+      Number.isFinite(officeInitial) && Number.isFinite(officeFinal)
+        ? (officeFinal - officeInitial) / 1.6
+        : undefined;
+    if (minutesConsumed !== undefined && Number.isFinite(minutesConsumed)) {
+      setIfKnown("minutes_consumed", Number(minutesConsumed.toFixed(2)));
+      const onTime = minutesFromTime(data.on_time);
+      if (onTime !== undefined) setIfKnown("off_time", timeFromMinutes(onTime + minutesConsumed));
+    }
 
-  const kothiInitial = Number(data.kothi_initial);
-  const kothiFinal = Number(data.kothi_final);
-  if (Number.isFinite(kothiInitial) && Number.isFinite(kothiFinal)) {
-    const water = kothiFinal - kothiInitial;
-    setIfKnown("total_water_consumed", water);
-    if (totalMinutes) setIfKnown("per_minute_water_consumed", Math.round(water / totalMinutes));
+    const kothiInitial = Number(data.kothi_initial);
+    const kothiFinal = Number(data.kothi_final);
+    if (Number.isFinite(kothiInitial) && Number.isFinite(kothiFinal)) {
+      const water = kothiFinal - kothiInitial;
+      setIfKnown("total_water_consumed", water);
+      if (minutesConsumed) setIfKnown("per_minute_water_consumed", Number((water / minutesConsumed).toFixed(2)));
+    }
   }
 
   const initialReading = Number(data.initial_reading);
@@ -79,6 +103,14 @@ const applyDerivedValues = (register: RegisterDefinition, input: Record<string, 
   if (unit12 !== undefined) setIfKnown("time_taken_to_travel_from_unit1_to_2", `${Math.floor(unit12 / 60)}h ${unit12 % 60}m`);
   if (unit21 !== undefined) setIfKnown("time_taken_to_travel_from_unit_2_to_1", `${Math.floor(unit21 / 60)}h ${unit21 % 60}m`);
   return data;
+};
+
+const validateRequiredFields = (register: RegisterDefinition, recordDate: string | null, data: Record<string, unknown>) => {
+  const missing = register.fields
+    .filter((field) => field.required)
+    .filter((field) => data[field.key] === undefined || data[field.key] === null || data[field.key] === "");
+  if (!recordDate) missing.unshift({ key: "recordDate", label: "Date", type: "date" });
+  return missing;
 };
 
 const toResponse = (row: typeof registerRecordsTable.$inferSelect) => ({
@@ -192,11 +224,15 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   const body = CreateRegisterRecordBody.parse(req.body);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
+  const recordDate = calendarDate(body.recordDate) ?? (body.data.date as string | undefined) ?? null;
+  const data = applyDerivedValues(definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) });
+  const missing = validateRequiredFields(definition, recordDate, data);
+  if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
   const row = await db.insert(registerRecordsTable).values({
     id: randomUUID(),
     registerSlug: slug,
-    recordDate: calendarDate(body.recordDate) ?? (body.data.date as string | undefined) ?? null,
-    data: applyDerivedValues(definition, body.data),
+    recordDate,
+    data,
   }).returning();
   return res.status(201).json(toResponse(row[0]));
 });
@@ -209,9 +245,13 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   if (!definition) return res.status(404).json({ error: "Register not found" });
   const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
+  const recordDate = body.recordDate === undefined ? existing[0].recordDate : calendarDate(body.recordDate);
+  const data = body.data ? applyDerivedValues(definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }) : existing[0].data;
+  const missing = validateRequiredFields(definition, recordDate, data);
+  if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
   const row = await db.update(registerRecordsTable).set({
-    recordDate: body.recordDate === undefined ? existing[0].recordDate : calendarDate(body.recordDate),
-    data: body.data ? applyDerivedValues(definition, body.data) : existing[0].data,
+    recordDate,
+    data,
     updatedAt: new Date(),
   }).where(eq(registerRecordsTable.id, id)).returning();
   return res.json(toResponse(row[0]));

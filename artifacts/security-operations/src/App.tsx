@@ -60,7 +60,7 @@ function RegisterAccessRoute() {
   if (isModuleLibrary) return <RegistersPage />;
 
   return (
-    <OpsShell restrictedModule={definition?.module}>
+    <OpsShell restrictedModule={definition?.module} hideSidebar>
       <RegistersPage />
     </OpsShell>
   );

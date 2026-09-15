@@ -58,10 +58,27 @@ const register = (
   fields: makeFields(labels),
 });
 
+const meterFields: FieldDefinition[] = [
+  { key: "on_time", label: "ON TIME", type: "time", required: true },
+  { key: "off_time", label: "OFF TIME", type: "time", required: true, derived: true },
+  { key: "office_initial", label: "OFFICE INITIAL", type: "number", required: true },
+  { key: "office_final", label: "OFFICE FINAL", type: "number", required: true },
+  { key: "kothi_initial", label: "KOTHI INITIAL", type: "number", required: true },
+  { key: "kothi_final", label: "KOTHI FINAL", type: "number", required: true },
+  { key: "minutes_consumed", label: "MINUTES CONSUMED", type: "number", derived: true },
+  { key: "total_water_consumed", label: "TOTAL WATER CONSUMED", type: "number", derived: true },
+  { key: "per_minute_water_consumed", label: "PER MINUTE WATER CONSUMED", type: "number", derived: true },
+];
+
+const keyMovementFields: FieldDefinition[] = [
+  { key: "name", label: "NAME", type: "text", required: true },
+  { key: "key_out_time", label: "KEY OUT TIME", type: "time", required: true },
+];
+
 export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
-  register("mango-tree-meter", "Mango Tree Meter Reading", "security", ["DATE", "ON TIME", "OFF TIME", "OFFICE INITIAL", "OFFICE FINAL", "KOTHI INITIAL", "KOTHI FINAL", "MINUTES CONSUMED", "TOTAL WATER CONSUMED", "PER MINUTE WATER CONSUMED"], "Track irrigation meter readings and water usage."),
-  register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", ["DATE", "ON TIME", "OFF TIME", "OFFICE INITIAL", "OFFICE FINAL", "KOTHI INITIAL", "KOTHI FINAL", "MINUTES CONSUMED", "TOTAL WATER CONSUMED", "PER MINUTE WATER CONSUMED"], "Track clinic gate irrigation and meter usage."),
-  register("key-movement", "Key Movement Register", "security", ["DATE", "NAME", "KEY-OUT", "KEY-RETURNED", "LOCATION"], "Record who takes keys, when they leave, and when they return."),
+  { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
+  { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
+  { ...register("key-movement", "Key Movement Register", "security", [], "Record who takes keys and when they leave."), fields: keyMovementFields },
   register("chowk-labour", "Chowk Labour", "security", ["NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TIME DURATION", "WORK LOCATION", "payment status"], "Track chowk labour attendance and payment status."),
   register("labour-master", "Labour Master", "security", ["NAME", "FATHER NAME", "ADDRESS", "WORK LOCATION", "WAGES PER DAY"], "Maintain the labour directory and daily wage rates."),
   register("daily-attendance", "Daily Attendance Log", "security", ["LABOUR NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TOTAL HOURS", "payment status", "Overtime payment status"], "Track daily labour attendance, hours, and payments."),
@@ -88,7 +105,7 @@ export const getRegister = (slug: string) => REGISTER_DEFINITIONS.find((item) =>
 export const sampleRecords: Array<{ registerSlug: string; recordDate: string; data: Record<string, unknown> }> = [
   { registerSlug: "mango-tree-meter", recordDate: "2026-08-21", data: { date: "2026-08-21", on_time: "08:42", off_time: "12:37", office_initial: 570739, office_final: 571115, kothi_initial: 21290086, kothi_final: 21317326 } },
   { registerSlug: "clinic-gate-meter", recordDate: "2026-08-14", data: { date: "2026-08-14", on_time: "08:48", off_time: "11:15", office_initial: 439119, office_final: 439355, kothi_initial: 23924354, kothi_final: 23964678 } },
-  { registerSlug: "key-movement", recordDate: "2026-07-31", data: { date: "2026-07-31", name: "Sanjay", key_out: "06:18", key_returned: "18:05", location: "Electrical" } },
+  { registerSlug: "key-movement", recordDate: "2026-07-31", data: { date: "2026-07-31", name: "Sanjay", key_out_time: "06:18" } },
   { registerSlug: "daily-attendance", recordDate: "2026-08-01", data: { labour_name: "ASHWANI KUMAR", date: "2026-08-01", morning_in: "08:00", morning_out: "13:00", evening_in: "14:00", evening_out: "19:05", payment_status: "Paid" } },
   { registerSlug: "driver-schedule", recordDate: "2026-07-27", data: { choosen_driver: "JASPAL", date: "2026-07-27", schedule_time: "09:00", car_name: "Hyrdere, Cng", location: "Company" } },
   { registerSlug: "official-gate-pass", recordDate: "2026-09-11", data: { date: "2026-09-11", name: "Subhash Rai", department: "Office", out_time: "11:37", in_time: "12:20", station: "Kumar Mall", signature: "Security" } },
