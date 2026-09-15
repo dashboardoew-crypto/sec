@@ -23,7 +23,6 @@ import { canAccessModule, requireAuth } from "../middlewares/authMiddleware";
 const router: IRouter = Router();
 router.use(requireAuth);
 let seedPromise: Promise<void> | undefined;
-const EDIT_WINDOW_DAYS = 3;
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
@@ -170,11 +169,21 @@ const dateInIndia = (value: Date) => {
   return `${get("year")}-${get("month")}-${get("day")}`;
 };
 
-const canEditRecord = (createdAt: Date) => {
+const editWindowForRole = (role: string | undefined) => {
+  if (role === "admin") return null;
+  if (role === "manager") return 7;
+  if (role === "security") return 3;
+  return undefined;
+};
+
+const canEditRecord = (createdAt: Date, role: string | undefined) => {
+  const windowDays = editWindowForRole(role);
+  if (windowDays === null) return true;
+  if (windowDays === undefined) return false;
   const createdDate = new Date(`${dateInIndia(createdAt)}T00:00:00Z`);
   const today = new Date(`${dateInIndia(new Date())}T00:00:00Z`);
   const daysSinceCreation = Math.floor((today.getTime() - createdDate.getTime()) / 86_400_000);
-  return daysSinceCreation >= 0 && daysSinceCreation <= EDIT_WINDOW_DAYS;
+  return daysSinceCreation >= 0 && daysSinceCreation <= windowDays;
 };
 
 router.get("/dashboard", async (req: Request, res: Response) => {
@@ -255,7 +264,6 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {
-  if (req.user?.role !== "admin") return res.status(403).json({ error: "Only admins can add records" });
   await seedIfEmpty();
   const { slug } = CreateRegisterRecordParams.parse(req.params);
   const body = CreateRegisterRecordBody.parse(req.body);
@@ -275,7 +283,6 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
 });
 
 router.patch("/registers/:slug/records/:id", async (req: Request, res: Response) => {
-  if (req.user?.role !== "admin") return res.status(403).json({ error: "Only admins can edit records" });
   await seedIfEmpty();
   const { slug, id } = UpdateRegisterRecordParams.parse(req.params);
   const body = UpdateRegisterRecordBody.parse(req.body);
@@ -283,8 +290,16 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   if (!definition) return res.status(404).json({ error: "Register not found" });
   const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
-  if (!canEditRecord(existing[0].createdAt)) {
-    return res.status(403).json({ error: "This record can no longer be edited. Records are editable for three days after entry." });
+  const editWindowDays = editWindowForRole(req.user?.role);
+  if (editWindowDays === undefined) {
+    return res.status(403).json({ error: "This role cannot edit records" });
+  }
+  if (!canEditRecord(existing[0].createdAt, req.user?.role)) {
+    return res.status(403).json({
+      error: req.user?.role === "admin"
+        ? "This record cannot be edited"
+        : `This record can no longer be edited. ${req.user?.role === "manager" ? "Managers" : "Security staff"} can edit records for ${editWindowDays} days after entry.`,
+    });
   }
   const recordDate = body.recordDate === undefined ? existing[0].recordDate : calendarDate(body.recordDate);
   const data = body.data ? applyDerivedValues(definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }) : existing[0].data;
