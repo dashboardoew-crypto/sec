@@ -1,8 +1,8 @@
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CalendarDays, Check, Download, Edit3, FilePlus2, Filter, LockKeyhole, Search, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Check, ChevronDown, Download, Edit3, FilePlus2, LockKeyhole, Search, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
-import { getListRegisterRecordsQueryKey, getListRegistersQueryKey, useCreateRegisterRecord, useListRegisterRecords, useListRegisters, useUpdateRegisterRecord } from '@workspace/api-client-react';
+import { getListRegisterRecordsQueryKey, getListRegistersQueryKey, useCreateRegisterRecord, useDeleteRegisterRecord, useListRegisterRecords, useListRegisters, useUpdateRegisterRecord } from '@workspace/api-client-react';
 import type { FieldDefinition, RegisterDefinition, RegisterRecord } from '@workspace/api-client-react';
 import { EmptyState, PageIntro } from '@/components/ops-ui';
 import { canCreateRegisterRecord, useAuth } from '@/lib/auth';
@@ -21,7 +21,8 @@ const editWindowForRole = (role?: string) => {
   return undefined;
 };
 
-const canEditRecord = (createdAt?: string, role?: string) => {
+const canEditRecord = (createdAt?: string, role?: string, module?: RegisterDefinition['module']) => {
+  if (module === 'master' && ['admin', 'manager', 'hr'].includes(role ?? '')) return true;
   const windowDays = editWindowForRole(role);
   if (windowDays === null) return true;
   if (windowDays === undefined || !createdAt) return false;
@@ -32,7 +33,12 @@ const canEditRecord = (createdAt?: string, role?: string) => {
   return daysSinceCreation >= 0 && daysSinceCreation <= windowDays;
 };
 
-const editWindowLabel = (role?: string) => role === 'manager' ? '7 days' : role === 'security' ? '3 days' : 'your access window';
+const canDeleteRecord = (createdAt?: string, role?: string) =>
+  role === 'admin' || (role === 'manager' && canEditRecord(createdAt, role));
+
+const editWindowLabel = (role?: string, module?: RegisterDefinition['module']) => module === 'master' && ['admin', 'manager', 'hr'].includes(role ?? '')
+  ? 'anytime'
+  : role === 'manager' ? '7 days' : role === 'security' ? '3 days' : 'your access window';
 const moduleLabel = (module: RegisterDefinition['module']) => module === 'security' ? 'Security operations' : module === 'main-gate' ? 'Main gate security' : 'Master data';
 const moduleTitle = (module: RegisterDefinition['module']) => module === 'security' ? 'Security registers' : module === 'main-gate' ? 'Main gate registers' : 'Master registers';
 const moduleEyebrow = (module: RegisterDefinition['module']) => module === 'security' ? 'Security' : module === 'main-gate' ? 'Main gate security' : 'Master data';
@@ -57,12 +63,67 @@ function ModuleLibrary({ module, registers, onOpen }: { module: 'security' | 'ma
   return <div className="ops-grid min-h-[100dvh] bg-background px-5 py-6 md:px-10 lg:px-16"><div className="mx-auto max-w-7xl"><div className="mb-8 flex items-center justify-between border-b border-border pb-5"><Link href="/" className="flex items-center gap-3 text-sm font-semibold text-foreground" data-testid="link-back-to-modules"><span className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground"><ArrowLeft size={16} /></span><span>Watchroom <span className="font-normal text-muted-foreground">/ Modules</span></span></Link><span className="font-mono text-[10px] uppercase tracking-[.18em] text-muted-foreground">Restricted workspace</span></div><PageIntro eyebrow={module === 'security' ? 'Security' : module === 'main-gate' ? 'Main gate security' : 'Master data'} title={moduleTitle(module === 'security' ? 'security' : module === 'main-gate' ? 'main-gate' : 'master')} description={`${shown.length} registers available in this workspace. Choose a register to review records or add a new entry.`} /><div className="mb-6 flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm"><Search size={17} className="ml-2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search registers by name or purpose…" className="w-full bg-transparent text-sm outline-none" data-testid="input-search-registers" /></div>{shown.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{shown.map((reg, i) => <button key={reg.slug} onClick={() => onOpen(reg.slug)} className="animate-in group rounded-xl border border-border bg-card p-5 text-left shadow-sm hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" style={{ animationDelay: `${i * 35}ms` }} data-testid={`button-open-register-${reg.slug}`}><div className="mb-6 flex items-start justify-between"><span className="rounded bg-secondary px-2 py-1 font-mono text-[9px] uppercase tracking-[.12em] text-primary">{reg.fields.length} fields</span><span className="font-mono text-xs text-muted-foreground">{reg.recordCount.toLocaleString()}</span></div><h2 className="font-serif text-lg font-bold leading-tight">{reg.title}</h2><p className="mt-2 line-clamp-2 min-h-[40px] text-sm leading-relaxed text-muted-foreground">{reg.description}</p><div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-primary"><span>Open register</span><span className="transition-transform group-hover:translate-x-1">→</span></div></button>)}</div> : <EmptyState title="No matching registers" description="Try a different search term." />}</div></div>;
 }
 
+function RegisterFilters({
+  searchDraft,
+  search,
+  from,
+  to,
+  showFilters,
+  onSearchDraftChange,
+  onApplySearch,
+  onClearSearch,
+  onFromChange,
+  onToChange,
+  onToggleFilters,
+  onClearFilters,
+  onExport,
+}: {
+  searchDraft: string;
+  search: string;
+  from: string;
+  to: string;
+  showFilters: boolean;
+  onSearchDraftChange: (value: string) => void;
+  onApplySearch: () => void;
+  onClearSearch: () => void;
+  onFromChange: (value: string) => void;
+  onToChange: (value: string) => void;
+  onToggleFilters: () => void;
+  onClearFilters: () => void;
+  onExport: () => void;
+}) {
+  const activeFilters = [search ? `Search: ${search}` : '', from ? `From: ${from}` : '', to ? `To: ${to}` : ''].filter(Boolean);
+  return <section className="mb-5 rounded-2xl border border-border bg-card p-3 shadow-sm" data-testid="register-filters">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+      <form className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:border-primary" onSubmit={(event) => { event.preventDefault(); onApplySearch(); }}>
+        <Search size={16} className="shrink-0 text-muted-foreground" />
+        <input value={searchDraft} onChange={(event) => onSearchDraftChange(event.target.value)} placeholder="Search visible records…" className="min-w-0 flex-1 bg-transparent text-sm outline-none" data-testid="input-search-records" />
+        {searchDraft && <button type="button" onClick={onClearSearch} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Clear search"><X size={15} /></button>}
+        <button type="submit" className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90" data-testid="button-apply-search">Search</button>
+      </form>
+      <div className="flex items-center gap-2">
+        <button onClick={onToggleFilters} className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold ${showFilters || from || to ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`} data-testid="button-toggle-filters"><SlidersHorizontal size={15} /> Filters {activeFilters.length > 1 && <span className="grid size-5 place-items-center rounded-full bg-primary text-[10px] text-primary-foreground">{activeFilters.length}</span>}<ChevronDown size={14} className={showFilters ? 'rotate-180 transition-transform' : 'transition-transform'} /></button>
+        {activeFilters.length > 0 && <button onClick={onClearFilters} className="rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:bg-muted" data-testid="button-clear-filters">Clear all</button>}
+        <button onClick={onExport} className="flex items-center gap-2 rounded-xl border border-border px-3 py-2.5 text-xs font-semibold hover:bg-muted" data-testid="button-export-csv"><Download size={15} /> <span className="hidden sm:inline">Export</span></button>
+      </div>
+    </div>
+    {showFilters && <div className="mt-3 grid gap-4 rounded-xl border border-border bg-muted/30 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end" data-testid="filter-panel">
+      <label><span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold"><CalendarDays size={13} /> From date</span><input type="date" value={from} onChange={(event) => onFromChange(event.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary" data-testid="input-from-date" /></label>
+      <label><span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold"><CalendarDays size={13} /> To date</span><input type="date" value={to} onChange={(event) => onToChange(event.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary" data-testid="input-to-date" /></label>
+      <div className="text-xs text-muted-foreground"><div className="font-semibold text-foreground">Search and date filters</div><p className="mt-1 max-w-xs leading-relaxed">Filters only hide non-matching rows. They never delete register data.</p></div>
+    </div>}
+    {activeFilters.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3"><span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Active</span>{activeFilters.map((filter) => <span key={filter} className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs text-primary">{filter}{filter.startsWith('Search:') && <button onClick={onClearSearch} className="rounded-full hover:bg-primary/15" aria-label="Remove search filter"><X size={12} /></button>}</span>)}</div>}
+  </section>;
+}
+
 function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [search, setSearch] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [dialog, setDialog] = useState<'create' | RegisterRecord | null>(null);
   const [notice, setNotice] = useState('');
   const params = useMemo(() => ({ search: search || undefined, from: from || undefined, to: to || undefined, limit: 500 }), [search, from, to]);
@@ -77,6 +138,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const invalidate = () => { queryClient.invalidateQueries({ queryKey: getListRegisterRecordsQueryKey(definition.slug, params) }); queryClient.invalidateQueries({ queryKey: getListRegistersQueryKey() }); };
   const create = useCreateRegisterRecord();
   const update = useUpdateRegisterRecord();
+  const remove = useDeleteRegisterRecord();
   const records = recordsQuery.data?.records ?? [];
   const visibleFields = useMemo(
     () => definition.fields.filter((field) => !(definition.slug === 'daily-attendance' && user?.role === 'security' && ['payment_status', 'overtime_payment_status'].includes(field.key))),
@@ -108,12 +170,22 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     if (editing) update.mutate({ slug: definition.slug, id: editing.id, data }, { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record updated'); } });
     else create.mutate({ slug: definition.slug, data }, { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record added to the register'); } });
   };
+  const onDelete = (record: RegisterRecord) => {
+    if (!window.confirm(`Delete this ${definition.title} record? This cannot be undone.`)) return;
+    remove.mutate({ slug: definition.slug, id: record.id }, {
+      onSuccess: () => { invalidate(); setNotice('Record deleted'); },
+      onError: (error) => setNotice(error instanceof Error ? error.message : 'Record could not be deleted'),
+    });
+  };
+  const applySearch = () => setSearch(searchDraft.trim());
+  const clearSearch = () => { setSearchDraft(''); setSearch(''); };
+  const clearFilters = () => { clearSearch(); setFrom(''); setTo(''); setShowFilters(false); };
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 3200); return () => window.clearTimeout(timer); }, [notice]);
   return <div className="min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10"><Link href={`/registers/${definition.module}`} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground" data-testid="link-back-to-module"><ArrowLeft size={14} /> {moduleLabel(definition.module)}</Link><PageIntro eyebrow={moduleEyebrow(definition.module)} title={definition.title} description={definition.description} action={canCreateRegisterRecord(user?.role) ? <button onClick={() => setDialog('create')} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90" data-testid="button-add-record"><FilePlus2 size={16} /> Add record</button> : <span className="rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">Read-only access</span>} />
     {notice && <div className="mb-5 flex items-center gap-2 rounded-lg border border-[hsl(var(--chart-3))]/30 bg-[hsl(var(--chart-3))]/10 px-4 py-3 text-sm text-[hsl(var(--chart-3))]" data-testid="status-success"><Check size={16} />{notice}</div>}
-      <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card p-3 shadow-sm lg:flex-row"><div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted/60 px-3"><Search size={16} className="shrink-0 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search records…" className="w-full bg-transparent py-2 text-sm outline-none" data-testid="input-search-records" /></div><div className="flex items-center gap-2"><div className="flex items-center gap-2 rounded-lg border border-border px-3"><CalendarDays size={14} className="text-muted-foreground" /><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-transparent py-2 text-xs outline-none" data-testid="input-from-date" /><span className="text-muted-foreground">→</span><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="bg-transparent py-2 text-xs outline-none" data-testid="input-to-date" /></div><button onClick={() => { setSearch(''); setFrom(''); setTo(''); }} className="rounded-lg border border-border p-2.5 text-muted-foreground hover:bg-muted" data-testid="button-clear-filters"><Filter size={15} /></button><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-semibold hover:bg-muted" data-testid="button-export-csv"><Download size={15} /> <span className="hidden sm:inline">Export</span></button></div></div>
-       {passCounts.length > 0 && <section className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm" data-testid="section-pass-counts"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold"><span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary"><Check size={14} /></span>Gate passes by person</div><p className="mt-1 text-xs text-muted-foreground">Auto-counted from the records currently shown.</p></div><span className="rounded-full border border-primary/20 bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">Auto-counted</span></div><div className="mt-4 flex flex-wrap gap-2">{passCounts.map(({ name, count }) => <span key={name} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"><span className="font-semibold">{name}</span><span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-primary">{count}</span></span>)}</div></section>}
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">{recordsQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-muted" />)}</div> : recordsQuery.isError ? <div className="p-8 text-center text-sm text-destructive">Records could not be loaded. <button onClick={() => recordsQuery.refetch()} className="font-semibold underline" data-testid="button-retry-records">Retry</button></div> : records.length === 0 ? <div className="p-5"><EmptyState title="This register is clear" description="Start the shift by adding the first record." /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left"><thead className="border-b border-border bg-muted/45"><tr><th className="px-5 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Date</th>{visibleFields.map((field) => <th key={field.key} className="px-4 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{field.label}{field.derived && <span className="ml-1 text-primary">(auto)</span>}</th>)}<th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Actions</th></tr></thead><tbody className="divide-y divide-border">{records.map((record) => { const editable = canEditRecord(record.createdAt, user?.role); return <tr key={record.id} className="group hover:bg-secondary/35" data-testid={`row-record-${record.id}`}><td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-muted-foreground">{niceDate(record.recordDate)}</td>{visibleFields.map((field) => <td key={field.key} className={`max-w-[190px] truncate px-4 py-4 text-sm ${field.derived ? 'font-medium text-primary' : ''}`}>{formatValue(record.data[field.key], field)}</td>)}<td className="px-5 py-4"><div className="flex justify-end gap-1">{editable ? <button onClick={() => setDialog(record)} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" data-testid={`button-edit-record-${record.id}`} title={user?.role === 'admin' ? 'Edit record' : `Edit within ${editWindowLabel(user?.role)} of entry`}><Edit3 size={14} /></button> : user?.role === 'manager' || user?.role === 'security' ? <span className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground" title={`Editing is locked after ${editWindowLabel(user?.role)}`}><LockKeyhole size={13} /> Locked</span> : <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">View only</span>}</div></td></tr>; })}</tbody></table></div>}<div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">Showing <span className="font-mono text-foreground">{records.length}</span> of <span className="font-mono text-foreground">{recordsQuery.data?.total ?? definition.recordCount}</span> records</div></div>
+       <RegisterFilters searchDraft={searchDraft} search={search} from={from} to={to} showFilters={showFilters} onSearchDraftChange={setSearchDraft} onApplySearch={applySearch} onClearSearch={clearSearch} onFromChange={setFrom} onToChange={setTo} onToggleFilters={() => setShowFilters((value) => !value)} onClearFilters={clearFilters} onExport={exportCsv} />
+        {passCounts.length > 0 && <section className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm" data-testid="section-pass-counts"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold"><span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary"><Check size={14} /></span>Gate passes by person</div><p className="mt-1 text-xs text-muted-foreground">Auto-counted from the records currently shown.</p></div><span className="rounded-full border border-primary/20 bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">Auto-counted</span></div><div className="mt-4 flex flex-wrap gap-2">{passCounts.map(({ name, count }) => <span key={name} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"><span className="font-semibold">{name}</span><span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-primary">{count}</span></span>)}</div></section>}
+         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">{recordsQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-muted" />)}</div> : recordsQuery.isError ? <div className="p-8 text-center text-sm text-destructive">Records could not be loaded. <button onClick={() => recordsQuery.refetch()} className="font-semibold underline" data-testid="button-retry-records">Retry</button></div> : records.length === 0 ? <div className="p-5"><EmptyState title={search || from || to ? 'No records match these filters' : 'This register is clear'} description={search || from || to ? 'Remove a filter or try another search.' : 'Start the shift by adding the first record.'} /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left"><thead className="border-b border-border bg-muted/45"><tr><th className="px-5 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Date</th>{visibleFields.map((field) => <th key={field.key} className="px-4 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{field.label}{field.derived && <span className="ml-1 text-primary">(auto)</span>}</th>)}<th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Actions</th></tr></thead><tbody className="divide-y divide-border">{records.map((record) => { const editable = canEditRecord(record.createdAt, user?.role, definition.module); const deletable = canDeleteRecord(record.createdAt, user?.role); return <tr key={record.id} className="group hover:bg-secondary/35" data-testid={`row-record-${record.id}`}><td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-muted-foreground">{niceDate(record.recordDate)}</td>{visibleFields.map((field) => <td key={field.key} className={`max-w-[190px] truncate px-4 py-4 text-sm ${field.derived ? 'font-medium text-primary' : ''}`}>{formatValue(record.data[field.key], field)}</td>)}<td className="px-5 py-4"><div className="flex justify-end gap-1">{editable && <button onClick={() => setDialog(record)} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" data-testid={`button-edit-record-${record.id}`} title={user?.role === 'admin' ? 'Edit record' : `Edit within ${editWindowLabel(user?.role, definition.module)} of entry`}><Edit3 size={14} /></button>}{deletable && <button onClick={() => onDelete(record)} disabled={remove.isPending} className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" data-testid={`button-delete-record-${record.id}`} title={user?.role === 'admin' ? 'Delete record' : 'Delete within 7 days of entry'}><Trash2 size={14} /></button>}{!editable && !deletable && (user?.role === 'manager' || user?.role === 'security') ? <span className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground" title={`Editing and deletion are locked after ${editWindowLabel(user?.role, definition.module)}`}><LockKeyhole size={13} /> Locked</span> : !editable && !deletable && <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">View only</span>}</div></td></tr>; })}</tbody></table></div>}<div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">Showing <span className="font-mono text-foreground">{records.length}</span> of <span className="font-mono text-foreground">{recordsQuery.data?.total ?? definition.recordCount}</span> records</div></div>
      {dialog && <RecordDialog definition={definition} fields={visibleFields} labourNames={labourNames} initial={dialog === 'create' ? undefined : dialog} pending={create.isPending || update.isPending} onClose={() => setDialog(null)} onSubmit={onSubmit} />}
   </div>;
 }

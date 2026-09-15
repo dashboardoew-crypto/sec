@@ -273,15 +273,16 @@ const dateInIndia = (value: Date) => {
   return `${get("year")}-${get("month")}-${get("day")}`;
 };
 
-const editWindowForRole = (role: string | undefined) => {
+const editWindowForRole = (role: string | undefined, definition?: RegisterDefinition) => {
+  if (definition?.module === "master" && (role === "admin" || role === "manager" || role === "hr")) return null;
   if (role === "admin") return null;
   if (role === "manager") return 7;
   if (role === "security") return 3;
   return undefined;
 };
 
-const canEditRecord = (createdAt: Date, role: string | undefined) => {
-  const windowDays = editWindowForRole(role);
+const canEditRecord = (createdAt: Date, role: string | undefined, definition?: RegisterDefinition) => {
+  const windowDays = editWindowForRole(role, definition);
   if (windowDays === null) return true;
   if (windowDays === undefined) return false;
   const createdDate = new Date(`${dateInIndia(createdAt)}T00:00:00Z`);
@@ -405,11 +406,11 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
   const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
-  const editWindowDays = editWindowForRole(req.user?.role);
+  const editWindowDays = editWindowForRole(req.user?.role, definition);
   if (editWindowDays === undefined) {
     return res.status(403).json({ error: "This role cannot edit records" });
   }
-  if (!canEditRecord(existing[0].createdAt, req.user?.role)) {
+  if (!canEditRecord(existing[0].createdAt, req.user?.role, definition)) {
     return res.status(403).json({
       error: req.user?.role === "admin"
         ? "This record cannot be edited"
@@ -434,9 +435,31 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
 });
 
 router.delete("/registers/:slug/records/:id", async (req: Request, res: Response) => {
-  if (req.user?.role !== "admin") return res.status(403).json({ error: "Only admins can delete records" });
-  DeleteRegisterRecordParams.parse(req.params);
-  return res.status(403).json({ error: "Deleting register records is disabled." });
+  await seedIfEmpty();
+  const { slug, id } = DeleteRegisterRecordParams.parse(req.params);
+  const definition = getRegister(slug);
+  if (!definition) return res.status(404).json({ error: "Register not found" });
+  if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
+  if (req.user?.role !== "admin" && req.user?.role !== "manager") {
+    return res.status(403).json({ error: "Only managers and admins can delete records" });
+  }
+
+  const existing = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug)))
+    .limit(1);
+  if (!existing[0]) return res.status(404).json({ error: "Record not found" });
+  if (!canEditRecord(existing[0].createdAt, req.user?.role)) {
+    return res.status(403).json({
+      error: "Managers can delete records only within 7 days of entry. Admins can delete records at any time.",
+    });
+  }
+
+  await db
+    .delete(registerRecordsTable)
+    .where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug)));
+  return res.status(204).send();
 });
 
 export default router;
