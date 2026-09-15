@@ -38,6 +38,7 @@ An operations workspace that replaces the Security and Main Gate Security workbo
 
 ## Product
 
+- The entry experience intentionally shows only the two top-level module choices; users choose a module before seeing its register library.
 - Dashboard for both modules with totals, recent activity, attention items, and register counts.
 - Searchable module libraries for all Security Operations and Main Gate Security registers.
 - Register-level add, edit, delete, date filtering, free-text search, CSV export, and print support.

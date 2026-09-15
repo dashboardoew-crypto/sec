@@ -7,6 +7,7 @@ import NotFound from '@/pages/not-found';
 import Dashboard from '@/pages/dashboard';
 import RegistersPage from '@/pages/registers';
 import SettingsPage from '@/pages/settings';
+import ModuleLogin from '@/pages/module-login';
 import { OpsShell } from '@/components/ops-shell';
 import {
   Route,
@@ -22,14 +23,19 @@ function Router() {
     // Keep a shared shell (sidebar, navbar) outside the boundary so it
     // survives a page crash.
     <RoutedErrorBoundary>
-      <OpsShell>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/registers/:slug" component={RegistersPage} />
-          <Route path="/settings" component={SettingsPage} />
-          <Route component={NotFound} />
-        </Switch>
-      </OpsShell>
+      <Switch>
+        <Route path="/" component={ModuleLogin} />
+        <Route>
+          <OpsShell>
+            <Switch>
+              <Route path="/dashboard" component={Dashboard} />
+              <Route path="/registers/:slug" component={RegistersPage} />
+              <Route path="/settings" component={SettingsPage} />
+              <Route component={NotFound} />
+            </Switch>
+          </OpsShell>
+        </Route>
+      </Switch>
     </RoutedErrorBoundary>
   );
 }
