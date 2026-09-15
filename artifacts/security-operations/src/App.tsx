@@ -8,7 +8,10 @@ import Dashboard from '@/pages/dashboard';
 import RegistersPage from '@/pages/registers';
 import SettingsPage from '@/pages/settings';
 import ModuleLogin from '@/pages/module-login';
+import LoginPage from '@/pages/login';
+import AdminUsersPage from '@/pages/admin-users';
 import { OpsShell } from '@/components/ops-shell';
+import { AuthProvider, useAuth } from '@/lib/auth';
 import {
   Route,
   Switch,
@@ -37,6 +40,7 @@ function Router() {
               <Route path="/dashboard" component={Dashboard} />
               <Route path="/registers/:slug" component={RegistersPage} />
               <Route path="/settings" component={SettingsPage} />
+              <Route path="/admin/users" component={AdminUsersPage} />
               <Route component={NotFound} />
             </Switch>
           </OpsShell>
@@ -71,12 +75,21 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
   return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
 }
 
+function AuthGate() {
+  const { isLoading, user } = useAuth();
+  if (isLoading) return <div className="grid min-h-[100dvh] place-items-center bg-[#061a2b] text-sm text-white/70">Loading workspace…</div>;
+  if (!user) return <LoginPage />;
+  return <Router />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+          <AuthProvider>
+            <AuthGate />
+          </AuthProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

@@ -18,8 +18,10 @@ import {
   sampleRecords,
   type RegisterDefinition,
 } from "../data/registers";
+import { requireAuth } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
+router.use(requireAuth);
 let seedPromise: Promise<void> | undefined;
 const EDIT_WINDOW_DAYS = 3;
 
@@ -238,6 +240,7 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {
+  if (req.user?.role !== "admin") return res.status(403).json({ error: "Only admins can add records" });
   await seedIfEmpty();
   const { slug } = CreateRegisterRecordParams.parse(req.params);
   const body = CreateRegisterRecordBody.parse(req.body);
@@ -257,6 +260,7 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
 });
 
 router.patch("/registers/:slug/records/:id", async (req: Request, res: Response) => {
+  if (req.user?.role !== "admin") return res.status(403).json({ error: "Only admins can edit records" });
   await seedIfEmpty();
   const { slug, id } = UpdateRegisterRecordParams.parse(req.params);
   const body = UpdateRegisterRecordBody.parse(req.body);
@@ -280,6 +284,7 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
 });
 
 router.delete("/registers/:slug/records/:id", async (req: Request, res: Response) => {
+  if (req.user?.role !== "admin") return res.status(403).json({ error: "Only admins can delete records" });
   DeleteRegisterRecordParams.parse(req.params);
   return res.status(403).json({ error: "Deleting register records is disabled." });
 });

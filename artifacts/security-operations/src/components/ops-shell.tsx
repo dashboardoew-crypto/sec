@@ -1,7 +1,8 @@
 import { type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Activity, ArrowRight, BookOpen, ChevronRight, ClipboardList, Command, Gauge, Menu, Settings2, ShieldCheck, X } from 'lucide-react';
+import { Activity, ArrowRight, BookOpen, ChevronRight, ClipboardList, Command, Gauge, LogOut, Menu, Settings2, ShieldCheck, UsersRound, X } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/lib/auth';
 
 const moduleLinks = [
   { slug: 'security', label: 'Security Operations', icon: ShieldCheck },
@@ -19,6 +20,7 @@ export function OpsShell({
 }) {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
+  const { user, logout } = useAuth();
   const isRegister = location.startsWith('/registers/');
   return (
     <div className="ops-noise min-h-[100dvh] bg-background text-foreground">
@@ -35,13 +37,15 @@ export function OpsShell({
             {!restrictedModule && <><div className="mb-2 px-3 font-mono text-[10px] uppercase tracking-[.18em] text-sidebar-foreground/45">Workspace</div>
               <Link href="/" onClick={() => setOpen(false)} className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${location === '/' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid="link-overview"><Activity size={16} /><span>Operations overview</span></Link>
               <Link href="/settings" onClick={() => setOpen(false)} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid="link-settings"><Settings2 size={16} /><span>Workspace settings</span></Link>
+               {user?.role === 'admin' && <Link href="/admin/users" onClick={() => setOpen(false)} className={`mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${location === '/admin/users' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid="link-user-access"><UsersRound size={16} /><span>User access</span></Link>}
             </>}
           </div>
           <div className="px-3">
             <div className="mb-2 px-3 font-mono text-[10px] uppercase tracking-[.18em] text-sidebar-foreground/45">Registers</div>
             {moduleLinks.filter(({ slug }) => !restrictedModule || slug === restrictedModule).map(({ slug, label, icon: Icon }) => <Link key={slug} href={`/registers/${slug}`} onClick={() => setOpen(false)} className={`mb-1 flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium ${isRegister && location.includes(slug) ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'}`} data-testid={`link-module-${slug}`}><span className="flex items-center gap-3"><Icon size={16} />{label}</span><ChevronRight size={14} className="opacity-40" /></Link>)}
           </div>
-          <div className="mt-auto p-4">
+           <div className="mt-auto space-y-3 p-4">
+            <div className="flex items-center justify-between rounded-xl border border-sidebar-border bg-sidebar-accent/45 px-3 py-3"><div className="min-w-0"><div className="truncate text-xs font-semibold">{user?.displayName}</div><div className="font-mono text-[9px] uppercase tracking-wider text-sidebar-foreground/50">{user?.role}</div></div><button onClick={() => void logout()} className="rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" title="Sign out" data-testid="button-logout"><LogOut size={15} /></button></div>
             <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-4">
               <div className="mb-3 flex items-center gap-2"><span className="pulse-dot size-2 rounded-full bg-sidebar-primary" /><span className="font-mono text-[10px] uppercase tracking-[.14em] text-sidebar-foreground/70">System online</span></div>
               <p className="text-xs leading-relaxed text-sidebar-foreground/50">Records are synced and ready for the next shift.</p>
