@@ -26,7 +26,7 @@ let seedPromise: Promise<void> | undefined;
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
-const referenceMasterSlugs = ["labour-master", "key-master", "kothi-master"];
+const referenceMasterSlugs = ["labour-master", "security-master", "key-master", "kothi-master"];
 const canReadDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessDefinition(req, definition) ||
   (req.user?.role === "security" && referenceMasterSlugs.includes(definition.slug));
@@ -275,6 +275,19 @@ const calendarDate = (value: string | Date | null | undefined) => {
 
 const hrRegisterSlugs = ["driver-attendance", "daily-attendance", "chowk-labour"] as const;
 const dateForRecord = (row: typeof registerRecordsTable.$inferSelect) => row.recordDate ?? (typeof row.data.date === "string" ? calendarDate(row.data.date) : null);
+const parseRegisterRecordsQuery = (query: Request["query"]) => {
+  const parseDateQuery = (value: unknown) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+  return ListRegisterRecordsQueryParams.parse({
+    ...query,
+    from: parseDateQuery(query.from),
+    to: parseDateQuery(query.to),
+  });
+};
 const parseDurationMinutes = (value: unknown) => {
   if (typeof value !== "string") return undefined;
   const clock = value.match(/^(-?)(\d+):(\d{2})$/);
@@ -480,7 +493,7 @@ router.get("/registers", async (req: Request, res: Response) => {
 router.get("/registers/:slug/records", async (req: Request, res: Response) => {
   await seedIfEmpty();
   const { slug } = ListRegisterRecordsParams.parse(req.params);
-  const query = ListRegisterRecordsQueryParams.parse(req.query);
+  const query = parseRegisterRecordsQuery(req.query);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canReadDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
@@ -502,7 +515,7 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
 router.get("/registers/:slug/records/export", async (req: Request, res: Response) => {
   await seedIfEmpty();
   const { slug } = ListRegisterRecordsParams.parse(req.params);
-  const query = ListRegisterRecordsQueryParams.parse(req.query);
+  const query = parseRegisterRecordsQuery(req.query);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canReadDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });

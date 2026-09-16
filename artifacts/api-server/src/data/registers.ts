@@ -96,6 +96,7 @@ const meterFields: FieldDefinition[] = [
 ];
 
 const keyMovementFields: FieldDefinition[] = [
+  { key: "name", label: "NAME", type: "select", required: true },
   { key: "location", label: "LOCATION", type: "select", required: true },
   { key: "key_out_time", label: "KEY OUT TIME", type: "time", required: true },
   { key: "key_return", label: "KEY RETURN", type: "time" },
