@@ -14,7 +14,7 @@ const INDIA_TIME_ZONE = "Asia/Kolkata";
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 
 const normalizeHeader = (value: string) =>
-  value.trim().toLowerCase().replace(/^\ufeff/, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  value.trim().replace(/^\ufeff/, "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
 const escapeCsvValue = (value: unknown) => {
   const text = value === undefined || value === null ? "" : String(value);
@@ -195,7 +195,11 @@ const parseImportedRows = (source: string) => {
   if (registerIndex < 0) throw new Error("Add a Register or registerSlug column so each row can be assigned to a register.");
 
   return rows.slice(1).map((values, rowIndex) => {
-    const raw = Object.fromEntries(headers.map((header, index) => [header, (values[index] ?? "").trim()]));
+    const raw: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      const value = (values[index] ?? "").trim();
+      if (!(header in raw) || value) raw[header] = value;
+    });
     const definition = resolveRegister(raw.register ?? raw.register_slug ?? raw.register_name ?? raw.register_title);
     if (!definition) throw new Error(`Row ${rowIndex + 2}: unknown register "${raw.register ?? raw.register_slug ?? ""}".`);
     const fieldByHeader = new Map<string, FieldDefinition>(
@@ -262,15 +266,17 @@ router.post("/admin/data/backup/send-now", async (_req: Request, res: Response) 
 });
 
 router.get("/admin/data/import-template", (_req: Request, res: Response) => {
-  const headers = ["Register", "recordDate", ...REGISTER_DEFINITIONS.flatMap((definition) => definition.fields.map((field) => field.key))];
-  const sample = ["visitor-record", "2026-09-15", ...REGISTER_DEFINITIONS.flatMap((definition) => definition.fields.map((field) => definition.slug === "visitor-record" ? ({
+  const importFields = Array.from(new Map(REGISTER_DEFINITIONS.flatMap((definition) => definition.fields).map((field) => [field.key, field])).values());
+  const headers = ["Register", "recordDate", ...importFields.map((field) => field.key)];
+  const example = {
     name_of_visitor: "Example visitor",
     location_of_visitor: "Office",
     mobile_no: "0000000000",
     purpose: "Meeting",
     whom_to_meet: "Admin",
     in_time: "09:00",
-  } as Record<string, string>)[field.key] ?? "" : ""))];
+  } as Record<string, string>;
+  const sample = ["visitor-record", "2026-09-15", ...importFields.map((field) => example[field.key] ?? "")];
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="register-import-template.csv"');
   return res.send([headers, sample].map((row) => row.map(escapeCsvValue).join(",")).join("\n"));
