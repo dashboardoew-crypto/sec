@@ -30,7 +30,9 @@ const normalizeDateValue = (value: unknown) => {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();
   const dayFirst = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  return dayFirst ? `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}` : trimmed;
+  if (dayFirst) return `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}`;
+  const isoDate = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  return isoDate?.[1] ?? trimmed;
 };
 
 const displayDate = (value: unknown) => {
@@ -118,7 +120,12 @@ const workbookForAllRegisters = async () => {
 
   for (const definition of REGISTER_DEFINITIONS) {
     const worksheet = workbook.addWorksheet(definition.title.slice(0, 31));
-    const columns = definition.fields.map((field) => ({ header: field.label, key: field.key, width: Math.min(Math.max(field.label.length + 4, 14), 28) }));
+    const columns = [
+      { header: "Register", key: "Register", width: 24 },
+      { header: "registerSlug", key: "registerSlug", width: 24 },
+      { header: "recordDate", key: "recordDate", width: 14 },
+      ...definition.fields.map((field) => ({ header: field.label, key: field.key, width: Math.min(Math.max(field.label.length + 4, 14), 28) })),
+    ];
     worksheet.columns = columns;
     worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF123B59" } };
@@ -126,10 +133,15 @@ const workbookForAllRegisters = async () => {
 
     rows
       .filter((row) => row.registerSlug === definition.slug)
-      .forEach((row) => worksheet.addRow(Object.fromEntries(definition.fields.map((field) => [
-        field.key,
-        field.type === "date" ? displayDate(row.data[field.key]) : row.data[field.key] ?? "",
-      ]))));
+      .forEach((row) => worksheet.addRow({
+        Register: definition.title,
+        registerSlug: definition.slug,
+        recordDate: displayDate(row.recordDate ?? row.data.date ?? indiaDateKey(new Date())),
+        ...Object.fromEntries(definition.fields.map((field) => [
+          field.key,
+          field.type === "date" ? displayDate(row.data[field.key] ?? row.recordDate) : row.data[field.key] ?? "",
+        ])),
+      }));
     worksheet.autoFilter = { from: "A1", to: `${String.fromCharCode(65 + Math.min(columns.length - 1, 25))}1` };
   }
 
@@ -203,7 +215,13 @@ const resolveRegister = (value: string | undefined) => {
     );
 };
 
-const parseImportedDataRows = (definition: RegisterDefinition, headers: string[], values: unknown[], rowIndex: number) => {
+const parseImportedDataRows = (
+  definition: RegisterDefinition,
+  headers: string[],
+  values: unknown[],
+  rowIndex: number,
+  recordDateOverride?: unknown,
+) => {
   const raw: Record<string, string> = {};
   headers.forEach((header, index) => {
     const value = values[index] instanceof Date ? values[index].toISOString() : String(values[index] ?? "").trim();
@@ -228,7 +246,11 @@ const parseImportedDataRows = (definition: RegisterDefinition, headers: string[]
       data[field.key] = value;
     }
   }
-  const recordDate = typeof data.date === "string" ? data.date : null;
+  const importedDate = normalizeDateValue(recordDateOverride);
+  if ((data.date === undefined || data.date === "") && importedDate) data.date = importedDate;
+  if (data.date === undefined || data.date === "") data.date = indiaDateKey(new Date());
+  const recordDate = typeof data.date === "string" ? normalizeDateValue(data.date) as string : indiaDateKey(new Date());
+  data.date = recordDate;
   const processed = applyDerivedValues(definition, data);
   const missing = validateRequiredFields(definition, recordDate, processed);
   if (missing.length) throw new Error(`Row ${rowIndex} (${definition.title}): missing ${missing.map((field) => field.label).join(", ")}.`);
@@ -239,15 +261,21 @@ const parseImportedCsvRows = (source: string) => {
   const rows = parseCsv(source);
   if (rows.length < 2) throw new Error("The CSV must include a header row and at least one data row.");
   const headers = rows[0].map(normalizeHeader);
-  const registerIndex = headers.findIndex((header) => ["register", "register_slug", "register_name", "register_title"].includes(header));
+  const registerHeaders = ["register", "register_slug", "registerslug", "register_name", "registername", "register_title", "registertitle"];
+  const metadataHeaders = [...registerHeaders, "record_date", "recorddate"];
+  const registerIndex = headers.findIndex((header) => registerHeaders.includes(header));
   if (registerIndex < 0) throw new Error("Add a Register or registerSlug column so each row can be assigned to a register.");
 
   return rows.slice(1).map((values, rowIndex) => {
     const raw: Record<string, string> = {};
     headers.forEach((header, index) => { raw[header] = (values[index] ?? "").trim(); });
-    const definition = resolveRegister(raw.register ?? raw.register_slug ?? raw.register_name ?? raw.register_title);
-    if (!definition) throw new Error(`Row ${rowIndex + 2}: unknown register "${raw.register ?? raw.register_slug ?? ""}".`);
-    return parseImportedDataRows(definition, headers.filter((header) => !["register", "register_slug", "register_name", "register_title", "record_date"].includes(header)), values.filter((_value, index) => !["register", "register_slug", "register_name", "register_title", "record_date"].includes(headers[index])), rowIndex + 2);
+    const registerValue = registerHeaders.map((header) => raw[header]).find(Boolean);
+    const definition = resolveRegister(registerValue);
+    if (!definition) throw new Error(`Row ${rowIndex + 2}: unknown register "${registerValue ?? ""}".`);
+    const dataHeaders = headers.filter((header) => !metadataHeaders.includes(header));
+    const dataValues = values.filter((_value, index) => !metadataHeaders.includes(headers[index]));
+    const recordDate = raw.record_date ?? raw.recorddate;
+    return parseImportedDataRows(definition, dataHeaders, dataValues, rowIndex + 2, recordDate);
   });
 };
 
@@ -265,15 +293,39 @@ const parseImportedWorkbook = async (source: Buffer) => {
   await workbook.xlsx.load(source as any);
   const imported: Array<{ registerSlug: string; recordDate: string | null; data: Record<string, unknown> }> = [];
   workbook.worksheets.forEach((worksheet) => {
-    const definition = resolveWorksheetRegister(worksheet.name);
-    if (!definition) throw new Error(`Unknown register worksheet "${worksheet.name}". Use the register title from the backup workbook.`);
     const headerValues = (worksheet.getRow(1).values as unknown[]).slice(1);
     const headers = headerValues.map((value) => normalizeHeader(String(value ?? "")));
     if (!headers.some(Boolean)) return;
+    const registerHeaders = ["register", "register_slug", "registerslug", "register_name", "registername", "register_title", "registertitle"];
+    const metadataHeaders = [...registerHeaders, "record_date", "recorddate"];
+    const definition = resolveWorksheetRegister(worksheet.name);
+    const registerIndex = headers.findIndex((header) => registerHeaders.includes(header));
+    const dataRows = Array.from({ length: Math.max(worksheet.rowCount - 1, 0) }, (_, index) => worksheet.getRow(index + 2).values as unknown[])
+      .map((values) => values.slice(1))
+      .filter((values) => values.some((value) => String(value ?? "").trim()));
+    if (!definition && registerIndex < 0) {
+      if (!dataRows.length) return;
+      throw new Error(`Unknown register worksheet "${worksheet.name}". Use the register title from the backup workbook.`);
+    }
     for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
       const values = (worksheet.getRow(rowNumber).values as unknown[]).slice(1);
       if (!values.some((value) => String(value ?? "").trim())) continue;
-      imported.push(parseImportedDataRows(definition, headers, values, rowNumber));
+      if (definition) {
+        imported.push(parseImportedDataRows(definition, headers.filter((header) => !metadataHeaders.includes(header)), values.filter((_value, index) => !metadataHeaders.includes(headers[index])), rowNumber, values[headers.findIndex((header) => ["record_date", "recorddate"].includes(header))]));
+        continue;
+      }
+      const row = Object.fromEntries(headers.map((header, index) => [header, String(values[index] ?? "").trim()]));
+      const rowDefinition = resolveRegister(
+        registerHeaders.map((header) => row[header]).find(Boolean),
+      );
+      if (!rowDefinition) throw new Error(`Row ${rowNumber}: unknown register "${registerHeaders.map((header) => row[header]).find(Boolean) ?? ""}".`);
+      imported.push(parseImportedDataRows(
+        rowDefinition,
+        headers.filter((header) => !metadataHeaders.includes(header)),
+        values.filter((_value, index) => !metadataHeaders.includes(headers[index])),
+        rowNumber,
+        row.record_date ?? row.recorddate,
+      ));
     }
   });
   if (!imported.length) throw new Error("The workbook does not contain any register rows.");
@@ -320,7 +372,7 @@ router.post("/admin/data/backup/send-now", async (_req: Request, res: Response) 
 
 router.get("/admin/data/import-template", (_req: Request, res: Response) => {
   const importFields = Array.from(new Map(REGISTER_DEFINITIONS.flatMap((definition) => definition.fields).map((field) => [field.key, field])).values());
-  const headers = ["Register", "recordDate", ...importFields.map((field) => field.key)];
+  const headers = ["Register", "registerSlug", "recordDate", ...importFields.map((field) => field.key)];
   const example = {
     name_of_visitor: "Example visitor",
     location_of_visitor: "Office",
@@ -329,7 +381,7 @@ router.get("/admin/data/import-template", (_req: Request, res: Response) => {
     whom_to_meet: "Admin",
     in_time: "09:00",
   } as Record<string, string>;
-  const sample = ["visitor-record", "2026-09-15", ...importFields.map((field) => example[field.key] ?? "")];
+  const sample = ["Visitor Record Register", "visitor-record", "2026-09-15", ...importFields.map((field) => example[field.key] ?? "")];
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="register-import-template.csv"');
   return res.send([headers, sample].map((row) => row.map(escapeCsvValue).join(",")).join("\n"));

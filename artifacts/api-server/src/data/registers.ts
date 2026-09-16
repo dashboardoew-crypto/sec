@@ -18,6 +18,18 @@ export type RegisterDefinition = {
   fields: FieldDefinition[];
 };
 
+const standardDateField: FieldDefinition = {
+  key: "date",
+  label: "DATE",
+  type: "date",
+  required: true,
+};
+
+const withStandardDateField = (fields: FieldDefinition[]) =>
+  fields.some((field) => field.key === standardDateField.key)
+    ? fields
+    : [standardDateField, ...fields];
+
 const keyFor = (label: string) =>
   label
     .toLowerCase()
@@ -197,7 +209,10 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
    register("jain-food-service", "Jain Food Service Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record Jain food service requirements.", { optional: ["Add", "Breakfast", "Lunch", "Dinner", "Sign"] }),
   register("unit-2-gate-pass", "Unit 2 Gate Pass Register", "main-gate", ["Date", "Name", "Department", "Out Time from unit 1", "IN Time in unit 2", "Out Time from unit 2", "In Time in unit 1", "security sign", "time taken to travel from unit1 to 2", "time taken to travel from unit 2 to 1"], "Track Unit 1 to Unit 2 movements and travel times."),
    register("driver-attendance", "Driver Attendance Record", "main-gate", ["Date", "Name", "In-Time", "Out-Time", "Station", "Station Out Time", "Station In Date", "Station In Time", "Sign", "Payment Status", "Day Allowance", "Night Allowance"], "Track driver attendance, station movements, and allowances.", { required: ["In-Time"] }),
-];
+ ].map((definition) => ({
+   ...definition,
+   fields: withStandardDateField(definition.fields),
+ }));
 
 export const getRegister = (slug: string) => REGISTER_DEFINITIONS.find((item) => item.slug === slug);
 

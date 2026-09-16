@@ -227,7 +227,9 @@ const toResponse = (row: typeof registerRecordsTable.$inferSelect, data = row.da
   id: row.id,
   registerSlug: row.registerSlug,
   recordDate: row.recordDate,
-  data,
+  data: row.recordDate && (data.date === undefined || data.date === null || data.date === "")
+    ? { ...data, date: row.recordDate }
+    : data,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
 });
@@ -266,7 +268,9 @@ const calendarDate = (value: string | Date | null | undefined) => {
   if (!value) return null;
   const trimmed = value.trim();
   const dayFirst = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  return dayFirst ? `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}` : trimmed;
+  if (dayFirst) return `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}`;
+  const isoDate = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  return isoDate?.[1] ?? trimmed;
 };
 
 const hrRegisterSlugs = ["driver-attendance", "daily-attendance", "chowk-labour"] as const;
@@ -426,7 +430,7 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     registerCount: definitions.filter((item) => item.module === module).length,
   }));
   const latest = rows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 5);
-  const latestDate = rows.map((row) => row.recordDate).filter(Boolean).sort().at(-1) ?? null;
+  const latestDate = rows.map(dateForRecord).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
   return res.json({
     totalRecords: rows.length,
     totalRegisters: definitions.length,
@@ -591,10 +595,10 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
-  const recordDate = calendarDate(body.data.date as string | undefined);
+  const recordDate = calendarDate(body.data.date as string | undefined) ?? dateInIndia(new Date());
   const data = applyDerivedValues(
     definition,
-    inputDataForRole(req, definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }),
+    inputDataForRole(req, definition, { ...body.data, date: recordDate }),
   );
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
@@ -629,13 +633,13 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   }
   const recordDate = body.data?.date === undefined
     ? existing[0].recordDate
-    : calendarDate(body.data.date as string | undefined);
-  const data = body.data
-    ? applyDerivedValues(
-        definition,
-        inputDataForRole(req, definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }),
-      )
-    : existing[0].data;
+      ?? calendarDate(typeof existing[0].data.date === "string" ? existing[0].data.date : undefined)
+      ?? dateInIndia(new Date())
+    : calendarDate(body.data.date as string | undefined) ?? dateInIndia(new Date());
+  const data = applyDerivedValues(
+    definition,
+    inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: recordDate }),
+  );
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
   const row = await db.update(registerRecordsTable).set({
