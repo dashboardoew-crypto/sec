@@ -26,7 +26,7 @@ let seedPromise: Promise<void> | undefined;
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
-const referenceMasterSlugs = ["labour-master", "security-master", "key-master", "kothi-master"];
+const referenceMasterSlugs = ["labour-master", "driver-master", "security-master", "key-master", "kothi-master"];
 const canReadDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessDefinition(req, definition) ||
   (req.user?.role === "security" && referenceMasterSlugs.includes(definition.slug));
@@ -297,7 +297,7 @@ const parseDurationMinutes = (value: unknown) => {
   return (text[1] === "-" ? -1 : 1) * (Number(text[2] ?? 0) * 60 + Number(text[3] ?? 0));
 };
 const personNameForRecord = (slug: string, data: Record<string, unknown>) =>
-  String(slug === "daily-attendance" ? data.labour_name : data.name ?? data.driver_name ?? "").trim();
+  String(data.labour_name ?? data.driver_name ?? data.choosen_driver ?? data.name ?? "").trim();
 const numericValue = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;

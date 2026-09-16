@@ -96,7 +96,7 @@ const meterFields: FieldDefinition[] = [
 ];
 
 const keyMovementFields: FieldDefinition[] = [
-  { key: "name", label: "NAME", type: "select", required: true },
+  { key: "name", label: "NAME", type: "text", required: true },
   { key: "location", label: "LOCATION", type: "select", required: true },
   { key: "key_out_time", label: "KEY OUT TIME", type: "time", required: true },
   { key: "key_return", label: "KEY RETURN", type: "time" },
@@ -184,6 +184,9 @@ const keyMasterFields: FieldDefinition[] = [
   { key: "location", label: "LOCATION", type: "text", required: true },
 ];
 
+const driverBackedFieldKeys = new Set(["name", "driver_name", "choosen_driver"]);
+const securitySignField = (field: FieldDefinition) => /sign/i.test(`${field.key} ${field.label}`);
+
 export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
@@ -201,10 +204,10 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("kothi-master", "Kothi Master", "master", [], "Maintain the names available in Kothi Attendance Register."), fields: nameMasterFields },
   register("personal-gate-pass", "Personal Gate Pass Register", "main-gate", ["Date", "Name", "Code", "Dept Name", "Out-Time", "In-Time", "Sign of Security"], "Manage personal movement through the main gate."),
   register("official-gate-pass", "Official Gate Pass Register", "main-gate", ["Date", "Name", "Department", "Out Time", "In Time", "Station", "Signature"], "Record official staff and work-related gate movements."),
-  register("outgoing-vehicles", "Outgoing Vehicles Register", "main-gate", ["Date", "Driver Name", "Car Name", "Out Time", "Location", "Initial Reading", "Final Reading", "Total KM Car Run", "In Time", "Name of the Person in Car", "Signature"], "Track outgoing vehicles, trips, and odometer readings."),
+  register("outgoing-vehicles", "Outgoing Vehicles Register", "main-gate", ["Date", "Driver Name", "Car Name", "Out Time", "Location", "Initial Reading", "Final Reading", "Total KM Car Run", "In Time", "Name of the Person in Car", "Signature"], "Track outgoing vehicles, trips, and odometer readings.", { optional: ["Total KM Car Run"] }),
   register("visitor-record", "Visitor Record Register", "main-gate", ["Date", "Name of Visitor", "Location of Visitor", "Mobile no", "Purpose", "Whom to Meet", "In-Time", "Out-Time", "Sign of Security"], "Maintain the visitor log and visit purpose."),
   { ...register("kothi-attendance", "Kothi Attendance Register", "main-gate", [], "Track household attendance across morning and evening shifts."), fields: kothiAttendanceFields },
-  register("outgoing-vehicle-log", "Outgoing Vehicle Log", "main-gate", ["Date", "Driver Name", "Car Name", "Out Time", "Station", "Initial reading", "Final reading", "Total km car run", "In Time", "Name of the Person in Car", "Sign"], "Track secondary outgoing vehicle records."),
+  register("outgoing-vehicle-log", "Outgoing Vehicle Log", "main-gate", ["Date", "Driver Name", "Car Name", "Out Time", "Station", "Initial reading", "Final reading", "Total km car run", "In Time", "Name of the Person in Car", "Sign"], "Track secondary outgoing vehicle records.", { optional: ["Total km car run"] }),
    register("contractor-gate-pass", "Contractor Personal Gate Pass", "main-gate", ["Date", "Name", "Department", "Code", "Out Time", "In Time", "Security sign"], "Manage contractor and personal gate pass movements.", { required: ["Out Time"] }),
    register("guest-food", "Guest Food Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record guest meal requirements for the kitchen.", { optional: ["Add", "Breakfast", "Lunch", "Dinner", "Sign"] }),
    register("jain-food-service", "Jain Food Service Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record Jain food service requirements.", { optional: ["Add", "Breakfast", "Lunch", "Dinner", "Sign"] }),
@@ -212,7 +215,14 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
    register("driver-attendance", "Driver Attendance Record", "main-gate", ["Date", "Name", "In-Time", "Out-Time", "Station", "Station Out Time", "Station In Date", "Station In Time", "Sign", "Payment Status", "Day Allowance", "Night Allowance"], "Track driver attendance, station movements, and allowances.", { required: ["In-Time"] }),
  ].map((definition) => ({
    ...definition,
-   fields: withStandardDateField(definition.fields),
+   fields: withStandardDateField(definition.fields).map((field) => {
+     const driverField = (
+       (definition.slug === "driver-attendance" && field.key === "name") ||
+       (["outgoing-vehicles", "outgoing-vehicle-log", "driver-schedule"].includes(definition.slug) && driverBackedFieldKeys.has(field.key))
+     );
+     const securityField = definition.module === "main-gate" && securitySignField(field);
+     return driverField || securityField ? { ...field, type: "select" } : field;
+   }),
  }));
 
 export const getRegister = (slug: string) => REGISTER_DEFINITIONS.find((item) => item.slug === slug);

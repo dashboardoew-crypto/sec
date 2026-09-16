@@ -49,6 +49,8 @@ const editWindowLabel = (role?: string, module?: RegisterDefinition['module']) =
 const moduleLabel = (module: RegisterDefinition['module']) => module === 'security' ? 'Security operations' : module === 'main-gate' ? 'Main gate security' : 'Master data';
 const moduleTitle = (module: RegisterDefinition['module']) => module === 'security' ? 'Security registers' : module === 'main-gate' ? 'Main gate registers' : 'Master registers';
 const moduleEyebrow = (module: RegisterDefinition['module']) => module === 'security' ? 'Security' : module === 'main-gate' ? 'Main gate security' : 'Master data';
+const isSecuritySignField = (field: FieldDefinition) => /sign/i.test(`${field.key} ${field.label}`);
+const driverRegisterSlugs = ['driver-attendance', 'outgoing-vehicles', 'outgoing-vehicle-log', 'driver-schedule'];
 
 export default function RegistersPage() {
   const { slug = '' } = useParams<{ slug: string }>();
@@ -153,8 +155,14 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   });
   const securityMasterQuery = useListRegisterRecords('security-master', labourMasterParams, {
     query: {
-      enabled: definition.slug === 'key-movement',
+      enabled: definition.module === 'main-gate' && definition.fields.some(isSecuritySignField),
       queryKey: getListRegisterRecordsQueryKey('security-master', labourMasterParams),
+    },
+  });
+  const driverMasterQuery = useListRegisterRecords('driver-master', labourMasterParams, {
+    query: {
+      enabled: driverRegisterSlugs.includes(definition.slug),
+      queryKey: getListRegisterRecordsQueryKey('driver-master', labourMasterParams),
     },
   });
   const kothiMasterQuery = useListRegisterRecords('kothi-master', labourMasterParams, {
@@ -190,13 +198,20 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
       .filter(Boolean);
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
   }, [securityMasterQuery.data?.records]);
+  const driverNames = useMemo(() => {
+    const names = (driverMasterQuery.data?.records ?? [])
+      .map((record) => String(record.data.name ?? '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [driverMasterQuery.data?.records]);
   const kothiNames = useMemo(() => {
     const names = (kothiMasterQuery.data?.records ?? [])
       .map((record) => String(record.data.name ?? '').trim())
       .filter(Boolean);
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
   }, [kothiMasterQuery.data?.records]);
-  const nameOptions = definition.slug === 'key-movement' ? securityNames : definition.slug === 'kothi-attendance' ? kothiNames : [];
+  const nameOptions = definition.slug === 'kothi-attendance' ? kothiNames : [];
+  const driverFieldOptions = driverRegisterSlugs.includes(definition.slug) ? driverNames : [];
   const passCounts = useMemo(() => {
     if (!['personal-gate-pass', 'official-gate-pass', 'contractor-gate-pass', 'unit-2-gate-pass'].includes(definition.slug)) return [];
     const counts = new Map<string, number>();
@@ -245,7 +260,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
         <RegisterFilters hasNameField={hasNameField} searchDraft={searchDraft} search={search} from={from} to={to} showFilters={showFilters} onSearchDraftChange={setSearchDraft} onApplySearch={applySearch} onClearSearch={clearSearch} onFromChange={setFrom} onToChange={setTo} onToggleFilters={() => setShowFilters((value) => !value)} onClearFilters={clearFilters} onExport={exportCsv} />
         {passCounts.length > 0 && <section className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm" data-testid="section-pass-counts"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold"><span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary"><Check size={14} /></span>Gate passes by person</div><p className="mt-1 text-xs text-muted-foreground">Auto-counted from the records currently shown.</p></div><span className="rounded-full border border-primary/20 bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">Auto-counted</span></div><div className="mt-4 flex flex-wrap gap-2">{passCounts.map(({ name, count }) => <span key={name} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"><span className="font-semibold">{name}</span><span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-primary">{count}</span></span>)}</div></section>}
          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">{recordsQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-muted" />)}</div> : recordsQuery.isError ? <div className="p-8 text-center text-sm text-destructive">Records could not be loaded. <button onClick={() => recordsQuery.refetch()} className="font-semibold underline" data-testid="button-retry-records">Retry</button></div> : records.length === 0 ? <div className="p-5"><EmptyState title={search || from || to ? 'No records match these filters' : 'This register is clear'} description={search || from || to ? 'Remove a filter or try another search.' : 'Start the shift by adding the first record.'} /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left"><thead className="border-b border-border bg-muted/45"><tr>{visibleFields.map((field) => <th key={field.key} className="px-4 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{field.label}{field.derived && <span className="ml-1 text-primary">(auto)</span>}</th>)}<th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Actions</th></tr></thead><tbody className="divide-y divide-border">{records.map((record) => { const editable = canEditRecord(record.createdAt, user?.role, definition.module); const deletable = canDeleteRecord(record.createdAt, user?.role); return <tr key={record.id} className="group hover:bg-secondary/35" data-testid={`row-record-${record.id}`}>{visibleFields.map((field) => <td key={field.key} className={`max-w-[190px] truncate px-4 py-4 text-sm ${field.derived ? 'font-medium text-primary' : ''}`}>{formatValue(record.data[field.key], field)}</td>)}<td className="px-5 py-4"><div className="flex justify-end gap-1">{editable && <button onClick={() => setDialog(record)} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" data-testid={`button-edit-record-${record.id}`} title={user?.role === 'admin' ? 'Edit record' : `Edit within ${editWindowLabel(user?.role, definition.module)} of entry`}><Edit3 size={14} /></button>}{deletable && <button onClick={() => onDelete(record)} disabled={remove.isPending} className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" data-testid={`button-delete-record-${record.id}`} title={user?.role === 'admin' ? 'Delete record' : 'Delete within 7 days of entry'}><Trash2 size={14} /></button>}{!editable && !deletable && (user?.role === 'manager' || user?.role === 'security') ? <span className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground" title={`Editing and deletion are locked after ${editWindowLabel(user?.role, definition.module)}`}><LockKeyhole size={13} /> Locked</span> : !editable && !deletable && <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">View only</span>}</div></td></tr>; })}</tbody></table></div>}<div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">Showing <span className="font-mono text-foreground">{records.length}</span> of <span className="font-mono text-foreground">{recordsQuery.data?.total ?? definition.recordCount}</span> records</div></div>
-      {dialog && <RecordDialog definition={definition} fields={visibleFields} labourNames={labourNames} keyNames={keyNames} nameOptions={nameOptions} initial={dialog === 'create' ? undefined : dialog} pending={create.isPending || update.isPending} onClose={() => setDialog(null)} onSubmit={onSubmit} />}
+      {dialog && <RecordDialog definition={definition} fields={visibleFields} labourNames={labourNames} keyNames={keyNames} driverNames={driverFieldOptions} securityNames={securityNames} nameOptions={nameOptions} initial={dialog === 'create' ? undefined : dialog} pending={create.isPending || update.isPending} onClose={() => setDialog(null)} onSubmit={onSubmit} />}
   </div>;
 }
 
@@ -308,7 +323,7 @@ const trainingDurationMinutes = (values: Record<string, unknown>) => {
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
 };
 
-function RecordDialog({ definition, fields, labourNames, keyNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
+function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
   const initialValues = useMemo(() => ({
     ...(initial?.data ?? {}),
     ...(!initial?.data?.date && definition.fields.some((field) => field.key === 'date')
@@ -380,15 +395,19 @@ function RecordDialog({ definition, fields, labourNames, keyNames, nameOptions, 
     if (missing.length) { setError(`Enter the required fields: ${missing.join(', ')}`); return; }
     onSubmit({ data: displayValues }, initial);
   };
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4" role="dialog" aria-modal="true"><div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"><div className="sticky top-0 flex items-start justify-between border-b border-border bg-card px-6 py-5"><div><div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">{initial ? 'Edit record' : 'New record'}</div><h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2><p className="mt-2 text-xs text-muted-foreground">Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated from the values you enter.</p></div><button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted" data-testid="button-close-record-dialog"><X size={18} /></button></div><div className="grid gap-4 p-6 sm:grid-cols-2">{orderedFields.map((field) => <FieldInput key={field.key} field={field} value={displayValues[field.key]} labourNames={labourNames} keyNames={keyNames} nameOptions={nameOptions} onChange={(v) => setValue(field.key, v)} />)}</div>{error && <div className="mx-6 mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}<div className="flex justify-end gap-3 border-t border-border px-6 py-4"><button onClick={onClose} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted" data-testid="button-cancel-record">Cancel</button><button disabled={pending} onClick={submit} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50" data-testid="button-save-record">{pending ? 'Saving…' : initial ? 'Save changes' : 'Add record'}</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4" role="dialog" aria-modal="true"><div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"><div className="sticky top-0 flex items-start justify-between border-b border-border bg-card px-6 py-5"><div><div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">{initial ? 'Edit record' : 'New record'}</div><h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2><p className="mt-2 text-xs text-muted-foreground">Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated from the values you enter.</p></div><button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted" data-testid="button-close-record-dialog"><X size={18} /></button></div><div className="grid gap-4 p-6 sm:grid-cols-2">{orderedFields.map((field) => <FieldInput key={field.key} field={field} value={displayValues[field.key]} labourNames={labourNames} keyNames={keyNames} driverNames={driverNames} securityNames={securityNames} nameOptions={nameOptions} onChange={(v) => setValue(field.key, v)} />)}</div>{error && <div className="mx-6 mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}<div className="flex justify-end gap-3 border-t border-border px-6 py-4"><button onClick={onClose} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted" data-testid="button-cancel-record">Cancel</button><button disabled={pending} onClick={submit} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50" data-testid="button-save-record">{pending ? 'Saving…' : initial ? 'Save changes' : 'Add record'}</button></div></div></div>;
 }
 
-function FieldInput({ field, value, labourNames, keyNames, nameOptions, onChange }: { field: FieldDefinition; value: unknown; labourNames: string[]; keyNames: string[]; nameOptions: string[]; onChange: (value: unknown) => void }) {
+function FieldInput({ field, value, labourNames, keyNames, driverNames, securityNames, nameOptions, onChange }: { field: FieldDefinition; value: unknown; labourNames: string[]; keyNames: string[]; driverNames: string[]; securityNames: string[]; nameOptions: string[]; onChange: (value: unknown) => void }) {
   const common = { value: String(value ?? ''), required: Boolean(field.required && !field.derived), onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value), className: 'w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary' };
   const negativeOvertime = field.key === 'overtime' && String(value ?? '').startsWith('-');
   const inputClass = `${common.className} ${field.derived ? `border-primary/30 bg-primary/5 font-semibold ${negativeOvertime ? 'text-destructive' : 'text-primary'}` : ''}`;
   const options = field.key === 'labour_name'
     ? labourNames
+    : driverNames.length && ['name', 'driver_name', 'choosen_driver'].includes(field.key)
+      ? driverNames
+      : isSecuritySignField(field) && securityNames.length
+        ? securityNames
     : field.key === 'location' && keyNames.length
       ? keyNames
       : field.key === 'name' && nameOptions.length

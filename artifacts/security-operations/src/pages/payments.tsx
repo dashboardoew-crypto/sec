@@ -24,10 +24,10 @@ export default function PaymentsPage() {
   const [notice, setNotice] = useState('');
   const editable = canEditPayments(user?.role);
 
-  const load = async () => {
+  const load = async (nextFrom = from, nextTo = to, nextSource = source) => {
     setLoading(true); setError(''); setNotice('');
     try {
-      const [nextReport, nextHistory] = await Promise.all([fetchHrReport(from, to, source), fetchPaymentBills(from, to, source)]);
+      const [nextReport, nextHistory] = await Promise.all([fetchHrReport(nextFrom, nextTo, nextSource), fetchPaymentBills(nextFrom, nextTo, nextSource)]);
       setReport(nextReport); setHistory(nextHistory);
       if (person && !nextReport.summaries.some((row) => row.name === person)) setPerson('');
     } catch (reason) {
@@ -66,7 +66,7 @@ export default function PaymentsPage() {
       <div className="grid gap-4 md:grid-cols-4">
         <label><span className="mb-1.5 block text-xs font-semibold">From date</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className={inputClass} /></label>
         <label><span className="mb-1.5 block text-xs font-semibold">To date</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} className={inputClass} /></label>
-        <label><span className="mb-1.5 block text-xs font-semibold">Register</span><select value={source} onChange={(event) => { setSource(event.target.value); setPerson(''); }} className={inputClass}><option value="all">All three registers</option><option value="driver-attendance">Driver Attendance</option><option value="daily-attendance">Training Register</option><option value="chowk-labour">Chowk Labour</option></select></label>
+        <label><span className="mb-1.5 block text-xs font-semibold">Register</span><select value={source} onChange={(event) => { const nextSource = event.target.value; setSource(nextSource); setPerson(''); void load(from, to, nextSource); }} className={inputClass}><option value="all">All three registers</option><option value="driver-attendance">Driver Attendance</option><option value="daily-attendance">Training Register</option><option value="chowk-labour">Chowk Labour</option></select></label>
         <label><span className="mb-1.5 block text-xs font-semibold">Person bill</span><select value={person} onChange={(event) => setPerson(event.target.value)} className={inputClass}><option value="">Everyone / select below</option>{people.map((row) => <option key={row.name} value={row.name}>{row.name}</option>)}</select></label>
       </div>
       <div className="mt-4 flex items-center gap-3"><button onClick={() => void load()} disabled={loading || !from || !to || from > to} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> {loading ? 'Loading…' : 'Generate report'}</button>{error && <span className="text-sm text-destructive">{error}</span>}{notice && <span className="text-sm text-primary">{notice}</span>}</div>
