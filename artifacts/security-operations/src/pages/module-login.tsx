@@ -1,4 +1,4 @@
-import { ArrowRight, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
+import { ArrowRight, FileBarChart2, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
 import { canAccessWorkspace, useAuth, type WorkspaceSlug } from '@/lib/auth';
 
@@ -36,6 +36,13 @@ const modules: Array<{
     label: 'Payment',
     description: 'HR payment workspace with role-based access',
     icon: WalletCards,
+  },
+  {
+    slug: 'reports',
+    href: '/reports',
+    label: 'HR Reports',
+    description: 'Attendance, overtime, left days and payroll review',
+    icon: FileBarChart2,
   },
 ];
 

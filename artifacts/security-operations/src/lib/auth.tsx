@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export type UserRole = 'admin' | 'manager' | 'hr' | 'security';
-export type WorkspaceSlug = 'security' | 'main-gate' | 'master' | 'payments';
+export type WorkspaceSlug = 'security' | 'main-gate' | 'master' | 'payments' | 'reports';
 export type AuthUser = {
   id: string;
   email: string;
@@ -14,7 +14,7 @@ export const canCreateRegisterRecord = (role?: UserRole | null) =>
   role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
 
 export const canAccessWorkspace = (role: UserRole | undefined | null, workspace: WorkspaceSlug) => {
-  if (workspace === 'master' || workspace === 'payments') return role === 'admin' || role === 'manager' || role === 'hr';
+  if (workspace === 'master' || workspace === 'payments' || workspace === 'reports') return role === 'admin' || role === 'manager' || role === 'hr';
   return role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
 };
 

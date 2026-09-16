@@ -93,6 +93,7 @@ export const listRegisterRecordsQueryLimitMax = 500;
 
 export const ListRegisterRecordsQueryParams = zod.object({
   "search": zod.coerce.string().optional(),
+  "name": zod.coerce.string().optional(),
   "from": zod.date().optional(),
   "to": zod.date().optional(),
   "limit": zod.coerce.number().int().min(1).max(listRegisterRecordsQueryLimitMax).default(listRegisterRecordsQueryLimitDefault)

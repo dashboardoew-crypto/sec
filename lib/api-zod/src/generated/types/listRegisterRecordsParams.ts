@@ -7,11 +7,13 @@
  */
 import type { FromParameter } from './fromParameter';
 import type { LimitParameter } from './limitParameter';
+import type { NameParameter } from './nameParameter';
 import type { SearchParameter } from './searchParameter';
 import type { ToParameter } from './toParameter';
 
 export type ListRegisterRecordsParams = {
 search?: SearchParameter;
+name?: NameParameter;
 from?: FromParameter;
 to?: ToParameter;
 /**

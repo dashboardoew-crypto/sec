@@ -131,6 +131,8 @@ export type NotFoundResponse = ErrorResponse;
 
 export type SearchParameter = string;
 
+export type NameParameter = string;
+
 export type FromParameter = string;
 
 export type ToParameter = string;
@@ -147,6 +149,7 @@ limit?: LimitParameter;
 
 export type ListRegisterRecordsParams = {
 search?: SearchParameter;
+name?: NameParameter;
 from?: FromParameter;
 to?: ToParameter;
 /**

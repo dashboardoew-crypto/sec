@@ -97,7 +97,7 @@ function RegisterFilters({
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
       <form className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:border-primary" onSubmit={(event) => { event.preventDefault(); onApplySearch(); }}>
         <Search size={16} className="shrink-0 text-muted-foreground" />
-        <input value={searchDraft} onChange={(event) => onSearchDraftChange(event.target.value)} placeholder="Search visible records…" className="min-w-0 flex-1 bg-transparent text-sm outline-none" data-testid="input-search-records" />
+        <input value={searchDraft} onChange={(event) => onSearchDraftChange(event.target.value)} placeholder="Search names across records…" className="min-w-0 flex-1 bg-transparent text-sm outline-none" data-testid="input-search-records" />
         {searchDraft && <button type="button" onClick={onClearSearch} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Clear search"><X size={15} /></button>}
         <button type="submit" className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90" data-testid="button-apply-search">Search</button>
       </form>
@@ -126,7 +126,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const [showFilters, setShowFilters] = useState(false);
   const [dialog, setDialog] = useState<'create' | RegisterRecord | null>(null);
   const [notice, setNotice] = useState('');
-  const params = useMemo(() => ({ search: search || undefined, from: from || undefined, to: to || undefined, limit: 500 }), [search, from, to]);
+  const params = useMemo(() => ({ name: search || undefined, from: from || undefined, to: to || undefined, limit: 500 }), [search, from, to]);
   const recordsQuery = useListRegisterRecords(definition.slug, params, { query: { enabled: true, queryKey: getListRegisterRecordsQueryKey(definition.slug, params) } });
   const labourMasterParams = useMemo(() => ({ limit: 500 }), []);
   const labourMasterQuery = useListRegisterRecords('labour-master', labourMasterParams, {
@@ -160,11 +160,18 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     return Array.from(counts, ([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [definition.slug, records]);
-  const exportCsv = () => {
+  const exportCsv = async () => {
+    const query = new URLSearchParams();
+    if (search) query.set('name', search);
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    const response = await fetch(`/api/registers/${definition.slug}/records/export?${query.toString()}`, { credentials: 'include' });
+    if (!response.ok) { setNotice('CSV export could not be generated'); return; }
+    const payload = await response.json() as { records: RegisterRecord[] };
     const cols = ['recordDate', ...visibleFields.map((f) => f.key)];
-    const rows = records.map((r) => cols.map((c) => JSON.stringify(c === 'recordDate' ? r.recordDate ?? '' : String(r.data[c] ?? ''))).join(','));
+    const rows = payload.records.map((r) => cols.map((c) => JSON.stringify(c === 'recordDate' ? r.recordDate ?? '' : String(r.data[c] ?? ''))).join(','));
     const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${definition.slug}.csv`; a.click(); URL.revokeObjectURL(url); setNotice('CSV export ready');
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${definition.slug}.csv`; a.click(); URL.revokeObjectURL(url); setNotice(`CSV export ready (${payload.records.length} records)`);
   };
   const onSubmit = (data: { recordDate?: string | null; data: Record<string, unknown> }, editing?: RegisterRecord) => {
     if (editing) update.mutate({ slug: definition.slug, id: editing.id, data }, { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record updated'); } });

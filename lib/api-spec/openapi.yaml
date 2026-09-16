@@ -73,6 +73,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RegisterSlug"
         - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Name"
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
         - $ref: "#/components/parameters/Limit"
@@ -163,6 +164,11 @@ components:
         minLength: 1
     Search:
       name: search
+      in: query
+      schema:
+        type: string
+    Name:
+      name: name
       in: query
       schema:
         type: string

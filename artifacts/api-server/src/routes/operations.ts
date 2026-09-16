@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db, registerRecordsTable } from "@workspace/db";
 import {
   CreateRegisterRecordBody,
@@ -262,6 +262,88 @@ const recordSummary = (definition: RegisterDefinition, data: Record<string, unkn
 const calendarDate = (value: string | Date | null | undefined) =>
   value instanceof Date ? value.toISOString().slice(0, 10) : value ?? null;
 
+const hrRegisterSlugs = ["driver-attendance", "daily-attendance", "chowk-labour"] as const;
+const dateForRecord = (row: typeof registerRecordsTable.$inferSelect) => row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : null);
+const parseDurationMinutes = (value: unknown) => {
+  if (typeof value !== "string") return undefined;
+  const clock = value.match(/^(-?)(\d+):(\d{2})$/);
+  if (clock) return (clock[1] === "-" ? -1 : 1) * (Number(clock[2]) * 60 + Number(clock[3]));
+  const text = value.match(/^(-?)(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?$/i);
+  if (!text || (!text[2] && !text[3])) return undefined;
+  return (text[1] === "-" ? -1 : 1) * (Number(text[2] ?? 0) * 60 + Number(text[3] ?? 0));
+};
+const personNameForRecord = (slug: string, data: Record<string, unknown>) =>
+  String(slug === "daily-attendance" ? data.labour_name : data.name ?? data.driver_name ?? "").trim();
+const numericValue = (value: unknown) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+const inclusiveDays = (from: string, to: string) =>
+  Math.max(0, Math.floor((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000) + 1);
+
+const hrReport = async (from: string, to: string) => {
+  const [rows, labourRows] = await Promise.all([
+    db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs])),
+    db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "labour-master")),
+  ]);
+  const wages = new Map(labourRows.map((row) => [String(row.data.name ?? "").trim().toLowerCase(), numericValue(row.data.wages_per_day)]));
+  const summary = new Map<string, {
+    name: string; workedDays: number; leftDays: number; overtimeMinutes: number; shortfallMinutes: number;
+    baseAmount: number; overtimeAmount: number; totalAmount: number; sources: Record<string, { days: number; overtimeMinutes: number; amount: number }>;
+    dates: Set<string>;
+  }>();
+  const details: Array<Record<string, unknown>> = [];
+  for (const row of rows) {
+    const date = dateForRecord(row);
+    if (!date || date < from || date > to) continue;
+    const name = personNameForRecord(row.registerSlug, row.data);
+    if (!name) continue;
+    const definition = getRegister(row.registerSlug);
+    const data = definition ? applyDerivedValues(definition, row.data) : row.data;
+    const minutes = row.registerSlug === "driver-attendance"
+      ? parseDurationMinutes(data.time_duration) ?? 480
+      : row.registerSlug === "daily-attendance"
+        ? trainingDurationMinutes(data) ?? parseDurationMinutes(data.total_hours) ?? 0
+        : parseDurationMinutes(data.time_duration) ?? 0;
+    const workedDays = row.registerSlug === "driver-attendance" ? 1 : Math.max(minutes / 480, 0);
+    const overtimeMinutes = Math.max(minutes - 480, 0);
+    const shortfallMinutes = Math.max(480 - minutes, 0);
+    const wage = wages.get(name.toLowerCase()) ?? 0;
+    const allowanceAmount = row.registerSlug === "driver-attendance"
+      ? numericValue(data.day_allowance) + numericValue(data.night_allowance)
+      : workedDays * wage;
+    const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * (wage / 8);
+    const status = String(data.payment_status ?? "Pending");
+    const existing = summary.get(name.toLowerCase()) ?? {
+      name, workedDays: 0, leftDays: 0, overtimeMinutes: 0, shortfallMinutes: 0,
+      baseAmount: 0, overtimeAmount: 0, totalAmount: 0, sources: {}, dates: new Set<string>(),
+    };
+    existing.workedDays += workedDays;
+    existing.overtimeMinutes += overtimeMinutes;
+    existing.shortfallMinutes += shortfallMinutes;
+    existing.baseAmount += allowanceAmount;
+    existing.overtimeAmount += overtimeAmount;
+    existing.totalAmount += allowanceAmount + overtimeAmount;
+    existing.dates.add(date);
+    const source = existing.sources[row.registerSlug] ?? { days: 0, overtimeMinutes: 0, amount: 0 };
+    source.days += workedDays;
+    source.overtimeMinutes += overtimeMinutes;
+    source.amount += allowanceAmount + overtimeAmount;
+    existing.sources[row.registerSlug] = source;
+    summary.set(name.toLowerCase(), existing);
+    details.push({
+      id: row.id, date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
+      shortfallMinutes, baseAmount: allowanceAmount, overtimeAmount, totalAmount: allowanceAmount + overtimeAmount, paymentStatus: status,
+    });
+  }
+  const expectedDays = inclusiveDays(from, to);
+  const summaries = Array.from(summary.values()).map(({ dates, ...item }) => ({
+    ...item,
+    leftDays: Math.max(expectedDays - dates.size, 0),
+  })).sort((a, b) => a.name.localeCompare(b.name));
+  return { from, to, expectedDays, summaries, details: details.sort((a, b) => String(a.date).localeCompare(String(b.date))) };
+};
+
 const dateInIndia = (value: Date) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
@@ -363,12 +445,47 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
   let rows = await db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, slug)).orderBy(desc(registerRecordsTable.updatedAt));
   const search = query.search?.trim().toLowerCase();
   if (search) rows = rows.filter((row) => JSON.stringify(responseDataForRole(req, definition, row.data)).toLowerCase().includes(search));
+  const name = query.name?.trim().toLowerCase();
+  if (name) rows = rows.filter((row) => Object.entries(responseDataForRole(req, definition, row.data))
+    .filter(([key]) => key.includes("name") || key === "labour_name")
+    .some(([, value]) => String(value ?? "").toLowerCase().includes(name)));
   if (query.from) rows = rows.filter((row) => !row.recordDate || row.recordDate >= calendarDate(query.from)!);
   if (query.to) rows = rows.filter((row) => !row.recordDate || row.recordDate <= calendarDate(query.to)!);
   return res.json({
     records: rows.slice(0, query.limit ?? 100).map((row) => toResponse(row, responseDataForRole(req, definition, row.data))),
     total: rows.length,
   });
+});
+
+router.get("/registers/:slug/records/export", async (req: Request, res: Response) => {
+  await seedIfEmpty();
+  const { slug } = ListRegisterRecordsParams.parse(req.params);
+  const query = ListRegisterRecordsQueryParams.parse(req.query);
+  const definition = getRegister(slug);
+  if (!definition) return res.status(404).json({ error: "Register not found" });
+  if (!canReadDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
+  let rows = await db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, slug)).orderBy(desc(registerRecordsTable.updatedAt));
+  const search = query.search?.trim().toLowerCase();
+  if (search) rows = rows.filter((row) => JSON.stringify(responseDataForRole(req, definition, row.data)).toLowerCase().includes(search));
+  const name = query.name?.trim().toLowerCase();
+  if (name) rows = rows.filter((row) => Object.entries(responseDataForRole(req, definition, row.data))
+    .filter(([key]) => key.includes("name") || key === "labour_name")
+    .some(([, value]) => String(value ?? "").toLowerCase().includes(name)));
+  if (query.from) rows = rows.filter((row) => !row.recordDate || row.recordDate >= calendarDate(query.from)!);
+  if (query.to) rows = rows.filter((row) => !row.recordDate || row.recordDate <= calendarDate(query.to)!);
+  return res.json({ records: rows.map((row) => toResponse(row, responseDataForRole(req, definition, row.data))), total: rows.length });
+});
+
+router.get("/hr/report", async (req: Request, res: Response) => {
+  if (!["admin", "manager", "hr"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR, managers, and admins can view HR reports" });
+  }
+  const from = typeof req.query.from === "string" ? req.query.from : "";
+  const to = typeof req.query.to === "string" ? req.query.to : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+    return res.status(400).json({ error: "Choose a valid report date range" });
+  }
+  return res.json(await hrReport(from, to));
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {
