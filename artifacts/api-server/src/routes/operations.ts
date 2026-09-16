@@ -141,7 +141,7 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     }
   }
 
-  if (register.slug === "daily-attendance") {
+  if (register.slug === "daily-attendance" || register.slug === "chowk-labour") {
     delete data.payment_status;
     delete data.overtime_payment_status;
     const totalMinutes = trainingDurationMinutes(data);
@@ -192,7 +192,7 @@ export const validateRequiredFields = (register: RegisterDefinition, recordDate:
 };
 
 const responseDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
-  const calculatedData = definition.slug === "daily-attendance"
+  const calculatedData = ["daily-attendance", "chowk-labour"].includes(definition.slug)
     ? applyDerivedValues(definition, data)
     : data;
 
@@ -200,7 +200,7 @@ const responseDataForRole = (req: Request, definition: RegisterDefinition, data:
     return { name: calculatedData.name };
   }
 
-  if (req.user?.role === "security" && definition.slug === "daily-attendance") {
+  if (req.user?.role === "security" && ["daily-attendance", "chowk-labour"].includes(definition.slug)) {
     const visible = { ...calculatedData };
     delete visible.payment_status;
     delete visible.overtime_payment_status;
@@ -211,7 +211,7 @@ const responseDataForRole = (req: Request, definition: RegisterDefinition, data:
 };
 
 const inputDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
-  if (req.user?.role === "security" && definition.slug === "daily-attendance") {
+  if (req.user?.role === "security" && ["daily-attendance", "chowk-labour"].includes(definition.slug)) {
     const sanitized = { ...data };
     delete sanitized.payment_status;
     delete sanitized.overtime_payment_status;
@@ -310,7 +310,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const data = definition ? applyDerivedValues(definition, row.data) : row.data;
     const minutes = row.registerSlug === "driver-attendance"
       ? parseDurationMinutes(data.time_duration) ?? 480
-      : row.registerSlug === "daily-attendance"
+      : ["daily-attendance", "chowk-labour"].includes(row.registerSlug)
         ? trainingDurationMinutes(data) ?? parseDurationMinutes(data.total_hours) ?? 0
         : parseDurationMinutes(data.time_duration) ?? 0;
     const workedDays = row.registerSlug === "driver-attendance" ? 1 : Math.max(minutes / 480, 0);

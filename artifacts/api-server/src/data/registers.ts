@@ -90,8 +90,7 @@ const keyMovementFields: FieldDefinition[] = [
   { key: "location", label: "LOCATION", type: "text", required: true },
 ];
 
-const trainingFields: FieldDefinition[] = [
-  { key: "labour_name", label: "LABOUR NAME", type: "select", required: true },
+const attendanceTimeFields: FieldDefinition[] = [
   { key: "shift", label: "SHIFT", type: "select", required: true, options: ["Morning", "Evening"] },
   { key: "morning_in", label: "MORNING IN", type: "time" },
   { key: "morning_out", label: "MORNING OUT", type: "time" },
@@ -100,6 +99,16 @@ const trainingFields: FieldDefinition[] = [
   { key: "total_hours", label: "TOTAL HOURS", type: "text", derived: true },
   { key: "total_days", label: "TOTAL DAYS", type: "text", derived: true },
   { key: "overtime", label: "OVERTIME", type: "text", derived: true },
+];
+
+const trainingFields: FieldDefinition[] = [
+  { key: "labour_name", label: "LABOUR NAME", type: "select", required: true },
+  ...attendanceTimeFields,
+];
+
+const chowkLabourFields: FieldDefinition[] = [
+  { key: "name", label: "NAME", type: "text", required: true },
+  ...attendanceTimeFields,
 ];
 
 const solarPanelCleaningFields: FieldDefinition[] = [
@@ -149,7 +158,7 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
   { ...register("key-movement", "Key Movement Register", "security", [], "Record who takes keys, where they go, and when the keys return."), fields: keyMovementFields },
-  register("chowk-labour", "Chowk Labour", "security", ["NAME", "DATE", "MORNING IN", "MORNING OUT", "EVENING IN", "EVENING OUT", "TIME DURATION", "WORK LOCATION", "payment status"], "Track chowk labour attendance and payment status."),
+  { ...register("chowk-labour", "Chowk Labour", "security", [], "Track daily chowk labour attendance. Names are entered per record and are not stored in Labour Master."), fields: chowkLabourFields },
    { ...register("daily-attendance", "Training Register", "security", [], "Track labour training attendance, hours, and overtime."), fields: trainingFields },
   { ...register("solar-panel-cleaning", "Solar Panel Cleaning Record", "security", [], "Record cleaning work across solar panel zones."), fields: solarPanelCleaningFields },
   register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments."),

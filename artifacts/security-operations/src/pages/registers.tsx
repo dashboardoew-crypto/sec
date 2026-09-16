@@ -261,11 +261,11 @@ function RecordDialog({ definition, fields, labourNames, initial, pending, onClo
   const [error, setError] = useState('');
   const setValue = (key: string, value: unknown) => setValues((prev) => ({ ...prev, [key]: value }));
   const orderedFields = useMemo(() => {
-    if (definition.slug !== 'daily-attendance') return fields;
+    if (!['daily-attendance', 'chowk-labour'].includes(definition.slug)) return fields;
     const timeOrder = String(values.shift ?? '').toLowerCase() === 'evening'
       ? ['evening_in', 'evening_out', 'morning_in', 'morning_out']
       : ['morning_in', 'morning_out', 'evening_in', 'evening_out'];
-    const orderedKeys = ['labour_name', 'shift', ...timeOrder];
+    const orderedKeys = [definition.slug === 'daily-attendance' ? 'labour_name' : 'name', 'shift', ...timeOrder];
     const ordered = orderedKeys
       .map((key) => fields.find((field) => field.key === key))
       .filter((field): field is FieldDefinition => Boolean(field));
@@ -274,7 +274,7 @@ function RecordDialog({ definition, fields, labourNames, initial, pending, onClo
   }, [definition.slug, fields, values.shift]);
   const derivedValues = useMemo(() => {
     const calculated: Record<string, unknown> = {};
-    if (definition.slug === 'daily-attendance') {
+    if (['daily-attendance', 'chowk-labour'].includes(definition.slug)) {
       const totalMinutes = trainingDurationMinutes(values);
       if (totalMinutes !== undefined) {
         calculated.total_hours = formatClockDuration(totalMinutes);
