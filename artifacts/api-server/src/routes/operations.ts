@@ -26,9 +26,10 @@ let seedPromise: Promise<void> | undefined;
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
+const referenceMasterSlugs = ["labour-master", "key-master", "kothi-master"];
 const canReadDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessDefinition(req, definition) ||
-  (req.user?.role === "security" && definition.slug === "labour-master");
+  (req.user?.role === "security" && referenceMasterSlugs.includes(definition.slug));
 
 const minutesBetween = (from: unknown, to: unknown) => {
   if (typeof from !== "string" || typeof to !== "string") return undefined;
@@ -196,7 +197,7 @@ const responseDataForRole = (req: Request, definition: RegisterDefinition, data:
     ? applyDerivedValues(definition, data)
     : data;
 
-  if (req.user?.role === "security" && definition.slug === "labour-master") {
+  if (req.user?.role === "security" && referenceMasterSlugs.includes(definition.slug)) {
     return { name: calculatedData.name };
   }
 
