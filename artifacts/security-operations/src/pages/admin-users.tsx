@@ -176,30 +176,30 @@ export default function AdminUsersPage() {
     setImportPending(true);
     const response = await fetch('/api/admin/data/import', {
       method: 'POST',
-      headers: { 'Content-Type': 'text/csv' },
+      headers: { 'Content-Type': file.name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' },
       credentials: 'include',
-      body: await file.text(),
+      body: await file.arrayBuffer(),
     });
     const payload = await response.json().catch(() => ({}));
     setImportPending(false);
     if (!response.ok) {
-      setError(payload.error ?? 'The CSV could not be imported.');
+      setError(payload.error ?? 'The workbook could not be imported.');
       return;
     }
     setNotice(`${payload.imported} records imported across ${payload.registers} registers.`);
   };
 
-  const downloadImportTemplate = async () => {
-    const response = await fetch('/api/admin/data/import-template', { credentials: 'include' });
+  const downloadWorkbook = async () => {
+    const response = await fetch('/api/admin/data/export', { credentials: 'include' });
     if (!response.ok) {
-      setError('The import template could not be downloaded.');
+      setError('The workbook could not be downloaded.');
       return;
     }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'register-import-template.csv';
+    link.download = 'security-operations-backup.xlsx';
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -264,12 +264,12 @@ export default function AdminUsersPage() {
           <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="rounded-xl border border-border bg-muted/20 p-4">
               <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><Upload size={16} /></span><div><h3 className="text-sm font-semibold">Import all registers</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Upload one CSV containing a Register column and rows for any register. The import is validated before anything is saved.</p></div></div>
-              <input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importAllRegisters(event)} />
+              <input ref={importInputRef} type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" className="hidden" onChange={(event) => void importAllRegisters(event)} />
               <div className="mt-4 flex flex-wrap gap-2">
-                <button disabled={importPending} onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Upload size={15} />{importPending ? 'Importing…' : 'Import CSV'}</button>
-                <button onClick={() => void downloadImportTemplate()} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm font-semibold hover:bg-muted"><Download size={15} /> CSV template</button>
+                <button type="button" disabled={importPending} onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Upload size={15} />{importPending ? 'Importing…' : 'Import workbook'}</button>
+                <button type="button" onClick={() => void downloadWorkbook()} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm font-semibold hover:bg-muted"><Download size={15} /> Export workbook</button>
               </div>
-              <p className="mt-3 text-[11px] text-muted-foreground">Use each register’s slug or title in the Register column. Existing records are not overwritten; uploaded rows are added.</p>
+              <p className="mt-3 text-[11px] text-muted-foreground">Import or export the same multi-tab Excel workbook used by the daily email backup. Existing records are not overwritten; uploaded rows are added.</p>
             </div>
             <form onSubmit={(event) => void saveBackupSettings(event)} className="rounded-xl border border-border bg-muted/20 p-4">
               <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><Mail size={16} /></span><div><h3 className="text-sm font-semibold">Daily email backup</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Every day at 6:00 PM India time, all registers are sent as one workbook with a separate tab for each register.</p></div></div>

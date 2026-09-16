@@ -84,10 +84,9 @@ const meterFields: FieldDefinition[] = [
 ];
 
 const keyMovementFields: FieldDefinition[] = [
-  { key: "name", label: "NAME", type: "select", required: true },
+  { key: "location", label: "LOCATION", type: "select", required: true },
   { key: "key_out_time", label: "KEY OUT TIME", type: "time", required: true },
   { key: "key_return", label: "KEY RETURN", type: "time" },
-  { key: "location", label: "LOCATION", type: "text", required: true },
 ];
 
 const kothiAttendanceFields: FieldDefinition[] = [
@@ -168,6 +167,10 @@ const nameMasterFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
 ];
 
+const keyMasterFields: FieldDefinition[] = [
+  { key: "location", label: "LOCATION", type: "text", required: true },
+];
+
 export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
@@ -181,7 +184,7 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   register("labour-master", "Labour Master", "master", ["NAME", "FATHER NAME", "ADDRESS", "WORK LOCATION", "WAGES PER DAY"], "Maintain the labour directory and daily wage rates."),
   { ...register("driver-master", "Driver Master", "master", [], "Maintain the driver directory for HR and management."), fields: driverMasterFields },
   { ...register("security-master", "Security Master", "master", [], "Maintain the security staff directory for HR and management."), fields: securityMasterFields },
-  { ...register("key-master", "Key Master", "master", [], "Maintain the names available in Key Movement Register."), fields: nameMasterFields },
+  { ...register("key-master", "Key Master", "master", [], "Maintain the locations available in Key Movement Register."), fields: keyMasterFields },
   { ...register("kothi-master", "Kothi Master", "master", [], "Maintain the names available in Kothi Attendance Register."), fields: nameMasterFields },
   register("personal-gate-pass", "Personal Gate Pass Register", "main-gate", ["Date", "Name", "Code", "Dept Name", "Out-Time", "In-Time", "Sign of Security"], "Manage personal movement through the main gate."),
   register("official-gate-pass", "Official Gate Pass Register", "main-gate", ["Date", "Name", "Department", "Out Time", "In Time", "Station", "Signature"], "Record official staff and work-related gate movements."),
@@ -201,7 +204,7 @@ export const getRegister = (slug: string) => REGISTER_DEFINITIONS.find((item) =>
 export const sampleRecords: Array<{ registerSlug: string; recordDate: string; data: Record<string, unknown> }> = [
   { registerSlug: "mango-tree-meter", recordDate: "2026-08-21", data: { date: "2026-08-21", on_time: "08:42", off_time: "12:37", office_initial: 570739, office_final: 571115, kothi_initial: 21290086, kothi_final: 21317326 } },
   { registerSlug: "clinic-gate-meter", recordDate: "2026-08-14", data: { date: "2026-08-14", on_time: "08:48", off_time: "11:15", office_initial: 439119, office_final: 439355, kothi_initial: 23924354, kothi_final: 23964678 } },
-  { registerSlug: "key-movement", recordDate: "2026-07-31", data: { date: "2026-07-31", name: "Sanjay", key_out_time: "06:18", key_return: "08:05", location: "Workshop" } },
+  { registerSlug: "key-movement", recordDate: "2026-07-31", data: { location: "Workshop", key_out_time: "06:18", key_return: "08:05" } },
   { registerSlug: "daily-attendance", recordDate: "2026-08-01", data: { labour_name: "ASHWANI KUMAR", date: "2026-08-01", morning_in: "08:00", morning_out: "13:00", evening_in: "14:00", evening_out: "19:05" } },
   { registerSlug: "driver-schedule", recordDate: "2026-07-27", data: { choosen_driver: "JASPAL", date: "2026-07-27", schedule_time: "09:00", car_name: "Hyrdere, Cng", location: "Company" } },
   { registerSlug: "official-gate-pass", recordDate: "2026-09-11", data: { date: "2026-09-11", name: "Subhash Rai", department: "Office", out_time: "11:37", in_time: "12:20", station: "Kumar Mall", signature: "Security" } },

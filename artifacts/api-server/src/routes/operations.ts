@@ -188,7 +188,6 @@ export const validateRequiredFields = (register: RegisterDefinition, recordDate:
   const missing = register.fields
     .filter((field) => field.required)
     .filter((field) => data[field.key] === undefined || data[field.key] === null || data[field.key] === "");
-  if (!recordDate) missing.unshift({ key: "recordDate", label: "Date", type: "date" });
   return missing;
 };
 
@@ -198,7 +197,9 @@ const responseDataForRole = (req: Request, definition: RegisterDefinition, data:
     : data;
 
   if (req.user?.role === "security" && referenceMasterSlugs.includes(definition.slug)) {
-    return { name: calculatedData.name };
+    return definition.slug === "key-master"
+      ? { location: calculatedData.location }
+      : { name: calculatedData.name };
   }
 
   if (req.user?.role === "security" && ["daily-attendance", "chowk-labour"].includes(definition.slug)) {
@@ -260,11 +261,16 @@ const recordSummary = (definition: RegisterDefinition, data: Record<string, unkn
   return subject ? `${definition.title}: ${String(subject)}` : definition.title;
 };
 
-const calendarDate = (value: string | Date | null | undefined) =>
-  value instanceof Date ? value.toISOString().slice(0, 10) : value ?? null;
+const calendarDate = (value: string | Date | null | undefined) => {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (!value) return null;
+  const trimmed = value.trim();
+  const dayFirst = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  return dayFirst ? `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}` : trimmed;
+};
 
 const hrRegisterSlugs = ["driver-attendance", "daily-attendance", "chowk-labour"] as const;
-const dateForRecord = (row: typeof registerRecordsTable.$inferSelect) => row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : null);
+const dateForRecord = (row: typeof registerRecordsTable.$inferSelect) => row.recordDate ?? (typeof row.data.date === "string" ? calendarDate(row.data.date) : null);
 const parseDurationMinutes = (value: unknown) => {
   if (typeof value !== "string") return undefined;
   const clock = value.match(/^(-?)(\d+):(\d{2})$/);
@@ -481,8 +487,8 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
   if (name) rows = rows.filter((row) => Object.entries(responseDataForRole(req, definition, row.data))
     .filter(([key]) => key.includes("name") || key === "labour_name")
     .some(([, value]) => String(value ?? "").toLowerCase().includes(name)));
-  if (query.from) rows = rows.filter((row) => !row.recordDate || row.recordDate >= calendarDate(query.from)!);
-  if (query.to) rows = rows.filter((row) => !row.recordDate || row.recordDate <= calendarDate(query.to)!);
+  if (query.from) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! >= calendarDate(query.from)!);
+  if (query.to) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! <= calendarDate(query.to)!);
   return res.json({
     records: rows.slice(0, query.limit ?? 100).map((row) => toResponse(row, responseDataForRole(req, definition, row.data))),
     total: rows.length,
@@ -503,8 +509,8 @@ router.get("/registers/:slug/records/export", async (req: Request, res: Response
   if (name) rows = rows.filter((row) => Object.entries(responseDataForRole(req, definition, row.data))
     .filter(([key]) => key.includes("name") || key === "labour_name")
     .some(([, value]) => String(value ?? "").toLowerCase().includes(name)));
-  if (query.from) rows = rows.filter((row) => !row.recordDate || row.recordDate >= calendarDate(query.from)!);
-  if (query.to) rows = rows.filter((row) => !row.recordDate || row.recordDate <= calendarDate(query.to)!);
+  if (query.from) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! >= calendarDate(query.from)!);
+  if (query.to) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! <= calendarDate(query.to)!);
   return res.json({ records: rows.map((row) => toResponse(row, responseDataForRole(req, definition, row.data))), total: rows.length });
 });
 
@@ -585,7 +591,7 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
-  const recordDate = calendarDate(body.recordDate) ?? (body.data.date as string | undefined) ?? null;
+  const recordDate = calendarDate(body.data.date as string | undefined);
   const data = applyDerivedValues(
     definition,
     inputDataForRole(req, definition, { ...body.data, ...(recordDate ? { date: recordDate } : {}) }),
@@ -621,7 +627,9 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
         : `This record can no longer be edited. ${req.user?.role === "manager" ? "Managers" : "Security staff"} can edit records for ${editWindowDays} days after entry.`,
     });
   }
-  const recordDate = body.recordDate === undefined ? existing[0].recordDate : calendarDate(body.recordDate);
+  const recordDate = body.data?.date === undefined
+    ? existing[0].recordDate
+    : calendarDate(body.data.date as string | undefined);
   const data = body.data
     ? applyDerivedValues(
         definition,
