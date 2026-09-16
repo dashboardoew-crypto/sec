@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, registerRecordsTable } from "@workspace/db";
+import { db, paymentBillsTable, registerRecordsTable } from "@workspace/db";
 import {
   CreateRegisterRecordBody,
   CreateRegisterRecordParams,
@@ -281,19 +281,27 @@ const numericValue = (value: unknown) => {
 const inclusiveDays = (from: string, to: string) =>
   Math.max(0, Math.floor((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000) + 1);
 
-const hrReport = async (from: string, to: string) => {
-  const [rows, labourRows] = await Promise.all([
+const paymentSourceSlugs = ["all", ...hrRegisterSlugs] as const;
+const billKeyFor = (name: string, from: string, to: string, source: string) =>
+  `${name.trim().toLowerCase()}|${from}|${to}|${source}`;
+
+const hrReport = async (from: string, to: string, sourceScope = "all") => {
+  const [rows, labourRows, bills] = await Promise.all([
     db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs])),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "labour-master")),
+    db.select().from(paymentBillsTable),
   ]);
+  const billMap = new Map(bills.map((bill) => [bill.billKey, bill]));
   const wages = new Map(labourRows.map((row) => [String(row.data.name ?? "").trim().toLowerCase(), numericValue(row.data.wages_per_day)]));
   const summary = new Map<string, {
     name: string; workedDays: number; leftDays: number; overtimeMinutes: number; shortfallMinutes: number;
+    wagePerDay: number;
     baseAmount: number; overtimeAmount: number; totalAmount: number; sources: Record<string, { days: number; overtimeMinutes: number; amount: number }>;
     dates: Set<string>;
   }>();
   const details: Array<Record<string, unknown>> = [];
   for (const row of rows) {
+    if (sourceScope !== "all" && row.registerSlug !== sourceScope) continue;
     const date = dateForRecord(row);
     if (!date || date < from || date > to) continue;
     const name = personNameForRecord(row.registerSlug, row.data);
@@ -313,11 +321,12 @@ const hrReport = async (from: string, to: string) => {
       ? numericValue(data.day_allowance) + numericValue(data.night_allowance)
       : workedDays * wage;
     const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * (wage / 8);
-    const status = String(data.payment_status ?? "Pending");
     const existing = summary.get(name.toLowerCase()) ?? {
       name, workedDays: 0, leftDays: 0, overtimeMinutes: 0, shortfallMinutes: 0,
+      wagePerDay: wage,
       baseAmount: 0, overtimeAmount: 0, totalAmount: 0, sources: {}, dates: new Set<string>(),
     };
+    existing.wagePerDay = existing.wagePerDay || wage;
     existing.workedDays += workedDays;
     existing.overtimeMinutes += overtimeMinutes;
     existing.shortfallMinutes += shortfallMinutes;
@@ -333,15 +342,37 @@ const hrReport = async (from: string, to: string) => {
     summary.set(name.toLowerCase(), existing);
     details.push({
       id: row.id, date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
-      shortfallMinutes, baseAmount: allowanceAmount, overtimeAmount, totalAmount: allowanceAmount + overtimeAmount, paymentStatus: status,
+      shortfallMinutes, baseAmount: allowanceAmount, overtimeAmount, totalAmount: allowanceAmount + overtimeAmount,
     });
   }
   const expectedDays = inclusiveDays(from, to);
-  const summaries = Array.from(summary.values()).map(({ dates, ...item }) => ({
-    ...item,
-    leftDays: Math.max(expectedDays - dates.size, 0),
-  })).sort((a, b) => a.name.localeCompare(b.name));
-  return { from, to, expectedDays, summaries, details: details.sort((a, b) => String(a.date).localeCompare(String(b.date))) };
+  const summaries = Array.from(summary.values()).map(({ dates, ...item }) => {
+    const bill = billMap.get(billKeyFor(item.name, from, to, sourceScope));
+    const subtotal = item.baseAmount + item.overtimeAmount;
+    const roundingAmount = Math.round(subtotal) - subtotal;
+    return {
+      ...item,
+      wageAmount: item.baseAmount,
+      overtimeRate: item.wagePerDay / 8,
+      roundingAmount: Number(roundingAmount.toFixed(2)),
+      totalAmount: Math.round(subtotal),
+      leftDays: Math.max(expectedDays - dates.size, 0),
+      paymentStatus: bill?.status ?? "unpaid",
+      billNumber: bill?.billNumber ?? null,
+      paidAt: bill?.paidAt?.toISOString() ?? null,
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  const statusByName = new Map(summaries.map((item) => [item.name.toLowerCase(), item.paymentStatus]));
+  const sortedDetails = details.slice().sort((a, b) =>
+    String(a["date"] ?? "").localeCompare(String(b["date"] ?? "")),
+  );
+  return {
+    from, to, sourceScope, expectedDays, summaries,
+    details: sortedDetails.map((item) => ({
+      ...item,
+      paymentStatus: statusByName.get(String(item["name"] ?? "").toLowerCase()) ?? "unpaid",
+    })),
+  };
 };
 
 const dateInIndia = (value: Date) => {
@@ -482,10 +513,65 @@ router.get("/hr/report", async (req: Request, res: Response) => {
   }
   const from = typeof req.query.from === "string" ? req.query.from : "";
   const to = typeof req.query.to === "string" ? req.query.to : "";
+  const source = typeof req.query.source === "string" ? req.query.source : "all";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
     return res.status(400).json({ error: "Choose a valid report date range" });
   }
-  return res.json(await hrReport(from, to));
+  if (!paymentSourceSlugs.includes(source as typeof paymentSourceSlugs[number])) {
+    return res.status(400).json({ error: "Choose a valid payment register" });
+  }
+  return res.json(await hrReport(from, to, source));
+});
+
+router.get("/payments/bills", async (req: Request, res: Response) => {
+  if (!["admin", "manager", "hr"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR, managers, and admins can view payment history" });
+  }
+  const rows = await db.select().from(paymentBillsTable).orderBy(desc(paymentBillsTable.updatedAt));
+  const from = typeof req.query.from === "string" ? req.query.from : "";
+  const to = typeof req.query.to === "string" ? req.query.to : "";
+  const source = typeof req.query.source === "string" ? req.query.source : "all";
+  const name = typeof req.query.name === "string" ? req.query.name.trim().toLowerCase() : "";
+  return res.json(rows.filter((bill) =>
+    (!from || bill.fromDate >= from) &&
+    (!to || bill.toDate <= to) &&
+    (source === "all" || bill.sourceScope === source) &&
+    (!name || bill.personName.toLowerCase().includes(name)),
+  ));
+});
+
+router.post("/payments/bills", async (req: Request, res: Response) => {
+  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR and admins can change payment status" });
+  }
+  const body = req.body as Record<string, unknown>;
+  const personName = typeof body.personName === "string" ? body.personName.trim() : "";
+  const fromDate = typeof body.fromDate === "string" ? body.fromDate : "";
+  const toDate = typeof body.toDate === "string" ? body.toDate : "";
+  const sourceScope = typeof body.sourceScope === "string" ? body.sourceScope : "all";
+  const status = body.status === "paid" ? "paid" : body.status === "unpaid" ? "unpaid" : "";
+  if (!personName || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate || !status || !paymentSourceSlugs.includes(sourceScope as typeof paymentSourceSlugs[number])) {
+    return res.status(400).json({ error: "Invalid bill details" });
+  }
+  const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+  const billKey = billKeyFor(personName, fromDate, toDate, sourceScope);
+  const existing = await db.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
+  const current = existing[0];
+  const paidAt = status === "paid" ? (current?.paidAt ?? new Date()) : null;
+  const payload = {
+    personName, fromDate, toDate, sourceScope,
+    totalDays: number(body.totalDays), wagePerDay: number(body.wagePerDay), wageAmount: number(body.wageAmount),
+    overtimeMinutes: Math.round(number(body.overtimeMinutes)), overtimeRate: number(body.overtimeRate),
+    overtimeAmount: number(body.overtimeAmount), roundingAmount: number(body.roundingAmount), totalAmount: number(body.totalAmount),
+    status, paidAt, paidBy: status === "paid" ? (req.user?.displayName ?? req.user?.email ?? null) : null,
+    updatedAt: new Date(),
+  };
+  const bill = current
+    ? (await db.update(paymentBillsTable).set(payload).where(eq(paymentBillsTable.billKey, billKey)).returning())[0]
+    : (await db.insert(paymentBillsTable).values({
+      id: randomUUID(), billNumber: `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`, billKey, ...payload,
+    }).returning())[0];
+  return res.status(current ? 200 : 201).json(bill);
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {

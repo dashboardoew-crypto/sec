@@ -20,3 +20,4 @@
 export * from "./register-records";
 export * from "./auth";
 export * from "./backup-settings";
+export * from "./payment-bills";

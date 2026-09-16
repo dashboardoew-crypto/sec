@@ -33,16 +33,9 @@ const modules: Array<{
   {
     slug: 'payments',
     href: '/payments',
-    label: 'Payment',
-    description: 'HR payment workspace with role-based access',
+    label: 'HR & Payments',
+    description: 'Attendance reports, bill generation, paid/unpaid history',
     icon: WalletCards,
-  },
-  {
-    slug: 'reports',
-    href: '/reports',
-    label: 'HR Reports',
-    description: 'Attendance, overtime, left days and payroll review',
-    icon: FileBarChart2,
   },
 ];
 
