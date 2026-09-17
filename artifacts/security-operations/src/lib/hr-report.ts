@@ -12,7 +12,9 @@ export type HrSummary = {
   roundingAmount: number;
   totalAmount: number;
   sources: Record<string, { days: number; overtimeMinutes: number; amount: number }>;
-  paymentStatus: 'paid' | 'unpaid';
+  paidAmount: number;
+  outstandingAmount: number;
+  paymentStatus: 'paid' | 'partial' | 'unpaid';
   billNumber: string | null;
   paidAt: string | null;
 };
@@ -57,8 +59,28 @@ export type PaymentBill = {
   overtimeAmount: number;
   roundingAmount: number;
   totalAmount: number;
-  status: 'paid' | 'unpaid';
+  paidAmount: number;
+  status: 'paid' | 'partial' | 'unpaid';
+  paymentMethod: string | null;
+  paymentReference: string | null;
+  paymentNote: string | null;
   paidAt: string | null;
+  paidBy: string | null;
+};
+
+export type PaymentTransaction = {
+  id: string;
+  billKey: string;
+  billNumber: string;
+  personName: string;
+  fromDate: string;
+  toDate: string;
+  sourceScope: string;
+  amount: number;
+  paymentMethod: string;
+  paymentReference: string | null;
+  paymentNote: string | null;
+  paidAt: string;
   paidBy: string | null;
 };
 
@@ -77,6 +99,14 @@ export async function fetchPaymentBills(from = '', to = '', source = 'all', name
   return payload as PaymentBill[];
 }
 
+export async function fetchPaymentTransactions(from = '', to = '', source = 'all', name = ''): Promise<PaymentTransaction[]> {
+  const query = new URLSearchParams({ from, to, source, name });
+  const response = await fetch(`/api/payments/transactions?${query.toString()}`, { credentials: 'include' });
+  const payload = await response.json().catch(() => []);
+  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Payment transaction history could not be loaded');
+  return payload as PaymentTransaction[];
+}
+
 export async function savePaymentBill(input: {
   personName: string;
   fromDate: string;
@@ -90,7 +120,11 @@ export async function savePaymentBill(input: {
   overtimeAmount: number;
   roundingAmount: number;
   totalAmount: number;
-  status: 'paid' | 'unpaid';
+  paymentAmount?: number;
+  status: 'paid' | 'partial' | 'unpaid';
+  paymentMethod?: string;
+  paymentReference?: string;
+  paymentNote?: string;
 }): Promise<PaymentBill> {
   const response = await fetch('/api/payments/bills', {
     method: 'POST',

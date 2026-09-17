@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, paymentBillsTable, registerRecordsTable } from "@workspace/db";
+import { db, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
 import {
   CreateRegisterRecordBody,
   CreateRegisterRecordParams,
@@ -308,8 +308,11 @@ const inclusiveDays = (from: string, to: string) =>
   Math.max(0, Math.floor((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000) + 1);
 
 const paymentSourceSlugs = ["all", ...hrRegisterSlugs] as const;
+const paymentMethods = ["Cash", "Bank transfer", "UPI", "Cheque", "Other"] as const;
 const billKeyFor = (name: string, from: string, to: string, source: string) =>
   `${name.trim().toLowerCase()}|${from}|${to}|${source}`;
+const paymentStatusFor = (paidAmount: number, totalAmount: number) =>
+  paidAmount >= totalAmount && totalAmount > 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
 
 const hrReport = async (from: string, to: string, sourceScope = "all") => {
   const [rows, labourRows, bills] = await Promise.all([
@@ -375,6 +378,10 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
   const summaries = Array.from(summary.values()).map(({ dates, ...item }) => {
     const bill = billMap.get(billKeyFor(item.name, from, to, sourceScope));
     const subtotal = item.baseAmount + item.overtimeAmount;
+    const paidAmount = Math.min(
+      Math.max(numericValue(bill?.paidAmount ?? (bill?.status === "paid" ? subtotal : 0)), 0),
+      Math.max(subtotal, 0),
+    );
     const roundingAmount = Math.round(subtotal) - subtotal;
     return {
       ...item,
@@ -383,7 +390,9 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       roundingAmount: Number(roundingAmount.toFixed(2)),
       totalAmount: Math.round(subtotal),
       leftDays: Math.max(expectedDays - dates.size, 0),
-      paymentStatus: bill?.status ?? "unpaid",
+      paidAmount,
+      outstandingAmount: Math.max(subtotal - paidAmount, 0),
+      paymentStatus: paymentStatusFor(paidAmount, subtotal),
       billNumber: bill?.billNumber ?? null,
       paidAt: bill?.paidAt?.toISOString() ?? null,
     };
@@ -566,6 +575,23 @@ router.get("/payments/bills", async (req: Request, res: Response) => {
   ));
 });
 
+router.get("/payments/transactions", async (req: Request, res: Response) => {
+  if (!["admin", "manager", "hr"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR, managers, and admins can view payment transactions" });
+  }
+  const rows = await db.select().from(paymentTransactionsTable).orderBy(desc(paymentTransactionsTable.paidAt));
+  const from = typeof req.query.from === "string" ? req.query.from : "";
+  const to = typeof req.query.to === "string" ? req.query.to : "";
+  const source = typeof req.query.source === "string" ? req.query.source : "all";
+  const name = typeof req.query.name === "string" ? req.query.name.trim().toLowerCase() : "";
+  return res.json(rows.filter((transaction) =>
+    (!from || transaction.toDate >= from) &&
+    (!to || transaction.fromDate <= to) &&
+    (source === "all" || transaction.sourceScope === source) &&
+    (!name || transaction.personName.toLowerCase().includes(name)),
+  ));
+});
+
 router.post("/payments/bills", async (req: Request, res: Response) => {
   if (!["admin", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR and admins can change payment status" });
@@ -575,7 +601,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const fromDate = typeof body.fromDate === "string" ? body.fromDate : "";
   const toDate = typeof body.toDate === "string" ? body.toDate : "";
   const sourceScope = typeof body.sourceScope === "string" ? body.sourceScope : "all";
-  const status = body.status === "paid" ? "paid" : body.status === "unpaid" ? "unpaid" : "";
+  const status = body.status === "paid" ? "paid" : body.status === "partial" ? "partial" : body.status === "unpaid" ? "unpaid" : "";
   if (!personName || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate || !status || !paymentSourceSlugs.includes(sourceScope as typeof paymentSourceSlugs[number])) {
     return res.status(400).json({ error: "Invalid bill details" });
   }
@@ -583,20 +609,57 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const billKey = billKeyFor(personName, fromDate, toDate, sourceScope);
   const existing = await db.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
   const current = existing[0];
-  const paidAt = status === "paid" ? (current?.paidAt ?? new Date()) : null;
+  const totalAmount = Math.max(number(body.totalAmount), 0);
+  const existingPaidAmount = Math.min(
+    Math.max(number(current?.paidAmount ?? (current?.status === "paid" ? current.totalAmount : 0)), 0),
+    totalAmount,
+  );
+  const suppliedPaymentAmount = body.paymentAmount === undefined ? undefined : Math.max(number(body.paymentAmount), 0);
+  const paymentAmount = status === "unpaid" && suppliedPaymentAmount === undefined
+    ? 0
+    : Math.min(suppliedPaymentAmount ?? Math.max(totalAmount - existingPaidAmount, 0), Math.max(totalAmount - existingPaidAmount, 0));
+  const nextPaidAmount = status === "unpaid" && suppliedPaymentAmount === undefined
+    ? 0
+    : existingPaidAmount + paymentAmount;
+  const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
+  const paymentMethod = paymentMethods.includes(body.paymentMethod as typeof paymentMethods[number])
+    ? body.paymentMethod as typeof paymentMethods[number]
+    : current?.paymentMethod ?? "Cash";
+  const paymentReference = typeof body.paymentReference === "string" ? body.paymentReference.trim() || null : current?.paymentReference ?? null;
+  const paymentNote = typeof body.paymentNote === "string" ? body.paymentNote.trim() || null : current?.paymentNote ?? null;
+  const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
+  const paidAt = nextPaidAmount > 0 ? (paymentAmount > 0 ? new Date() : (current?.paidAt ?? new Date())) : null;
   const payload = {
     personName, fromDate, toDate, sourceScope,
     totalDays: number(body.totalDays), wagePerDay: number(body.wagePerDay), wageAmount: number(body.wageAmount),
     overtimeMinutes: Math.round(number(body.overtimeMinutes)), overtimeRate: number(body.overtimeRate),
-    overtimeAmount: number(body.overtimeAmount), roundingAmount: number(body.roundingAmount), totalAmount: number(body.totalAmount),
-    status, paidAt, paidBy: status === "paid" ? (req.user?.displayName ?? req.user?.email ?? null) : null,
+    overtimeAmount: number(body.overtimeAmount), roundingAmount: number(body.roundingAmount), totalAmount,
+    paidAmount: nextPaidAmount, status: nextStatus, paymentMethod, paymentReference, paymentNote,
+    paidAt, paidBy: nextPaidAmount > 0 ? (req.user?.displayName ?? req.user?.email ?? null) : null,
     updatedAt: new Date(),
   };
   const bill = current
     ? (await db.update(paymentBillsTable).set(payload).where(eq(paymentBillsTable.billKey, billKey)).returning())[0]
     : (await db.insert(paymentBillsTable).values({
-      id: randomUUID(), billNumber: `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`, billKey, ...payload,
+      id: randomUUID(), billNumber, billKey, ...payload,
     }).returning())[0];
+  if (paymentAmount > 0) {
+    await db.insert(paymentTransactionsTable).values({
+      id: randomUUID(),
+      billKey,
+      billNumber: bill?.billNumber ?? billNumber,
+      personName,
+      fromDate,
+      toDate,
+      sourceScope,
+      amount: paymentAmount,
+      paymentMethod,
+      paymentReference,
+      paymentNote,
+      paidAt: paidAt ?? new Date(),
+      paidBy: req.user?.displayName ?? req.user?.email ?? null,
+    });
+  }
   return res.status(current ? 200 : 201).json(bill);
 });
 
