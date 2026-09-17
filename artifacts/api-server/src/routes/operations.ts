@@ -43,12 +43,11 @@ const minutesBetween = (from: unknown, to: unknown) => {
   return (end - start + 1440) % 1440;
 };
 
-const minutesFromTime = (value: unknown, period?: "morning" | "evening") => {
+const minutesFromTime = (value: unknown, _period?: "morning" | "evening") => {
   if (typeof value !== "string") return undefined;
   const [hours, minutes] = value.split(":").map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return undefined;
-  const normalizedHours = period === "evening" && hours < 12 ? hours + 12 : hours;
-  return normalizedHours * 60 + minutes;
+  return hours * 60 + minutes;
 };
 
 const timeFromMinutes = (value: number) => {
@@ -66,8 +65,7 @@ const formatSignedClockDuration = (minutes: number) => {
 };
 
 const formatTotalDays = (minutes: number) => {
-  const days = minutes / 480;
-  return Number.isInteger(days) ? String(days) : days.toFixed(2);
+  return minutes >= 480 ? "1" : "0";
 };
 
 const trainingDurationMinutes = (data: Record<string, unknown>) => {
@@ -137,8 +135,8 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     const kothiFinal = Number(data.kothi_final);
     if (Number.isFinite(kothiInitial) && Number.isFinite(kothiFinal)) {
       const water = kothiFinal - kothiInitial;
-      setIfKnown("total_water_consumed", water);
-      if (minutesConsumed) setIfKnown("per_minute_water_consumed", Number((water / minutesConsumed).toFixed(2)));
+      setIfKnown("total_water_consumed", Math.round(water));
+      if (minutesConsumed) setIfKnown("per_minute_water_consumed", Math.round(water / minutesConsumed));
     }
   }
 
@@ -149,7 +147,7 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     if (totalMinutes !== undefined) {
       setIfKnown("total_hours", formatClockDuration(totalMinutes));
       setIfKnown("total_days", formatTotalDays(totalMinutes));
-      setIfKnown("overtime", formatSignedClockDuration(totalMinutes - 480));
+      setIfKnown("overtime", formatClockDuration(Math.max(totalMinutes - 480, 0)));
     }
   }
 

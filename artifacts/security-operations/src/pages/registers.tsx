@@ -87,6 +87,8 @@ function RegisterFilters({
   onToggleFilters,
   onClearFilters,
   onExport,
+  sortOrder,
+  onSortChange,
 }: {
   hasNameField: boolean;
   searchDraft: string;
@@ -102,6 +104,8 @@ function RegisterFilters({
   onToggleFilters: () => void;
   onClearFilters: () => void;
   onExport: () => void;
+  sortOrder: 'none' | 'asc' | 'desc';
+  onSortChange: (value: 'none' | 'asc' | 'desc') => void;
 }) {
   const activeFilters = [search ? `Name: ${search}` : '', from ? `From: ${from}` : '', to ? `To: ${to}` : ''].filter(Boolean);
   return <section className="mb-5 rounded-2xl border border-border bg-card p-3 shadow-sm" data-testid="register-filters">
@@ -115,6 +119,9 @@ function RegisterFilters({
       <div className="flex items-center gap-2">
         <button onClick={onToggleFilters} className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold ${showFilters || from || to ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`} data-testid="button-toggle-filters"><SlidersHorizontal size={15} /> Filters {activeFilters.length > 1 && <span className="grid size-5 place-items-center rounded-full bg-primary text-[10px] text-primary-foreground">{activeFilters.length}</span>}<ChevronDown size={14} className={showFilters ? 'rotate-180 transition-transform' : 'transition-transform'} /></button>
         {activeFilters.length > 0 && <button onClick={onClearFilters} className="rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:bg-muted" data-testid="button-clear-filters">Clear all</button>}
+        <div className="flex items-center gap-1 rounded-xl border border-border p-1" aria-label="Sort records">
+          {([['asc', 'Ascending'], ['desc', 'Descending'], ['none', 'None']] as const).map(([value, label]) => <button key={value} onClick={() => onSortChange(value)} className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${sortOrder === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} data-testid={`button-sort-${value}`}>{label}</button>)}
+        </div>
         <button onClick={onExport} className="flex items-center gap-2 rounded-xl border border-border px-3 py-2.5 text-xs font-semibold hover:bg-muted" data-testid="button-export-csv"><Download size={15} /> <span className="hidden sm:inline">Export</span></button>
       </div>
     </div>
@@ -135,6 +142,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'none' | 'asc' | 'desc'>('none');
   const [dialog, setDialog] = useState<'create' | RegisterRecord | null>(null);
   const [notice, setNotice] = useState('');
   const hasNameField = definition.fields.some((field) => field.key.includes('name') || field.key === 'labour_name');
@@ -176,6 +184,14 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const update = useUpdateRegisterRecord();
   const remove = useDeleteRegisterRecord();
   const records = recordsQuery.data?.records ?? [];
+  const sortedRecords = useMemo(() => {
+    if (sortOrder === 'none') return records;
+    const dateValue = (record: RegisterRecord) => String(record.recordDate ?? record.data.date ?? record.createdAt ?? '');
+    return [...records].sort((a, b) => {
+      const comparison = dateValue(a).localeCompare(dateValue(b));
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+  }, [records, sortOrder]);
   const visibleFields = useMemo(
     () => definition.fields.filter((field) => !(definition.slug === 'daily-attendance' && user?.role === 'security' && ['payment_status', 'overtime_payment_status'].includes(field.key))),
     [definition.fields, definition.slug, user?.role],
@@ -204,6 +220,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
       .filter(Boolean);
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
   }, [driverMasterQuery.data?.records]);
+  const driverPhones = useMemo(() => Object.fromEntries(
+    (driverMasterQuery.data?.records ?? [])
+      .map((record) => [String(record.data.name ?? '').trim().toLowerCase(), String(record.data.mobile_no ?? '').trim()])
+      .filter(([name, phone]) => Boolean(name && phone)),
+  ), [driverMasterQuery.data?.records]);
   const kothiNames = useMemo(() => {
     const names = (kothiMasterQuery.data?.records ?? [])
       .map((record) => String(record.data.name ?? '').trim())
@@ -215,13 +236,13 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const passCounts = useMemo(() => {
     if (!['personal-gate-pass', 'official-gate-pass', 'contractor-gate-pass', 'unit-2-gate-pass'].includes(definition.slug)) return [];
     const counts = new Map<string, number>();
-    records.forEach((record) => {
+    sortedRecords.forEach((record) => {
       const name = String(record.data.name ?? '').trim();
       if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
     });
     return Array.from(counts, ([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [definition.slug, records]);
+  }, [definition.slug, sortedRecords]);
   const exportCsv = async () => {
     const query = new URLSearchParams();
     if (search) query.set('name', search);
@@ -257,10 +278,10 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 3200); return () => window.clearTimeout(timer); }, [notice]);
   return <div className="min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10"><Link href={`/registers/${definition.module}`} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground" data-testid="link-back-to-module"><ArrowLeft size={14} /> {moduleLabel(definition.module)}</Link><PageIntro eyebrow={moduleEyebrow(definition.module)} title={definition.title} description={definition.description} action={canCreateRegisterRecord(user?.role) ? <button onClick={() => setDialog('create')} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90" data-testid="button-add-record"><FilePlus2 size={16} /> Add record</button> : <span className="rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">Read-only access</span>} />
     {notice && <div className="mb-5 flex items-center gap-2 rounded-lg border border-[hsl(var(--chart-3))]/30 bg-[hsl(var(--chart-3))]/10 px-4 py-3 text-sm text-[hsl(var(--chart-3))]" data-testid="status-success"><Check size={16} />{notice}</div>}
-        <RegisterFilters hasNameField={hasNameField} searchDraft={searchDraft} search={search} from={from} to={to} showFilters={showFilters} onSearchDraftChange={setSearchDraft} onApplySearch={applySearch} onClearSearch={clearSearch} onFromChange={setFrom} onToChange={setTo} onToggleFilters={() => setShowFilters((value) => !value)} onClearFilters={clearFilters} onExport={exportCsv} />
+        <RegisterFilters hasNameField={hasNameField} searchDraft={searchDraft} search={search} from={from} to={to} showFilters={showFilters} onSearchDraftChange={setSearchDraft} onApplySearch={applySearch} onClearSearch={clearSearch} onFromChange={setFrom} onToChange={setTo} onToggleFilters={() => setShowFilters((value) => !value)} onClearFilters={clearFilters} onExport={exportCsv} sortOrder={sortOrder} onSortChange={setSortOrder} />
         {passCounts.length > 0 && <section className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm" data-testid="section-pass-counts"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold"><span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary"><Check size={14} /></span>Gate passes by person</div><p className="mt-1 text-xs text-muted-foreground">Auto-counted from the records currently shown.</p></div><span className="rounded-full border border-primary/20 bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">Auto-counted</span></div><div className="mt-4 flex flex-wrap gap-2">{passCounts.map(({ name, count }) => <span key={name} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"><span className="font-semibold">{name}</span><span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-primary">{count}</span></span>)}</div></section>}
-         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">{recordsQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-muted" />)}</div> : recordsQuery.isError ? <div className="p-8 text-center text-sm text-destructive">Records could not be loaded. <button onClick={() => recordsQuery.refetch()} className="font-semibold underline" data-testid="button-retry-records">Retry</button></div> : records.length === 0 ? <div className="p-5"><EmptyState title={search || from || to ? 'No records match these filters' : 'This register is clear'} description={search || from || to ? 'Remove a filter or try another search.' : 'Start the shift by adding the first record.'} /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left"><thead className="border-b border-border bg-muted/45"><tr>{visibleFields.map((field) => <th key={field.key} className="px-4 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{field.label}{field.derived && <span className="ml-1 text-primary">(auto)</span>}</th>)}<th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Actions</th></tr></thead><tbody className="divide-y divide-border">{records.map((record) => { const editable = canEditRecord(record.createdAt, user?.role, definition.module); const deletable = canDeleteRecord(record.createdAt, user?.role); return <tr key={record.id} className="group hover:bg-secondary/35" data-testid={`row-record-${record.id}`}>{visibleFields.map((field) => <td key={field.key} className={`max-w-[190px] truncate px-4 py-4 text-sm ${field.derived ? 'font-medium text-primary' : ''}`}>{formatValue(record.data[field.key], field)}</td>)}<td className="px-5 py-4"><div className="flex justify-end gap-1">{editable && <button onClick={() => setDialog(record)} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" data-testid={`button-edit-record-${record.id}`} title={user?.role === 'admin' ? 'Edit record' : `Edit within ${editWindowLabel(user?.role, definition.module)} of entry`}><Edit3 size={14} /></button>}{deletable && <button onClick={() => onDelete(record)} disabled={remove.isPending} className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" data-testid={`button-delete-record-${record.id}`} title={user?.role === 'admin' ? 'Delete record' : 'Delete within 7 days of entry'}><Trash2 size={14} /></button>}{!editable && !deletable && (user?.role === 'manager' || user?.role === 'security') ? <span className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground" title={`Editing and deletion are locked after ${editWindowLabel(user?.role, definition.module)}`}><LockKeyhole size={13} /> Locked</span> : !editable && !deletable && <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">View only</span>}</div></td></tr>; })}</tbody></table></div>}<div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">Showing <span className="font-mono text-foreground">{records.length}</span> of <span className="font-mono text-foreground">{recordsQuery.data?.total ?? definition.recordCount}</span> records</div></div>
-      {dialog && <RecordDialog definition={definition} fields={visibleFields} labourNames={labourNames} keyNames={keyNames} driverNames={driverFieldOptions} securityNames={securityNames} nameOptions={nameOptions} initial={dialog === 'create' ? undefined : dialog} pending={create.isPending || update.isPending} onClose={() => setDialog(null)} onSubmit={onSubmit} />}
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">{recordsQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-12 animate-pulse rounded bg-muted" />)}</div> : recordsQuery.isError ? <div className="p-8 text-center text-sm text-destructive">Records could not be loaded. <button onClick={() => recordsQuery.refetch()} className="font-semibold underline" data-testid="button-retry-records">Retry</button></div> : records.length === 0 ? <div className="p-5"><EmptyState title={search || from || to ? 'No records match these filters' : 'This register is clear'} description={search || from || to ? 'Remove a filter or try another search.' : 'Start the shift by adding the first record.'} /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left"><thead className="border-b border-border bg-muted/45"><tr>{visibleFields.map((field) => <th key={field.key} className="px-4 py-3 font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{field.label}{field.derived && <span className="ml-1 text-primary">(auto)</span>}</th>)}<th className="px-5 py-3 text-right font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Actions</th></tr></thead><tbody className="divide-y divide-border">{sortedRecords.map((record) => { const editable = canEditRecord(record.createdAt, user?.role, definition.module); const deletable = canDeleteRecord(record.createdAt, user?.role); return <tr key={record.id} className="group hover:bg-secondary/35" data-testid={`row-record-${record.id}`}>{visibleFields.map((field) => <td key={field.key} className={`max-w-[190px] truncate px-4 py-4 text-sm ${field.derived ? 'font-medium text-primary' : ''}`}>{formatValue(record.data[field.key], field)}</td>)}<td className="px-5 py-4"><div className="flex justify-end gap-1">{editable && <button onClick={() => setDialog(record)} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" data-testid={`button-edit-record-${record.id}`} title={user?.role === 'admin' ? 'Edit record' : `Edit within ${editWindowLabel(user?.role, definition.module)} of entry`}><Edit3 size={14} /></button>}{deletable && <button onClick={() => onDelete(record)} disabled={remove.isPending} className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" data-testid={`button-delete-record-${record.id}`} title={user?.role === 'admin' ? 'Delete record' : 'Delete within 7 days of entry'}><Trash2 size={14} /></button>}{!editable && !deletable && (user?.role === 'manager' || user?.role === 'security') ? <span className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground" title={`Editing and deletion are locked after ${editWindowLabel(user?.role, definition.module)}`}><LockKeyhole size={13} /> Locked</span> : !editable && !deletable && <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">View only</span>}</div></td></tr>; })}</tbody></table></div>}<div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">Showing <span className="font-mono text-foreground">{records.length}</span> of <span className="font-mono text-foreground">{recordsQuery.data?.total ?? definition.recordCount}</span> records</div></div>
+      {dialog && <RecordDialog definition={definition} fields={visibleFields} labourNames={labourNames} keyNames={keyNames} driverNames={driverFieldOptions} driverPhones={driverPhones} securityNames={securityNames} nameOptions={nameOptions} initial={dialog === 'create' ? undefined : dialog} pending={create.isPending || update.isPending} onClose={() => setDialog(null)} onSubmit={onSubmit} />}
   </div>;
 }
 
@@ -286,17 +307,11 @@ const formatSignedClockDuration = (minutes: number) => {
   return `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
 };
 const formatTotalDays = (minutes: number) => {
-  const days = minutes / 480;
-  return Number.isInteger(days) ? String(days) : days.toFixed(2);
+  return minutes >= 480 ? '1' : '0';
 };
 
 const trainingDurationMinutes = (values: Record<string, unknown>) => {
-  const periodMinutes = (value: unknown, period: 'morning' | 'evening') => {
-    const minutes = timeToMinutes(value);
-    if (minutes === undefined) return undefined;
-    const hour = Math.floor(minutes / 60);
-    return period === 'evening' && hour < 12 ? minutes + 720 : minutes;
-  };
+  const periodMinutes = (value: unknown, _period: 'morning' | 'evening') => timeToMinutes(value);
   const morningIn = periodMinutes(values.morning_in, 'morning');
   const morningOut = periodMinutes(values.morning_out, 'morning');
   const eveningIn = periodMinutes(values.evening_in, 'evening');
@@ -323,7 +338,7 @@ const trainingDurationMinutes = (values: Record<string, unknown>) => {
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
 };
 
-function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
+function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
   const initialValues = useMemo(() => ({
     ...(initial?.data ?? {}),
     ...(!initial?.data?.date && definition.fields.some((field) => field.key === 'date')
@@ -352,8 +367,13 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
       if (totalMinutes !== undefined) {
         calculated.total_hours = formatClockDuration(totalMinutes);
         calculated.total_days = formatTotalDays(totalMinutes);
-        calculated.overtime = formatSignedClockDuration(totalMinutes - 480);
+        calculated.overtime = formatClockDuration(Math.max(totalMinutes - 480, 0));
       }
+    }
+
+    if (definition.slug === 'driver-schedule') {
+      const driverName = String(values.choosen_driver ?? '').trim().toLowerCase();
+      calculated.fetched_phone = driverPhones[driverName] ?? '';
     }
 
     if (definition.slug === 'mango-tree-meter' || definition.slug === 'clinic-gate-meter') {
@@ -367,8 +387,8 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
       const offMinutes = minutes !== undefined && onMinutes !== undefined ? Math.round(onMinutes + minutes) : undefined;
       if (minutes !== undefined) calculated.minutes_consumed = Number(minutes.toFixed(2));
       if (offMinutes !== undefined) calculated.off_time = `${String(Math.floor((((offMinutes % 1440) + 1440) % 1440) / 60)).padStart(2, '0')}:${String(((offMinutes % 60) + 60) % 60).padStart(2, '0')}`;
-      if (water !== undefined) calculated.total_water_consumed = water;
-      if (water !== undefined && minutes) calculated.per_minute_water_consumed = Number((water / minutes).toFixed(2));
+      if (water !== undefined) calculated.total_water_consumed = Math.round(water);
+      if (water !== undefined && minutes) calculated.per_minute_water_consumed = Math.round(water / minutes);
     }
 
     if (definition.slug === 'outgoing-vehicles' || definition.slug === 'outgoing-vehicle-log') {
@@ -387,7 +407,7 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
     }
 
     return calculated;
-  }, [definition.slug, values]);
+  }, [definition.slug, driverPhones, values]);
   useEffect(() => { setValues(initialValues); setError(''); }, [initialValues]);
   const displayValues: Record<string, unknown> = { ...values, ...derivedValues };
   const submit = () => {
