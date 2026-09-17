@@ -64,9 +64,13 @@ const formatSignedClockDuration = (minutes: number) => {
   return `${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
 };
 
-const formatTotalDays = (minutes: number) => {
-  return minutes >= 480 ? "1" : "0";
+const totalDaysForMinutes = (minutes: number) => {
+  if (minutes >= 480) return 1;
+  if (minutes >= 240) return 0.5;
+  return 0;
 };
+
+const formatTotalDays = (minutes: number) => String(totalDaysForMinutes(minutes));
 
 const trainingDurationMinutes = (data: Record<string, unknown>) => {
   const morningIn = minutesFromTime(data.morning_in, "morning");
@@ -335,7 +339,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       : ["daily-attendance", "chowk-labour"].includes(row.registerSlug)
         ? trainingDurationMinutes(data) ?? parseDurationMinutes(data.total_hours) ?? 0
         : parseDurationMinutes(data.time_duration) ?? 0;
-    const workedDays = row.registerSlug === "driver-attendance" ? 1 : Math.max(minutes / 480, 0);
+    const workedDays = row.registerSlug === "driver-attendance" ? 1 : totalDaysForMinutes(minutes);
     const overtimeMinutes = Math.max(minutes - 480, 0);
     const shortfallMinutes = Math.max(480 - minutes, 0);
     const wage = wages.get(name.toLowerCase()) ?? 0;

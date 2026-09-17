@@ -307,7 +307,9 @@ const formatSignedClockDuration = (minutes: number) => {
   return `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
 };
 const formatTotalDays = (minutes: number) => {
-  return minutes >= 480 ? '1' : '0';
+  if (minutes >= 480) return '1';
+  if (minutes >= 240) return '0.5';
+  return '0';
 };
 
 const trainingDurationMinutes = (values: Record<string, unknown>) => {

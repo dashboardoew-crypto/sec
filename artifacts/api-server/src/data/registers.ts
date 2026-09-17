@@ -150,6 +150,10 @@ const serviceBillFields: FieldDefinition[] = [
   { key: "party_name", label: "PARTY NAME", type: "text", required: true },
   { key: "invoice_number", label: "INVOICE NUMBER", type: "text", required: true },
   { key: "invoice_date", label: "INVOICE DATE", type: "date", required: true },
+  { key: "type_of_payment", label: "TYPE OF PAYMENT", type: "text", required: true },
+  { key: "quantity", label: "QUANTITY", type: "number", required: true },
+  { key: "particulars", label: "PARTICULARS", type: "textarea", required: true },
+  { key: "amount", label: "AMOUNT", type: "number", required: true },
 ];
 
 const jackRegisterFields: FieldDefinition[] = [
