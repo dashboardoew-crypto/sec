@@ -43,10 +43,10 @@ An operations workspace that replaces the Security and Main Gate Security workbo
 
 ## Product
 
-- The entry experience intentionally shows only the two top-level module choices; users choose a module before seeing its register library.
+- The entry experience shows the operational modules; HR is the single entry point for people, payroll, payment recording, and the daily payment ledger.
 - Module libraries open as full-screen restricted workspaces, and register detail pages keep navigation limited to the selected module.
 - Dashboard for both modules with totals, recent activity, attention items, and register counts.
-- People & Pay command center with period controls, payroll health, audit checks, exception visibility, and direct links into the payment queue and ledgers.
+- HR command center with period controls, register-driven person selection, payroll health, amount paid/left visibility, payment recording access, and a today-only payment ledger.
 - Searchable module libraries for all Security Operations and Main Gate Security registers.
 - Register-level add, edit, delete, date filtering, free-text search, CSV export, and print support.
 - Admin data tools support one-CSV imports across all registers and daily multi-tab workbook backups at 6:00 PM Asia/Kolkata to an admin-configured email.

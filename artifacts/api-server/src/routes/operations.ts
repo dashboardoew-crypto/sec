@@ -681,10 +681,12 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
   const to = typeof req.query.to === "string" ? req.query.to : "";
   const source = typeof req.query.source === "string" ? req.query.source : "all";
   const name = typeof req.query.name === "string" ? req.query.name.trim().toLowerCase() : "";
+  const paidOn = typeof req.query.paidOn === "string" ? req.query.paidOn : "";
   return res.json(rows.filter((transaction) =>
     (!from || transaction.toDate >= from) &&
     (!to || transaction.fromDate <= to) &&
     sourceMatches(transaction.sourceScope, source) &&
+    (!paidOn || dateInIndia(transaction.paidAt) === paidOn) &&
     (!name || transaction.personName.toLowerCase().includes(name)),
   ));
 });

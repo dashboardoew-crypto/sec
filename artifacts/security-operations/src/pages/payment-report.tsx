@@ -27,7 +27,7 @@ export default function PaymentReportPage() {
     try {
       const [nextReport, nextTransactions] = await Promise.all([
         fetchHrReport(nextFrom, nextTo, nextSource),
-        fetchPaymentTransactions(nextFrom, nextTo, nextSource, nextName),
+        fetchPaymentTransactions('', '', nextSource, nextName, today()),
       ]);
       setReport(nextReport);
       setTransactions(nextTransactions);
@@ -40,10 +40,19 @@ export default function PaymentReportPage() {
 
   useEffect(() => { void load(); }, []);
 
+  const peopleOptions = useMemo(() => Array.from(new Set(
+    (report?.details ?? [])
+      .filter((row) => source === 'all' || row.source === source)
+      .map((row) => row.name)
+      .filter(Boolean),
+  )).sort((a, b) => a.localeCompare(b)), [report, source]);
   const details = useMemo(() => (report?.details ?? [])
     .filter((row) => row.name.toLowerCase().includes(name.trim().toLowerCase()))
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)), [name, report]);
   const summaries = useMemo(() => (report?.summaries ?? []).filter((row) => row.name.toLowerCase().includes(name.trim().toLowerCase())), [name, report]);
+  const visibleTransactions = useMemo(() => transactions.filter((transaction) =>
+    !name || transaction.personName.toLowerCase() === name.toLowerCase(),
+  ), [name, transactions]);
   const totals = useMemo(() => ({
     people: summaries.length,
     due: details.reduce((sum, row) => sum + row.totalAmount, 0),
@@ -88,7 +97,7 @@ export default function PaymentReportPage() {
         <label><span className="mb-1.5 block text-xs font-semibold">From date</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className={inputClass} /></label>
         <label><span className="mb-1.5 block text-xs font-semibold">To date</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} className={inputClass} /></label>
         <label><span className="mb-1.5 block text-xs font-semibold">Register</span><select value={source} onChange={(event) => setSource(event.target.value)} className={inputClass}><option value="all">All registers</option><option value="driver-attendance">Driver Attendance</option><option value="daily-attendance">Training Register</option><option value="chowk-labour">Chowk Labour</option></select></label>
-        <label><span className="mb-1.5 block text-xs font-semibold">Search person</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="All people" className={inputClass} /></label>
+       <label><span className="mb-1.5 block text-xs font-semibold">Search person</span><select value={name} onChange={(event) => setName(event.target.value)} className={inputClass} disabled={!peopleOptions.length}><option value="">All people</option>{peopleOptions.map((personName) => <option key={personName} value={personName}>{personName}</option>)}</select></label>
       </div>
       <div className="mt-4 flex items-center gap-3"><button onClick={() => void load(from, to, source, name)} disabled={loading || !from || !to || from > to} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> {loading ? 'Loading…' : 'Refresh report'}</button>{error && <span className="text-sm text-destructive">{error}</span>}</div>
     </section>
@@ -109,9 +118,9 @@ export default function PaymentReportPage() {
     </section>
 
     <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">Payment events</h2><p className="text-xs text-muted-foreground">This is the actual payment history, separate from the attendance rows it covers.</p></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Payment date', 'Person', 'Paid period', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{transactions.map((transaction) => <tr key={transaction.id}><td className="px-4 py-3">{paymentDateLabel(transaction.paidAt)}</td><td className="px-4 py-3 font-semibold">{transaction.personName}</td><td className="px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td><td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td><td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td><td className="px-4 py-3">{transaction.paymentMethod}</td><td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td><td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td></tr>)}</tbody></table></div>
-      {!loading && !transactions.length && <div className="p-8 text-center text-sm text-muted-foreground">No payment events recorded for this period.</div>}
+       <div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">Payments made today</h2><p className="text-xs text-muted-foreground">Only payments recorded today are shown, separate from the attendance rows they cover.</p></div>
+       <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Payment date', 'Person', 'Paid period', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleTransactions.map((transaction) => <tr key={transaction.id}><td className="px-4 py-3">{paymentDateLabel(transaction.paidAt)}</td><td className="px-4 py-3 font-semibold">{transaction.personName}</td><td className="px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td><td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td><td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td><td className="px-4 py-3">{transaction.paymentMethod}</td><td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td><td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td></tr>)}</tbody></table></div>
+       {!loading && !visibleTransactions.length && <div className="p-8 text-center text-sm text-muted-foreground">No payments have been recorded today for this register and person filter.</div>}
     </section>
   </div>;
 }

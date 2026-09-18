@@ -1,4 +1,4 @@
-import { ArrowRight, FileBarChart2, FileSpreadsheet, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
+import { ArrowRight, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
 import { canAccessWorkspace, useAuth, type WorkspaceSlug } from '@/lib/auth';
 
@@ -31,25 +31,11 @@ const modules: Array<{
     icon: UsersRound,
   },
   {
-    slug: 'payments',
-    href: '/payments',
-    label: 'HR & Payments',
-    description: 'Balances and next payments; HR/Admin can record',
-    icon: WalletCards,
-  },
-  {
     slug: 'hr',
     href: '/hr',
-    label: 'People & Pay Center',
-    description: 'Payroll health, controls, people and next actions',
-    icon: UsersRound,
-  },
-  {
-    slug: 'payment-report',
-    href: '/payment-report',
-    label: 'Daily Payment Ledger',
-    description: 'Attendance day, amount due, paid, left, and references',
-    icon: FileSpreadsheet,
+    label: 'HR',
+    description: 'People, payroll, payments and today’s ledger',
+    icon: WalletCards,
   },
 ];
 
@@ -80,7 +66,7 @@ export default function ModuleLogin() {
             Choose your workspace
           </h1>
           <p className="mt-5 max-w-lg text-sm leading-7 text-white/65 sm:text-base">
-            Select a module to continue to its operational registers and enter today&apos;s details.
+            Select a module to continue. HR brings people, payroll, payment recording and today&apos;s payment ledger into one workspace.
           </p>
         </div>
 

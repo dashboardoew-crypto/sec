@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardCheck,
-  FileBarChart2,
   FileSpreadsheet,
   RefreshCw,
   UsersRound,
@@ -36,23 +35,25 @@ const sourceLabel = (source: string) => source === 'daily-attendance'
     : source === 'driver-attendance'
       ? 'Driver Attendance'
       : 'All registers';
+const paymentDateLabel = (value: string) => displayDate(value.slice(0, 10));
 
 export default function HrCenterPage() {
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
   const [source, setSource] = useState('all');
+  const [name, setName] = useState('');
   const [report, setReport] = useState<HrReport | null>(null);
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = async (nextFrom = from, nextTo = to, nextSource = source) => {
+  const load = async (nextFrom = from, nextTo = to, nextSource = source, nextName = name) => {
     setLoading(true);
     setError('');
     try {
       const [nextReport, nextTransactions] = await Promise.all([
         fetchHrReport(nextFrom, nextTo, nextSource),
-        fetchPaymentTransactions(nextFrom, nextTo, nextSource),
+        fetchPaymentTransactions('', '', nextSource, nextName, today()),
       ]);
       setReport(nextReport);
       setTransactions(nextTransactions);
@@ -66,7 +67,17 @@ export default function HrCenterPage() {
   useEffect(() => { void load(); }, []);
 
   const summaries = useMemo(() => [...(report?.summaries ?? [])].sort((a, b) =>
-    b.outstandingAmount - a.outstandingAmount || a.name.localeCompare(b.name)), [report]);
+    b.outstandingAmount - a.outstandingAmount || a.name.localeCompare(b.name))
+    .filter((row) => !name || row.name.toLowerCase() === name.toLowerCase()), [name, report]);
+  const peopleOptions = useMemo(() => Array.from(new Set(
+    (report?.details ?? [])
+      .filter((row) => source === 'all' || row.source === source)
+      .map((row) => row.name)
+      .filter(Boolean),
+  )).sort((a, b) => a.localeCompare(b)), [report, source]);
+  const visibleTransactions = useMemo(() => transactions.filter((transaction) =>
+    !name || transaction.personName.toLowerCase() === name.toLowerCase(),
+  ), [name, transactions]);
 
   const totals = useMemo(() => ({
     people: summaries.length,
@@ -79,7 +90,7 @@ export default function HrCenterPage() {
   }), [summaries]);
 
   const checks = useMemo(() => {
-    const missingReferences = transactions.filter((transaction) =>
+     const missingReferences = visibleTransactions.filter((transaction) =>
       transaction.paymentMethod !== 'Cash' && transaction.paymentMethod !== 'Other' && !transaction.paymentReference,
     ).length;
     return [
@@ -90,7 +101,7 @@ export default function HrCenterPage() {
       },
       {
         label: 'Payment audit trail',
-        detail: missingReferences ? `${missingReferences} non-cash payment(s) need a reference.` : `${transactions.length} payment event(s) have an audit trail.`,
+         detail: missingReferences ? `${missingReferences} non-cash payment(s) need a reference.` : `${visibleTransactions.length} payment(s) made today have an audit trail.`,
         tone: missingReferences ? 'watch' : 'ready',
       },
       {
@@ -104,23 +115,22 @@ export default function HrCenterPage() {
         tone: totals.shortfallMinutes ? 'watch' : 'ready',
       },
     ] as const;
-  }, [report, transactions, totals]);
+  }, [report, totals, visibleTransactions]);
 
   return (
     <div className="ops-grid min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10">
       <div className="mb-6 flex items-center justify-between print:hidden">
         <Link href="/" className="flex items-center gap-2 text-sm font-semibold"><ArrowLeft size={16} /> Back to modules</Link>
-        <span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">People &amp; pay control room</span>
+         <span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">HR workspace</span>
       </div>
 
       <PageIntro
-        eyebrow="Human resources and finance"
-        title="People & pay command center"
-        description="Understand who worked, what is payable, what has already been paid, and which items need a human check before the next payroll run."
+         eyebrow="Human resources"
+         title="HR command center"
+         description="Check people, payable amounts, payments already made, balances left, and today’s payment activity from one workspace."
         action={(
           <div className="flex flex-wrap gap-2 print:hidden">
-            <Link href="/reports" className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted"><FileBarChart2 size={16} /> Payroll summary</Link>
-            <Link href="/payments" className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><WalletCards size={16} /> Open payment queue</Link>
+             <Link href="/payments" className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><WalletCards size={16} /> Record a payment</Link>
           </div>
         )}
       />
@@ -130,11 +140,12 @@ export default function HrCenterPage() {
           <div className="grid size-10 place-items-center rounded-lg bg-primary/10 text-primary"><CalendarClock size={20} /></div>
           <div><h2 className="font-serif text-lg font-bold">Control period</h2><p className="text-xs text-muted-foreground">Every number below comes from the selected attendance period and register scope.</p></div>
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
+         <div className="grid gap-4 md:grid-cols-5">
           <label><span className="mb-1.5 block text-xs font-semibold">From date</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className={inputClass} /></label>
           <label><span className="mb-1.5 block text-xs font-semibold">To date</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} className={inputClass} /></label>
-          <label><span className="mb-1.5 block text-xs font-semibold">Register scope</span><select value={source} onChange={(event) => setSource(event.target.value)} className={inputClass}><option value="all">All registers</option><option value="driver-attendance">Driver Attendance</option><option value="daily-attendance">Training Register</option><option value="chowk-labour">Chowk Labour</option></select></label>
-          <div className="flex items-end"><button onClick={() => void load(from, to, source)} disabled={loading || !from || !to || from > to} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> {loading ? 'Refreshing…' : 'Refresh control room'}</button></div>
+           <label><span className="mb-1.5 block text-xs font-semibold">Register</span><select value={source} onChange={(event) => { setSource(event.target.value); setName(''); }} className={inputClass}><option value="all">All registers</option><option value="driver-attendance">Driver Attendance</option><option value="daily-attendance">Training Register</option><option value="chowk-labour">Chowk Labour</option></select></label>
+           <label><span className="mb-1.5 block text-xs font-semibold">Search person</span><select value={name} onChange={(event) => setName(event.target.value)} className={inputClass} disabled={!peopleOptions.length}><option value="">All people</option>{peopleOptions.map((personName) => <option key={personName} value={personName}>{personName}</option>)}</select></label>
+           <div className="flex items-end"><button onClick={() => void load(from, to, source, name)} disabled={loading || !from || !to || from > to} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> {loading ? 'Refreshing…' : 'Refresh HR'}</button></div>
         </div>
         {error && <div className="mt-4 flex items-center gap-2 text-sm text-destructive"><AlertTriangle size={15} /> {error}</div>}
       </section>
@@ -169,10 +180,10 @@ export default function HrCenterPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+       <section className="mb-5 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-          <div><h2 className="font-serif text-lg font-bold">People at a glance</h2><p className="mt-0.5 text-xs text-muted-foreground">Sorted by the amount still open so the next action is obvious.</p></div>
-          <Link href="/payment-report" className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open daily ledger <ArrowUpRight size={14} /></Link>
+           <div><h2 className="font-serif text-lg font-bold">People at a glance</h2><p className="mt-0.5 text-xs text-muted-foreground">Sorted by the amount still open so the next action is obvious.</p></div>
+           <Link href="/payments" className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open payment queue <ArrowUpRight size={14} /></Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">
@@ -184,6 +195,20 @@ export default function HrCenterPage() {
         </div>
         {!loading && !summaries.length && <div className="p-10 text-center text-sm text-muted-foreground">No people match this period and register scope.</div>}
       </section>
+ 
+       <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+           <div><h2 className="font-serif text-lg font-bold">Payments made today</h2><p className="mt-0.5 text-xs text-muted-foreground">Only payment bills recorded today are shown here, regardless of the attendance period they cover.</p></div>
+           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">{visibleTransactions.length} payment{visibleTransactions.length === 1 ? '' : 's'}</span>
+         </div>
+         <div className="overflow-x-auto">
+           <table className="w-full min-w-[900px] text-left text-sm">
+             <thead className="border-b border-border bg-muted/45"><tr>{['Paid today', 'Person', 'Paid period', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead>
+             <tbody className="divide-y divide-border">{visibleTransactions.map((transaction) => <tr key={transaction.id} className="hover:bg-muted/30"><td className="px-4 py-3">{paymentDateLabel(transaction.paidAt)}</td><td className="px-4 py-3 font-semibold">{transaction.personName}</td><td className="px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td><td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td><td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td><td className="px-4 py-3">{transaction.paymentMethod}</td><td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td><td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td></tr>)}</tbody>
+           </table>
+         </div>
+         {!loading && !visibleTransactions.length && <div className="p-10 text-center text-sm text-muted-foreground">No payments have been recorded today for this register and person filter.</div>}
+       </section>
     </div>
   );
 }

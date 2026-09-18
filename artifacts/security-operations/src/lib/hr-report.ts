@@ -104,8 +104,8 @@ export async function fetchPaymentBills(from = '', to = '', source = 'all', name
   return payload as PaymentBill[];
 }
 
-export async function fetchPaymentTransactions(from = '', to = '', source = 'all', name = ''): Promise<PaymentTransaction[]> {
-  const query = new URLSearchParams({ from, to, source, name });
+export async function fetchPaymentTransactions(from = '', to = '', source = 'all', name = '', paidOn = ''): Promise<PaymentTransaction[]> {
+  const query = new URLSearchParams({ from, to, source, name, paidOn });
   const response = await fetch(`/api/payments/transactions?${query.toString()}`, { credentials: 'include' });
   const payload = await response.json().catch(() => []);
   if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Payment transaction history could not be loaded');
