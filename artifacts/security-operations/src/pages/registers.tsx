@@ -151,7 +151,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const labourMasterParams = useMemo(() => ({ limit: 500 }), []);
   const labourMasterQuery = useListRegisterRecords('labour-master', labourMasterParams, {
     query: {
-      enabled: definition.slug === 'daily-attendance',
+      enabled: ['daily-attendance', 'chowk-labour'].includes(definition.slug),
       queryKey: getListRegisterRecordsQueryKey('labour-master', labourMasterParams),
     },
   });
@@ -231,7 +231,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
       .filter(Boolean);
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
   }, [kothiMasterQuery.data?.records]);
-  const nameOptions = definition.slug === 'kothi-attendance' ? kothiNames : [];
+  const nameOptions = definition.slug === 'chowk-labour' ? labourNames : definition.slug === 'kothi-attendance' ? kothiNames : [];
   const driverFieldOptions = driverRegisterSlugs.includes(definition.slug) ? driverNames : [];
   const passCounts = useMemo(() => {
     if (!['personal-gate-pass', 'official-gate-pass', 'contractor-gate-pass', 'unit-2-gate-pass'].includes(definition.slug)) return [];

@@ -334,10 +334,16 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     db.select().from(paymentTransactionsTable),
   ]);
   const billMap = new Map(bills.map((bill) => [bill.billKey, bill]));
-  const wages = new Map(labourRows.map((row) => [String(row.data.name ?? "").trim().toLowerCase(), numericValue(row.data.wages_per_day)]));
+  const wages = new Map(labourRows.map((row) => [
+    String(row.data.name ?? "").trim().toLowerCase(),
+    {
+      wagePerDay: numericValue(row.data.wages_per_day),
+      overtimeRate: numericValue(row.data.overtime_wages_per_hours),
+    },
+  ]));
   const summary = new Map<string, {
     name: string; workedDays: number; leftDays: number; overtimeMinutes: number; shortfallMinutes: number;
-    wagePerDay: number;
+    wagePerDay: number; overtimeRate: number;
     baseAmount: number; overtimeAmount: number; totalAmount: number; sources: Record<string, { days: number; overtimeMinutes: number; amount: number }>;
     dates: Set<string>;
   }>();
@@ -358,17 +364,19 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const workedDays = row.registerSlug === "driver-attendance" ? 1 : totalDaysForMinutes(minutes);
     const overtimeMinutes = overtimeMinutesFor(minutes);
     const shortfallMinutes = Math.max(480 - minutes, 0);
-    const wage = wages.get(name.toLowerCase()) ?? 0;
+    const wageDetails = wages.get(name.toLowerCase()) ?? { wagePerDay: 0, overtimeRate: 0 };
+    const wage = wageDetails.wagePerDay;
     const allowanceAmount = row.registerSlug === "driver-attendance"
       ? numericValue(data.day_allowance) + numericValue(data.night_allowance)
       : workedDays * wage;
-    const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * (wage / 8);
+    const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * wageDetails.overtimeRate;
     const existing = summary.get(name.toLowerCase()) ?? {
       name, workedDays: 0, leftDays: 0, overtimeMinutes: 0, shortfallMinutes: 0,
-      wagePerDay: wage,
+      wagePerDay: wage, overtimeRate: wageDetails.overtimeRate,
       baseAmount: 0, overtimeAmount: 0, totalAmount: 0, sources: {}, dates: new Set<string>(),
     };
     existing.wagePerDay = existing.wagePerDay || wage;
+    existing.overtimeRate = existing.overtimeRate || wageDetails.overtimeRate;
     existing.workedDays += workedDays;
     existing.overtimeMinutes += overtimeMinutes;
     existing.shortfallMinutes += shortfallMinutes;
@@ -392,7 +400,20 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const exactBillKey = billKeyFor(item.name, from, to, sourceScope);
     const bill = billMap.get(exactBillKey);
     const subtotal = item.baseAmount + item.overtimeAmount;
-    const payableAmount = Math.round(subtotal);
+    const calculatedTotal = Math.round(subtotal);
+    const hasSnapshot = Boolean(bill);
+    const payableAmount = hasSnapshot ? numericValue(bill?.totalAmount) : calculatedTotal;
+    const snapshot = hasSnapshot
+      ? {
+          workedDays: numericValue(bill?.totalDays),
+          overtimeMinutes: numericValue(bill?.overtimeMinutes),
+          wagePerDay: numericValue(bill?.wagePerDay),
+          baseAmount: numericValue(bill?.wageAmount),
+          overtimeAmount: numericValue(bill?.overtimeAmount),
+          overtimeRate: numericValue(bill?.overtimeRate),
+          roundingAmount: numericValue(bill?.roundingAmount),
+        }
+      : null;
     const matchingTransactions = transactions.filter((transaction) =>
       transaction.personName.trim().toLowerCase() === item.name.trim().toLowerCase() &&
       sourceMatches(transaction.sourceScope, sourceScope) &&
@@ -407,14 +428,15 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
           : numericValue(bill?.paidAmount ?? (bill?.status === "paid" ? payableAmount : 0)),
         0,
       ),
-      Math.max(payableAmount, 0),
+       Math.max(payableAmount, 0),
     );
     const roundingAmount = Math.round(subtotal) - subtotal;
     return {
-      ...item,
-      wageAmount: item.baseAmount,
-      overtimeRate: item.wagePerDay / 8,
-      roundingAmount: Number(roundingAmount.toFixed(2)),
+       ...item,
+       ...(snapshot ?? {}),
+       wageAmount: snapshot?.baseAmount ?? item.baseAmount,
+        overtimeRate: snapshot?.overtimeRate ?? item.overtimeRate,
+       roundingAmount: Number((snapshot?.roundingAmount ?? roundingAmount).toFixed(2)),
       totalAmount: payableAmount,
       leftDays: Math.max(expectedDays - dates.size, 0),
       paidAmount,
@@ -731,7 +753,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const result = await db.transaction(async (tx) => {
     const existing = await tx.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
     const current = existing[0];
-    const totalAmount = summary.totalAmount;
+    const totalAmount = current?.totalAmount ?? summary.totalAmount;
     const nextPaidAmount = Math.min(summary.paidAmount + paymentAmount, totalAmount);
     const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
     const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
@@ -741,13 +763,13 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
       fromDate,
       toDate,
       sourceScope,
-      totalDays: summary.workedDays,
-      wagePerDay: summary.wagePerDay,
-      wageAmount: summary.wageAmount,
-      overtimeMinutes: Math.round(summary.overtimeMinutes),
-      overtimeRate: summary.overtimeRate,
-      overtimeAmount: summary.overtimeAmount,
-      roundingAmount: summary.roundingAmount,
+      totalDays: current?.totalDays ?? summary.workedDays,
+      wagePerDay: current?.wagePerDay ?? summary.wagePerDay,
+      wageAmount: current?.wageAmount ?? summary.wageAmount,
+      overtimeMinutes: current?.overtimeMinutes ?? Math.round(summary.overtimeMinutes),
+      overtimeRate: current?.overtimeRate ?? summary.overtimeRate,
+      overtimeAmount: current?.overtimeAmount ?? summary.overtimeAmount,
+      roundingAmount: current?.roundingAmount ?? summary.roundingAmount,
       totalAmount,
       paidAmount: nextPaidAmount,
       status: nextStatus,

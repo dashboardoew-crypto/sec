@@ -174,19 +174,21 @@ export default function AdminUsersPage() {
     if (!file) return;
     resetMessages();
     setImportPending(true);
-    const response = await fetch('/api/admin/data/import', {
-      method: 'POST',
-      headers: { 'Content-Type': file.name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' },
-      credentials: 'include',
-      body: await file.arrayBuffer(),
-    });
-    const payload = await response.json().catch(() => ({}));
-    setImportPending(false);
-    if (!response.ok) {
-      setError(payload.error ?? 'The workbook could not be imported.');
-      return;
+    try {
+      const response = await fetch('/api/admin/data/import', {
+        method: 'POST',
+        headers: { 'Content-Type': file.name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' },
+        credentials: 'include',
+        body: await file.arrayBuffer(),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error ?? 'The workbook could not be imported.');
+      setNotice(`${payload.imported} records imported across ${payload.registers} registers.`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'The workbook could not be imported.');
+    } finally {
+      setImportPending(false);
     }
-    setNotice(`${payload.imported} records imported across ${payload.registers} registers.`);
   };
 
   const downloadWorkbook = async () => {

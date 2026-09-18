@@ -388,14 +388,19 @@ router.get("/admin/data/import-template", (_req: Request, res: Response) => {
 });
 
 router.post("/admin/data/import", raw({
-  type: ["text/csv", "application/csv", "application/vnd.ms-excel", "application/octet-stream"],
+  type: () => true,
   limit: MAX_IMPORT_BYTES,
 }), async (req: Request, res: Response) => {
-  if (!Buffer.isBuffer(req.body)) return res.status(400).json({ error: "Upload an Excel workbook." });
+  const workbookBuffer = Buffer.isBuffer(req.body)
+    ? req.body
+    : req.body instanceof Uint8Array
+      ? Buffer.from(req.body)
+      : null;
+  if (!workbookBuffer) return res.status(400).json({ error: "Upload an Excel workbook." });
   try {
-    const imported = req.body.subarray(0, 2).toString("utf8") === "PK"
-      ? await parseImportedWorkbook(req.body)
-      : parseImportedCsvRows(req.body.toString("utf8"));
+    const imported = workbookBuffer.subarray(0, 2).toString("utf8") === "PK"
+      ? await parseImportedWorkbook(workbookBuffer)
+      : parseImportedCsvRows(workbookBuffer.toString("utf8"));
     await db.transaction(async (tx) => {
       await tx.insert(registerRecordsTable).values(imported.map((row) => ({ id: randomUUID(), ...row })));
     });
