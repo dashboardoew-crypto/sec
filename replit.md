@@ -60,6 +60,7 @@ The user wants the two uploaded workbooks treated as the primary modules and the
 
 - After changing `lib/api-spec/openapi.yaml`, run Orval code generation before consuming new hooks.
 - The generated Zod barrel can produce a duplicate export for endpoint parameter schemas; keep the barrel exporting `generated/api` only when that collision occurs.
+- Driver schedule backups may leave `FETCHED PHONE` and `Print Batch` blank; those fields are intentionally optional during workbook import.
 
 ## Pointers
 

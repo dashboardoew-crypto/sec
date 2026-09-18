@@ -191,7 +191,7 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("chowk-labour", "Chowk Labour", "security", [], "Track daily chowk labour attendance. Names are entered per record and are not stored in Labour Master."), fields: chowkLabourFields },
    { ...register("daily-attendance", "Training Register", "security", [], "Track labour training attendance, hours, and overtime."), fields: trainingFields },
   { ...register("solar-panel-cleaning", "Solar Panel Cleaning Record", "security", [], "Record cleaning work across solar panel zones."), fields: solarPanelCleaningFields },
-  register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments."),
+  register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments.", { optional: ["FETCHED PHONE", "Print Batch"] }),
   { ...register("service-bill", "Service Bill Entry", "security", [], "Record service bills and invoice details."), fields: serviceBillFields },
   { ...register("jack-register", "Jack Register OEW", "security", [], "Track jack issue and challan records."), fields: jackRegisterFields },
   register("labour-master", "Labour Master", "master", ["NAME", "FATHER NAME", "WORK LOCATION", "WAGES PER DAY"], "Maintain the labour directory and daily wage rates."),
