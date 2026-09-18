@@ -36,6 +36,7 @@ export type HrDetail = {
   paymentDates: string[];
   paymentMethods: string[];
   paymentReferences: string[];
+  paymentAllocations: Array<{ transactionId: string; amount: number }>;
   paymentStatus: 'paid' | 'partial' | 'unpaid' | 'excluded';
   paymentIncluded: boolean;
 };

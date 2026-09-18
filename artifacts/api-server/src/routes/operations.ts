@@ -467,6 +467,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     paymentDates: Set<string>;
     paymentMethods: Set<string>;
     paymentReferences: Set<string>;
+    paymentAllocations: Array<{ transactionId: string; amount: number }>;
   }>();
   const detailsByPerson = new Map<string, Array<Record<string, unknown>>>();
   for (const detail of sortedDetails) {
@@ -511,6 +512,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
           paymentDates: new Set<string>(),
           paymentMethods: new Set<string>(),
           paymentReferences: new Set<string>(),
+        paymentAllocations: [],
         };
         const due = Math.max(numericValue(detail["totalAmount"]), 0);
         const available = Math.max(due - existing.paidAmount, 0);
@@ -520,6 +522,8 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
         existing.paymentDates.add(payment.paidAt.toISOString());
         if (payment.paymentMethod) existing.paymentMethods.add(payment.paymentMethod);
         if (payment.paymentReference) existing.paymentReferences.add(payment.paymentReference);
+        const paymentId = "id" in payment && typeof payment.id === "string" ? payment.id : undefined;
+        if (paymentId) existing.paymentAllocations.push({ transactionId: paymentId, amount: allocation });
         detailPayments.set(detailId, existing);
         remaining -= allocation;
         if (remaining <= 0.005) break;
@@ -535,6 +539,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       paymentDates: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentDates ?? []),
       paymentMethods: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentMethods ?? []),
       paymentReferences: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentReferences ?? []),
+       paymentAllocations: detailPayments.get(String(item["id"] ?? ""))?.paymentAllocations ?? [],
       paymentStatus: item["paymentIncluded"] === false ? "excluded" : paymentStatusFor(
         detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0,
         numericValue(item["totalAmount"]),

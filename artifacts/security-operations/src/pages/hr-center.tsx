@@ -80,6 +80,7 @@ export default function HrCenterPage() {
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
   const [updatingAttendanceId, setUpdatingAttendanceId] = useState('');
+  const [billTransactionId, setBillTransactionId] = useState('');
   const requestId = useRef(0);
   const editable = canEditPayments(user?.role);
 
@@ -103,6 +104,7 @@ export default function HrCenterPage() {
       setTransactions(nextTransactions);
       setSelectedPerson((current) =>
         current && nextReport.summaries.some((row) => row.name === current) ? current : '');
+      return { report: nextReport, transactions: nextTransactions };
     } catch (reason) {
       if (currentRequest === requestId.current) {
         setError(reason instanceof Error ? reason.message : 'HR data could not be loaded');
@@ -110,6 +112,7 @@ export default function HrCenterPage() {
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
+    return undefined;
   };
 
   useEffect(() => {
@@ -181,7 +184,7 @@ export default function HrCenterPage() {
     setError('');
     setNotice('');
     try {
-      await savePaymentBill({
+      const savedBill = await savePaymentBill({
         personName: selected.name,
         fromDate: report.from,
         toDate: report.to,
@@ -201,7 +204,13 @@ export default function HrCenterPage() {
         paymentNote: paymentNote.trim(),
       });
       setNotice(`${selected.name}: ${amount(entered)} recorded successfully.`);
-      await load();
+      const loaded = await load();
+      const savedTransaction = loaded?.transactions.find((transaction) =>
+        transaction.billNumber === savedBill.billNumber &&
+        transaction.amount === entered &&
+        transaction.paidAt === savedBill.paidAt,
+      ) ?? loaded?.transactions.find((transaction) => transaction.billNumber === savedBill.billNumber);
+      if (savedTransaction) setBillTransactionId(savedTransaction.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Payment could not be saved');
     } finally {
@@ -368,6 +377,12 @@ export default function HrCenterPage() {
           onPrint={() => window.print()}
            onToggleAttendance={(recordId, included) => void toggleAttendance(recordId, included)}
            updatingAttendanceId={updatingAttendanceId}
+           onOpenBill={setBillTransactionId}
+           onCloseBill={() => setBillTransactionId('')}
+           billTransaction={transactions.find((transaction) => transaction.id === billTransactionId) ?? null}
+           billDetails={(report?.details ?? []).filter((row) =>
+             row.name === selectedPerson &&
+             row.paymentAllocations.some((allocation) => allocation.transactionId === billTransactionId))}
           loading={loading}
         />
       )}
@@ -435,7 +450,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
   );
 }
 
-function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, paymentAmount, setPaymentAmount, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onToggleAttendance, updatingAttendanceId, loading }: {
+function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, paymentAmount, setPaymentAmount, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onToggleAttendance, updatingAttendanceId, onOpenBill, onCloseBill, billTransaction, billDetails, loading }: {
   report: HrReport | null;
   summaries: HrSummary[];
   details: HrReport['details'];
@@ -457,6 +472,10 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   onPrint: () => void;
   onToggleAttendance: (recordId: string, included: boolean) => void;
   updatingAttendanceId: string;
+  onOpenBill: (transactionId: string) => void;
+  onCloseBill: () => void;
+  billTransaction: PaymentTransaction | null;
+  billDetails: HrReport['details'];
   loading: boolean;
 }) {
   const unpaid = summaries.filter((row) => row.outstandingAmount > 0);
@@ -480,7 +499,19 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
            <div data-print-screen className="mt-6 grid gap-3 sm:grid-cols-4"><Metric label="Worked days" value={formatDays(selected.workedDays)} /><Metric label="Total payable" value={amount(selected.totalAmount)} /><Metric label="Paid" value={amount(selected.paidAmount)} tone="success" /><Metric label="Balance left" value={amount(selected.outstandingAmount)} tone="warning" /></div>
            <div data-print-screen className="mt-6 divide-y divide-border"><BillLine label="Base wages" detail={`${formatDays(selected.workedDays)} days × ${amount(selected.wagePerDay)}`} value={amount(selected.wageAmount)} /><BillLine label="Overtime" detail={`${formatMinutes(selected.overtimeMinutes)} at ${amount(selected.overtimeRate)}/hour`} value={amount(selected.overtimeAmount)} /><BillLine label="Round off" detail="Nearest rupee adjustment" value={`${selected.roundingAmount >= 0 ? '+' : ''}${amount(selected.roundingAmount)}`} /></div>
            {editable && selected.outstandingAmount > 0 && <div data-payment-form className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-5"><div className="mb-4"><h3 className="font-serif text-lg font-bold">Record a payment</h3><p className="text-xs text-muted-foreground">Enter the amount actually paid. Non-cash methods require a reference.</p></div><div className="grid gap-4 md:grid-cols-4"><label><span className="mb-1.5 block text-xs font-semibold">Amount paid</span><input type="number" min="0.01" max={selected.outstandingAmount} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Payment method</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold">Reference / UTR {paymentMethod !== 'Cash' && paymentMethod !== 'Other' ? '(required)' : '(optional)'}</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={paymentMethod === 'Cash' || paymentMethod === 'Other' ? 'Optional' : 'Enter reference'} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Note</span><input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional" className={inputClass} /></label></div><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={onRecordPayment} disabled={saving} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} {saving ? 'Saving…' : 'Record payment'}</button><button onClick={onPrint} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"><Printer size={15} /> Print statement</button></div></div>}
-           <div data-print-screen className="mt-7 grid gap-7 lg:grid-cols-2"><div><div className="mb-3 flex items-start justify-between gap-3"><div><h3 className="font-serif text-lg font-bold">Attendance for this payment</h3><p className="text-xs text-muted-foreground">Exclude a row when it should not be paid in this period. The register record is kept.</p></div><span className="print:hidden text-xs text-muted-foreground">{details.filter((row) => row.paymentIncluded).length} included · {details.filter((row) => !row.paymentIncluded).length} excluded</span></div><DetailTable details={details} onToggleAttendance={onToggleAttendance} updatingAttendanceId={updatingAttendanceId} editable={editable} /></div><div><h3 className="mb-3 font-serif text-lg font-bold">Payment history</h3>{transactions.length ? <div className="space-y-2">{transactions.map((transaction) => <div key={transaction.id} className="rounded-lg border border-border bg-muted/20 p-3 text-sm"><div className="flex justify-between gap-3"><span className="font-semibold">{amount(transaction.amount)} · {transaction.paymentMethod}</span><span className="text-xs text-muted-foreground">{displayDate(transaction.paidAt.slice(0, 10))}</span></div><div className="mt-1 text-xs text-muted-foreground">{transaction.paymentReference || 'No reference'}{transaction.paidBy ? ` · by ${transaction.paidBy}` : ''}</div>{transaction.paymentNote && <div className="mt-1 text-xs">{transaction.paymentNote}</div>}</div>)}</div> : <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">No payment has been recorded for this period.</div>}</div></div>
+            <div data-print-screen className="mt-7 grid gap-7 lg:grid-cols-[1.35fr_.65fr]">
+              <div>
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div><h3 className="font-serif text-lg font-bold">Attendance for this payment</h3><p className="text-xs text-muted-foreground">Paid rows move to payment history. Exclude a row when it should not be paid in this period.</p></div>
+                  <span className="print:hidden text-xs text-muted-foreground">{details.filter((row) => row.paymentIncluded && row.paymentStatus !== 'paid').length} open · {details.filter((row) => !row.paymentIncluded).length} excluded</span>
+                </div>
+                <DetailTable details={details} onToggleAttendance={onToggleAttendance} updatingAttendanceId={updatingAttendanceId} editable={editable} />
+              </div>
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-serif text-lg font-bold">Payment history</h3><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{transactions.length} reference{transactions.length === 1 ? '' : 's'}</span></div>
+                {transactions.length ? <div className="max-h-56 space-y-2 overflow-y-auto pr-1">{transactions.map((transaction) => <div key={transaction.id} className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs shadow-sm"><div className="flex items-center justify-between gap-2"><span className="font-semibold">{amount(transaction.amount)} · {transaction.paymentMethod}</span><span className="shrink-0 text-[10px] text-muted-foreground">{displayDate(transaction.paidAt.slice(0, 10))}</span></div><div className="mt-1 truncate text-[11px] text-muted-foreground">{transaction.billNumber}{transaction.paymentReference ? ` · Ref ${transaction.paymentReference}` : ''}</div><div className="mt-2 flex items-center justify-between gap-2"><span className="truncate text-[11px] text-muted-foreground">{transaction.paymentNote || (transaction.paidBy ? `by ${transaction.paidBy}` : 'Payment recorded')}</span><button onClick={() => onOpenBill(transaction.id)} className="shrink-0 rounded-md border border-primary/30 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/10">Open bill</button></div></div>)}</div> : <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">No payment has been recorded for this period.</div>}
+              </div>
+            </div>
            <div data-print-bill className="hidden">
              <div className="border-b border-black pb-2">
                <h1 className="text-center text-xl font-bold">PAYMENT BILL</h1>
@@ -508,6 +539,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
                <div className="border-t border-black pt-1">Worker signature</div>
              </div>
            </div>
+            {billTransaction && <BillDialog transaction={billTransaction} details={billDetails} onClose={onCloseBill} />}
         </section>
       )}
     </>
@@ -529,6 +561,78 @@ function LedgerView({ details, transactions, loading }: { details: HrReport['det
       </section>
     </>
   );
+}
+
+function BillDialog({ transaction, details, onClose }: {
+  transaction: PaymentTransaction;
+  details: HrReport['details'];
+  onClose: () => void;
+}) {
+  const billTotal = details.reduce((sum, row) => sum + billAmounts(row, transaction.id).total, 0);
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4" role="dialog" aria-modal="true" aria-label={`Bill ${transaction.billNumber}`}>
+    <div className="max-h-[90dvh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl">
+      <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
+        <div><div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">Payment bill</div><h2 className="mt-1 font-serif text-2xl font-bold">{transaction.personName}</h2><p className="mt-1 text-xs text-muted-foreground">{displayDate(transaction.fromDate)} to {displayDate(transaction.toDate)} · {transaction.billNumber}</p></div>
+        <button onClick={onClose} className="rounded-md px-2 py-1 text-sm font-semibold text-muted-foreground hover:bg-muted" aria-label="Close bill">Close</button>
+      </div>
+      <div className="p-6">
+        {details.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-border bg-muted/45"><tr>{['Date', 'Register', 'Days', 'Per day amount', 'Overtime amount', 'Total amount'].map((label) => <th key={label} className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{details.map((row) => { const line = billAmounts(row, transaction.id); return <tr key={row.id}><td className="px-3 py-2">{displayDate(row.date)}</td><td className="px-3 py-2">{sourceLabel(row.source)}</td><td className="px-3 py-2">{formatDays(row.workedDays)}</td><td className="px-3 py-2 font-mono">{amount(line.base)}</td><td className="px-3 py-2 font-mono text-primary">{amount(line.overtime)}</td><td className="px-3 py-2 font-mono font-semibold">{amount(line.total)}</td></tr>; })}</tbody></table></div> : <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No attendance rows are linked to this payment in the selected date range.</div>}
+        <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-border pt-4"><div className="text-xs text-muted-foreground"><div>Payment date: {displayDate(transaction.paidAt.slice(0, 10))}</div><div className="mt-1">Reference: {transaction.paymentReference || 'No reference'}</div></div><div className="text-right"><div className="text-xs text-muted-foreground">Payment total</div><div className="font-mono text-xl font-bold">{amount(transaction.amount)}</div>{details.length && Math.abs(billTotal - transaction.amount) > 0.005 ? <div className="mt-1 text-[10px] text-amber-700">Linked attendance total: {amount(billTotal)}</div> : null}</div></div>
+        <div className="mt-5 flex flex-wrap justify-end gap-2"><button onClick={() => downloadBill(transaction, details)} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"><Download size={14} /> Download bill</button><button onClick={() => printBill(transaction, details)} className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"><Printer size={14} /> Print bill</button></div>
+      </div>
+    </div>
+  </div>;
+}
+
+function billAmounts(row: HrReport['details'][number], transactionId: string) {
+  const allocation = row.paymentAllocations.find((item) => item.transactionId === transactionId)?.amount ?? row.totalAmount;
+  if (row.totalAmount <= 0 || allocation >= row.totalAmount - 0.005) {
+    return { base: row.baseAmount, overtime: row.overtimeAmount, total: row.totalAmount };
+  }
+  const ratio = allocation / row.totalAmount;
+  return {
+    base: row.baseAmount * ratio,
+    overtime: row.overtimeAmount * ratio,
+    total: allocation,
+  };
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function buildBillHtml(transaction: PaymentTransaction, details: HrReport['details']) {
+  const rows = details.map((row) => {
+    const line = billAmounts(row, transaction.id);
+    return `<tr><td>${escapeHtml(displayDate(row.date))}</td><td>${escapeHtml(sourceLabel(row.source))}</td><td>${escapeHtml(formatDays(row.workedDays))}</td><td>${escapeHtml(amount(line.base))}</td><td>${escapeHtml(amount(line.overtime))}</td><td><strong>${escapeHtml(amount(line.total))}</strong></td></tr>`;
+  }).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(transaction.billNumber)}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:32px}h1{margin:0 0 4px;font-size:22px}p{color:#555;font-size:12px}table{border-collapse:collapse;width:100%;margin-top:24px;font-size:12px}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f1f1f1;text-transform:uppercase;font-size:10px}td:nth-child(n+3){text-align:right}.summary{margin-top:20px;margin-left:auto;width:260px}.summary div{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:7px 0;font-size:13px}.summary strong{font-size:16px}</style></head><body><h1>Payment bill</h1><p><strong>Person:</strong> ${escapeHtml(transaction.personName)}<br><strong>Bill:</strong> ${escapeHtml(transaction.billNumber)}<br><strong>Attendance period:</strong> ${escapeHtml(displayDate(transaction.fromDate))} to ${escapeHtml(displayDate(transaction.toDate))}<br><strong>Payment date:</strong> ${escapeHtml(displayDate(transaction.paidAt.slice(0, 10)))}<br><strong>Reference:</strong> ${escapeHtml(transaction.paymentReference || 'No reference')}</p><table><thead><tr><th>Date</th><th>Register</th><th>Days</th><th>Per day amount</th><th>Overtime amount</th><th>Total amount</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No linked attendance rows.</td></tr>'}</tbody></table><div class="summary"><div><span>Payment total</span><strong>${escapeHtml(amount(transaction.amount))}</strong></div></div></body></html>`;
+}
+
+function downloadBill(transaction: PaymentTransaction, details: HrReport['details']) {
+  const url = URL.createObjectURL(new Blob([buildBillHtml(transaction, details)], { type: 'text/html' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `bill-${transaction.billNumber}.html`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function printBill(transaction: PaymentTransaction, details: HrReport['details']) {
+  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=700');
+  if (!printWindow) return;
+  printWindow.document.write(buildBillHtml(transaction, details));
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.onload = () => {
+    printWindow.print();
+    printWindow.close();
+  };
 }
 
 function DateField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -569,7 +673,8 @@ function DetailTable({ details, onToggleAttendance, updatingAttendanceId, editab
   updatingAttendanceId: string;
   editable: boolean;
 }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-border"><tr>{['Date', 'Register', 'Days', 'Hours', 'Overtime', 'Amount', 'Status', 'Action'].map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{details.map((row) => <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{displayDate(row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.totalAmount)}</td><td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td><td className="px-2 py-2 print:hidden">{editable ? <button onClick={() => onToggleAttendance(row.id, !row.paymentIncluded)} disabled={updatingAttendanceId === row.id} className="whitespace-nowrap rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-muted disabled:opacity-50">{updatingAttendanceId === row.id ? 'Saving…' : row.paymentIncluded ? 'Exclude from payment' : 'Include in payment'}</button> : <span className="text-muted-foreground">View only</span>}</td></tr>)}</tbody></table></div>;
+  const visibleDetails = details.filter((row) => row.paymentStatus !== 'paid');
+  return <div className="overflow-x-auto"><table className="w-full min-w-[960px] text-left text-xs"><thead className="border-b border-border"><tr>{['Date', 'Register', 'Days', 'Hours', 'Overtime', 'Per day amount', 'Overtime amount', 'Total amount', 'Status', 'Action'].map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{displayDate(row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono text-primary">{amount(row.overtimeAmount)}</td><td className="px-2 py-2 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td><td className="px-2 py-2 print:hidden">{editable ? <button onClick={() => onToggleAttendance(row.id, !row.paymentIncluded)} disabled={updatingAttendanceId === row.id} className="whitespace-nowrap rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-muted disabled:opacity-50">{updatingAttendanceId === row.id ? 'Saving…' : row.paymentIncluded ? 'Exclude from payment' : 'Include in payment'}</button> : <span className="text-muted-foreground">View only</span>}</td></tr>)}</tbody></table>{!visibleDetails.length && <div className="border-t border-border p-6 text-center text-sm text-muted-foreground">All attendance in this period has been paid and moved to payment history.</div>}</div>;
 }
 
 function EmptyTable({ text }: { text: string }) {
