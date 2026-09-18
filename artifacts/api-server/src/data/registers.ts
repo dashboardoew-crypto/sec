@@ -121,6 +121,7 @@ const attendanceTimeFields: FieldDefinition[] = [
   { key: "total_hours", label: "TOTAL HOURS", type: "text", derived: true },
   { key: "total_days", label: "TOTAL DAYS", type: "text", derived: true },
   { key: "overtime", label: "OVERTIME", type: "text", derived: true },
+  { key: "overtime_wages_per_hours", label: "OVERTIME WAGES PER HOURS", type: "text" },
 ];
 
 const trainingFields: FieldDefinition[] = [
@@ -181,6 +182,14 @@ const keyMasterFields: FieldDefinition[] = [
   { key: "location", label: "LOCATION", type: "text", required: true },
 ];
 
+const labourMasterFields: FieldDefinition[] = [
+  { key: "name", label: "NAME", type: "text", required: true },
+  { key: "father_name", label: "FATHER NAME", type: "text", required: true },
+  { key: "work_location", label: "WORK LOCATION", type: "text", required: true },
+  { key: "wages_per_day", label: "WAGES PER DAY", type: "number", required: true },
+  { key: "overtime_wages_per_hours", label: "OVERTIME WAGES PER HOURS", type: "text" },
+];
+
 const driverBackedFieldKeys = new Set(["name", "driver_name", "choosen_driver"]);
 const securitySignField = (field: FieldDefinition) => /sign/i.test(`${field.key} ${field.label}`);
 
@@ -194,7 +203,7 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments.", { optional: ["FETCHED PHONE", "Print Batch"] }),
   { ...register("service-bill", "Service Bill Entry", "security", [], "Record service bills and invoice details."), fields: serviceBillFields },
   { ...register("jack-register", "Jack Register OEW", "security", [], "Track jack issue and challan records."), fields: jackRegisterFields },
-  register("labour-master", "Labour Master", "master", ["NAME", "FATHER NAME", "WORK LOCATION", "WAGES PER DAY", "OVERTIME WAGES PER HOURS"], "Maintain the labour directory, daily wage rates, and each person’s overtime rate.", { optional: ["OVERTIME WAGES PER HOURS"] }),
+  { ...register("labour-master", "Labour Master", "master", [], "Maintain the labour directory, daily wage rates, and each person’s overtime rate. Enter the overtime rate as text, for example 150 or ₹150/hour."), fields: labourMasterFields },
   { ...register("driver-master", "Driver Master", "master", [], "Maintain the driver directory for HR and management."), fields: driverMasterFields },
   { ...register("security-master", "Security Master", "master", [], "Maintain the security staff directory for HR and management."), fields: securityMasterFields },
   { ...register("key-master", "Key Master", "master", [], "Maintain the locations available in Key Movement Register."), fields: keyMasterFields },

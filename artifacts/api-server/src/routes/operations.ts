@@ -310,6 +310,15 @@ const numericValue = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
 };
+const overtimeRateValue = (value: unknown) => {
+  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return undefined;
+  const candidate = typeof value === "number"
+    ? value
+    : typeof value === "string"
+      ? Number(value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/)?.[0] ?? Number.NaN)
+      : Number(value);
+  return Number.isFinite(candidate) && candidate >= 0 ? candidate : undefined;
+};
 const inclusiveDays = (from: string, to: string) =>
   Math.max(0, Math.floor((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000) + 1);
 
@@ -340,7 +349,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     String(row.data.name ?? "").trim().toLowerCase(),
     {
       wagePerDay: numericValue(row.data.wages_per_day),
-      overtimeRate: numericValue(row.data.overtime_wages_per_hours),
+      overtimeRate: overtimeRateValue(row.data.overtime_wages_per_hours) ?? 0,
     },
   ]));
   const summary = new Map<string, {
@@ -368,16 +377,18 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const shortfallMinutes = Math.max(480 - minutes, 0);
     const wageDetails = wages.get(name.toLowerCase()) ?? { wagePerDay: 0, overtimeRate: 0 };
     const wage = wageDetails.wagePerDay;
+    const attendanceOvertimeRate = overtimeRateValue(data.overtime_wages_per_hours);
+    const overtimeRate = attendanceOvertimeRate ?? wageDetails.overtimeRate;
     const allowanceAmount = row.registerSlug === "driver-attendance"
       ? numericValue(data.day_allowance) + numericValue(data.night_allowance)
       : workedDays * wage;
-    const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * wageDetails.overtimeRate;
+    const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * overtimeRate;
     const rowAmount = allowanceAmount + overtimeAmount;
     const billKey = billKeyFor(name, from, to, sourceScope);
     const paymentIncluded = !excludedKeys.has(`${billKey}|${row.id}`);
     const existing = summary.get(name.toLowerCase()) ?? {
       name, workedDays: 0, leftDays: 0, overtimeMinutes: 0, shortfallMinutes: 0,
-      wagePerDay: wage, overtimeRate: wageDetails.overtimeRate,
+      wagePerDay: wage, overtimeRate,
       baseAmount: 0, overtimeAmount: 0, totalAmount: 0, sources: {}, dates: new Set<string>(),
     };
     summary.set(name.toLowerCase(), existing);
@@ -389,7 +400,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       continue;
     }
     existing.wagePerDay = existing.wagePerDay || wage;
-    existing.overtimeRate = existing.overtimeRate || wageDetails.overtimeRate;
+    existing.overtimeRate = existing.overtimeRate || overtimeRate;
     existing.workedDays += workedDays;
     existing.overtimeMinutes += overtimeMinutes;
     existing.shortfallMinutes += shortfallMinutes;
