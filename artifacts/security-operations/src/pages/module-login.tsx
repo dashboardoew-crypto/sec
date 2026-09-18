@@ -34,7 +34,7 @@ const modules: Array<{
     slug: 'hr',
     href: '/hr',
     label: 'HR',
-    description: 'People, payroll, payments and today’s ledger',
+    description: 'People, payroll, payments and the daily ledger',
     icon: WalletCards,
   },
 ];
@@ -66,7 +66,7 @@ export default function ModuleLogin() {
             Choose your workspace
           </h1>
           <p className="mt-5 max-w-lg text-sm leading-7 text-white/65 sm:text-base">
-            Select a module to continue. HR brings people, payroll, payment recording and today&apos;s payment ledger into one workspace.
+            Select a module to continue. HR brings people, payroll, payment recording and the daily ledger into one workspace.
           </p>
         </div>
 
