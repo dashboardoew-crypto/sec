@@ -150,5 +150,8 @@ export const formatMinutes = (minutes: number) => {
 
 export const formatDays = (days: number) => Number.isInteger(days) ? String(days) : days.toFixed(2);
 export const displayDate = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-export const today = () => new Date().toISOString().slice(0, 10);
+export const today = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 export const monthStart = () => `${today().slice(0, 8)}01`;

@@ -38,6 +38,13 @@ const modules: Array<{
     icon: WalletCards,
   },
   {
+    slug: 'hr',
+    href: '/hr',
+    label: 'People & Pay Center',
+    description: 'Payroll health, controls, people and next actions',
+    icon: UsersRound,
+  },
+  {
     slug: 'payment-report',
     href: '/payment-report',
     label: 'Daily Payment Ledger',

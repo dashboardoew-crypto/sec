@@ -12,6 +12,7 @@ import AdminUsersPage from '@/pages/admin-users';
 import PaymentsPage from '@/pages/payments';
 import ReportsPage from '@/pages/reports';
 import PaymentReportPage from '@/pages/payment-report';
+import HrCenterPage from '@/pages/hr-center';
 import { AuthProvider, canAccessWorkspace, useAuth } from '@/lib/auth';
 import {
   Route,
@@ -33,6 +34,7 @@ function Router() {
             <Route path="/dashboard" component={Dashboard} />
             <Route path="/registers/:slug" component={RegistersPage} />
             <Route path="/admin/users" component={AdminUsersPage} />
+            <Route path="/hr" component={HrCenterAccessRoute} />
             <Route path="/payments" component={PaymentAccessRoute} />
             <Route path="/reports" component={ReportAccessRoute} />
             <Route path="/payment-report" component={PaymentReportAccessRoute} />
@@ -51,6 +53,11 @@ function RegisterAccessRoute() {
 function PaymentAccessRoute() {
   const { user } = useAuth();
   return canAccessWorkspace(user?.role, 'payments') ? <PaymentsPage /> : <NotFound />;
+}
+
+function HrCenterAccessRoute() {
+  const { user } = useAuth();
+  return canAccessWorkspace(user?.role, 'hr') ? <HrCenterPage /> : <NotFound />;
 }
 
 function ReportAccessRoute() {

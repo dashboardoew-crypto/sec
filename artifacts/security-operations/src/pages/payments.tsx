@@ -69,14 +69,14 @@ export default function PaymentsPage() {
   const selected = useMemo(() => report?.summaries.find((row) => row.name === person) ?? null, [person, report]);
   const selectedDetails = useMemo(() => (report?.details ?? []).filter((row) => !person || row.name === person), [person, report]);
   const totals = useMemo(() => {
-    const rows = (report?.summaries ?? []).filter((row) => row.outstandingAmount > 0);
+    const rows = report?.summaries ?? [];
     return {
       workers: rows.length,
       payable: rows.reduce((sum, row) => sum + row.totalAmount, 0),
       paid: rows.reduce((sum, row) => sum + row.paidAmount, 0),
       outstanding: rows.reduce((sum, row) => sum + row.outstandingAmount, 0),
       paidWorkers: rows.filter((row) => row.paymentStatus === 'paid').length,
-      pendingWorkers: rows.filter((row) => row.paymentStatus !== 'paid').length,
+      pendingWorkers: rows.filter((row) => row.outstandingAmount > 0).length,
     };
   }, [report]);
 
@@ -93,6 +93,11 @@ export default function PaymentsPage() {
     const entered = Number(paymentAmount);
     if (!Number.isFinite(entered) || entered <= 0 || entered > selected.outstandingAmount + 0.005) {
       setError(`Enter an amount between ₹0.01 and ${amount(selected.outstandingAmount)}.`);
+      return;
+    }
+    const reference = paymentReference.trim();
+    if (['Bank transfer', 'UPI', 'Cheque'].includes(paymentMethod) && !reference) {
+      setError(`${paymentMethod} payments need a reference or UTR number.`);
       return;
     }
     setSaving(true);
@@ -115,7 +120,7 @@ export default function PaymentsPage() {
         paymentAmount: entered,
         status: entered >= selected.outstandingAmount - 0.005 ? 'paid' : 'partial',
         paymentMethod,
-        paymentReference,
+        paymentReference: reference,
         paymentNote,
       });
       setNotice(`${selected.name}: ${amount(entered)} recorded. The balance has been recalculated from the server.`);

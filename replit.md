@@ -32,6 +32,7 @@ An operations workspace that replaces the Security and Main Gate Security workbo
 - `lib/api-spec/openapi.yaml` — the source of truth for generated API hooks and validation schemas.
 - `lib/db/src/schema/register-records.ts` — the shared JSON-backed register record table.
 - `artifacts/security-operations/src/pages/` — dashboard, register library/detail, and settings surfaces.
+- `artifacts/security-operations/src/pages/hr-center.tsx` — People & Pay command center for payroll health, control checks, and next actions.
 
 ## Architecture decisions
 
@@ -45,6 +46,7 @@ An operations workspace that replaces the Security and Main Gate Security workbo
 - The entry experience intentionally shows only the two top-level module choices; users choose a module before seeing its register library.
 - Module libraries open as full-screen restricted workspaces, and register detail pages keep navigation limited to the selected module.
 - Dashboard for both modules with totals, recent activity, attention items, and register counts.
+- People & Pay command center with period controls, payroll health, audit checks, exception visibility, and direct links into the payment queue and ledgers.
 - Searchable module libraries for all Security Operations and Main Gate Security registers.
 - Register-level add, edit, delete, date filtering, free-text search, CSV export, and print support.
 - Admin data tools support one-CSV imports across all registers and daily multi-tab workbook backups at 6:00 PM Asia/Kolkata to an admin-configured email.
