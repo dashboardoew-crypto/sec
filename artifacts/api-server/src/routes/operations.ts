@@ -319,6 +319,12 @@ const billKeyFor = (name: string, from: string, to: string, source: string) =>
   `${name.trim().toLowerCase()}|${from}|${to}|${source}`;
 const paymentStatusFor = (paidAmount: number, totalAmount: number) =>
   paidAmount >= totalAmount && totalAmount > 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
+const sourceMatches = (paymentSource: string, reportSource: string) =>
+  reportSource === "all"
+    ? paymentSource === "all" || hrRegisterSlugs.includes(paymentSource as typeof hrRegisterSlugs[number])
+    : paymentSource === reportSource;
+const paymentOverlapsPeriod = (payment: { fromDate: string; toDate: string }, from: string, to: string) =>
+  payment.toDate >= from && payment.fromDate <= to;
 
 const hrReport = async (from: string, to: string, sourceScope = "all") => {
   const [rows, labourRows, bills, transactions] = await Promise.all([
@@ -387,14 +393,12 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const bill = billMap.get(exactBillKey);
     const subtotal = item.baseAmount + item.overtimeAmount;
     const payableAmount = Math.round(subtotal);
-    const exactTransactions = transactions.filter((transaction) => transaction.billKey === exactBillKey);
-    const periodTransactions = transactions.filter((transaction) =>
+    const matchingTransactions = transactions.filter((transaction) =>
       transaction.personName.trim().toLowerCase() === item.name.trim().toLowerCase() &&
-      (sourceScope === "all" || transaction.sourceScope === sourceScope) &&
-      transaction.fromDate >= from &&
-      transaction.toDate <= to,
+      sourceMatches(transaction.sourceScope, sourceScope) &&
+      paymentOverlapsPeriod(transaction, from, to),
     );
-    const transactionPaidAmount = (exactTransactions.length ? exactTransactions : periodTransactions)
+    const transactionPaidAmount = matchingTransactions
       .reduce((sum, transaction) => sum + numericValue(transaction.amount), 0);
     const paidAmount = Math.min(
       Math.max(
@@ -442,9 +446,8 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const matchingTransactions = transactions
       .filter((transaction) =>
         transaction.personName.trim().toLowerCase() === personKey &&
-        (sourceScope === "all" || transaction.sourceScope === sourceScope) &&
-        transaction.fromDate >= from &&
-        transaction.toDate <= to,
+      sourceMatches(transaction.sourceScope, sourceScope) &&
+      paymentOverlapsPeriod(transaction, from, to),
       )
       .sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
     const bill = billMap.get(exactBillKey);
@@ -664,7 +667,7 @@ router.get("/payments/bills", async (req: Request, res: Response) => {
   return res.json(rows.filter((bill) =>
     (!from || bill.fromDate >= from) &&
     (!to || bill.toDate <= to) &&
-    (source === "all" || bill.sourceScope === source) &&
+    sourceMatches(bill.sourceScope, source) &&
     (!name || bill.personName.toLowerCase().includes(name)),
   ));
 });
@@ -681,7 +684,7 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
   return res.json(rows.filter((transaction) =>
     (!from || transaction.toDate >= from) &&
     (!to || transaction.fromDate <= to) &&
-    (source === "all" || transaction.sourceScope === source) &&
+    sourceMatches(transaction.sourceScope, source) &&
     (!name || transaction.personName.toLowerCase().includes(name)),
   ));
 });
@@ -695,66 +698,87 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const fromDate = typeof body.fromDate === "string" ? body.fromDate : "";
   const toDate = typeof body.toDate === "string" ? body.toDate : "";
   const sourceScope = typeof body.sourceScope === "string" ? body.sourceScope : "all";
-  const status = body.status === "paid" ? "paid" : body.status === "partial" ? "partial" : body.status === "unpaid" ? "unpaid" : "";
-  if (!personName || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate || !status || !paymentSourceSlugs.includes(sourceScope as typeof paymentSourceSlugs[number])) {
-    return res.status(400).json({ error: "Invalid bill details" });
-  }
-  const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
-  const billKey = billKeyFor(personName, fromDate, toDate, sourceScope);
-  const existing = await db.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
-  const current = existing[0];
-  const totalAmount = Math.max(number(body.totalAmount), 0);
-  const existingPaidAmount = Math.min(
-    Math.max(number(current?.paidAmount ?? (current?.status === "paid" ? current.totalAmount : 0)), 0),
-    totalAmount,
-  );
-  const suppliedPaymentAmount = body.paymentAmount === undefined ? undefined : Math.max(number(body.paymentAmount), 0);
-  const paymentAmount = status === "unpaid" && suppliedPaymentAmount === undefined
-    ? 0
-    : Math.min(suppliedPaymentAmount ?? Math.max(totalAmount - existingPaidAmount, 0), Math.max(totalAmount - existingPaidAmount, 0));
-  const nextPaidAmount = status === "unpaid" && suppliedPaymentAmount === undefined
-    ? 0
-    : existingPaidAmount + paymentAmount;
-  const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
+  const paymentAmount = Number(body.paymentAmount);
   const paymentMethod = paymentMethods.includes(body.paymentMethod as typeof paymentMethods[number])
     ? body.paymentMethod as typeof paymentMethods[number]
-    : current?.paymentMethod ?? "Cash";
-  const paymentReference = typeof body.paymentReference === "string" ? body.paymentReference.trim() || null : current?.paymentReference ?? null;
-  const paymentNote = typeof body.paymentNote === "string" ? body.paymentNote.trim() || null : current?.paymentNote ?? null;
-  const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
-  const paidAt = nextPaidAmount > 0 ? (paymentAmount > 0 ? new Date() : (current?.paidAt ?? new Date())) : null;
-  const payload = {
-    personName, fromDate, toDate, sourceScope,
-    totalDays: number(body.totalDays), wagePerDay: number(body.wagePerDay), wageAmount: number(body.wageAmount),
-    overtimeMinutes: Math.round(number(body.overtimeMinutes)), overtimeRate: number(body.overtimeRate),
-    overtimeAmount: number(body.overtimeAmount), roundingAmount: number(body.roundingAmount), totalAmount,
-    paidAmount: nextPaidAmount, status: nextStatus, paymentMethod, paymentReference, paymentNote,
-    paidAt, paidBy: nextPaidAmount > 0 ? (req.user?.displayName ?? req.user?.email ?? null) : null,
-    updatedAt: new Date(),
-  };
-  const bill = current
-    ? (await db.update(paymentBillsTable).set(payload).where(eq(paymentBillsTable.billKey, billKey)).returning())[0]
-    : (await db.insert(paymentBillsTable).values({
-      id: randomUUID(), billNumber, billKey, ...payload,
-    }).returning())[0];
-  if (paymentAmount > 0) {
-    await db.insert(paymentTransactionsTable).values({
+    : "Cash";
+  const paymentReference = typeof body.paymentReference === "string" ? body.paymentReference.trim() : "";
+  const paymentNote = typeof body.paymentNote === "string" ? body.paymentNote.trim() : "";
+  if (
+    !personName ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(toDate) ||
+    fromDate > toDate ||
+    !paymentSourceSlugs.includes(sourceScope as typeof paymentSourceSlugs[number]) ||
+    !Number.isFinite(paymentAmount) ||
+    paymentAmount <= 0 ||
+    paymentReference.length > 160 ||
+    paymentNote.length > 500 ||
+    (["Bank transfer", "UPI", "Cheque"].includes(paymentMethod) && !paymentReference)
+  ) {
+    return res.status(400).json({ error: "Invalid bill details" });
+  }
+  const report = await hrReport(fromDate, toDate, sourceScope);
+  const summary = report.summaries.find((item) => item.name.trim().toLowerCase() === personName.toLowerCase());
+  if (!summary) return res.status(404).json({ error: "No attendance or payable amount was found for this person and period" });
+  if (paymentAmount > summary.outstandingAmount + 0.005) {
+    return res.status(400).json({ error: `Payment cannot exceed the outstanding amount of ${summary.outstandingAmount.toFixed(2)}` });
+  }
+
+  const billKey = billKeyFor(personName, fromDate, toDate, sourceScope);
+  const result = await db.transaction(async (tx) => {
+    const existing = await tx.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
+    const current = existing[0];
+    const totalAmount = summary.totalAmount;
+    const nextPaidAmount = Math.min(summary.paidAmount + paymentAmount, totalAmount);
+    const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
+    const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
+    const paidAt = new Date();
+    const payload = {
+      personName: summary.name,
+      fromDate,
+      toDate,
+      sourceScope,
+      totalDays: summary.workedDays,
+      wagePerDay: summary.wagePerDay,
+      wageAmount: summary.wageAmount,
+      overtimeMinutes: Math.round(summary.overtimeMinutes),
+      overtimeRate: summary.overtimeRate,
+      overtimeAmount: summary.overtimeAmount,
+      roundingAmount: summary.roundingAmount,
+      totalAmount,
+      paidAmount: nextPaidAmount,
+      status: nextStatus,
+      paymentMethod,
+      paymentReference: paymentReference || null,
+      paymentNote: paymentNote || null,
+      paidAt,
+      paidBy: req.user?.displayName ?? req.user?.email ?? null,
+      updatedAt: paidAt,
+    };
+    const bill = current
+      ? (await tx.update(paymentBillsTable).set(payload).where(eq(paymentBillsTable.billKey, billKey)).returning())[0]
+      : (await tx.insert(paymentBillsTable).values({
+        id: randomUUID(), billNumber, billKey, ...payload,
+      }).returning())[0];
+    await tx.insert(paymentTransactionsTable).values({
       id: randomUUID(),
       billKey,
       billNumber: bill?.billNumber ?? billNumber,
-      personName,
+      personName: summary.name,
       fromDate,
       toDate,
       sourceScope,
       amount: paymentAmount,
       paymentMethod,
-      paymentReference,
-      paymentNote,
-      paidAt: paidAt ?? new Date(),
+      paymentReference: paymentReference || null,
+      paymentNote: paymentNote || null,
+      paidAt,
       paidBy: req.user?.displayName ?? req.user?.email ?? null,
     });
-  }
-  return res.status(current ? 200 : 201).json(bill);
+    return { bill, created: !current };
+  });
+  return res.status(result.created ? 201 : 200).json(result.bill);
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {

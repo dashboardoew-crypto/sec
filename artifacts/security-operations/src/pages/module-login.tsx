@@ -34,14 +34,14 @@ const modules: Array<{
     slug: 'payments',
     href: '/payments',
     label: 'HR & Payments',
-    description: 'Record the next payment for unpaid workers',
+    description: 'Balances and next payments; HR/Admin can record',
     icon: WalletCards,
   },
   {
     slug: 'payment-report',
     href: '/payment-report',
-    label: 'Payment Report',
-    description: 'Daily paid, unpaid, and amount-left ledger',
+    label: 'Daily Payment Ledger',
+    description: 'Attendance day, amount due, paid, left, and references',
     icon: FileSpreadsheet,
   },
 ];

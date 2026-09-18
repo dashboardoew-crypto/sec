@@ -21,13 +21,13 @@ export default function PaymentReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = async () => {
+  const load = async (nextFrom = from, nextTo = to, nextSource = source, nextName = name) => {
     setLoading(true);
     setError('');
     try {
       const [nextReport, nextTransactions] = await Promise.all([
-        fetchHrReport(from, to, source),
-        fetchPaymentTransactions(from, to, source, name),
+        fetchHrReport(nextFrom, nextTo, nextSource),
+        fetchPaymentTransactions(nextFrom, nextTo, nextSource, nextName),
       ]);
       setReport(nextReport);
       setTransactions(nextTransactions);
@@ -81,7 +81,7 @@ export default function PaymentReportPage() {
 
   return <div className="ops-grid min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10">
     <div className="mb-6 flex items-center justify-between print:hidden"><Link href="/" className="flex items-center gap-2 text-sm font-semibold"><ArrowLeft size={16} /> Back to modules</Link><span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Payment reporting workspace</span></div>
-    <PageIntro eyebrow="Human resources and finance" title="Detailed payment report" description="See every person, attendance day, amount due, amount paid, amount left, and the payment event that covered it." action={<div className="flex gap-2"><Link href="/payments" className="rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted print:hidden">Open unpaid queue</Link><button onClick={exportReport} disabled={!details.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50 print:hidden"><Download size={16} /> Export detail</button></div>} />
+    <PageIntro eyebrow="Human resources and finance" title="Daily payment ledger" description="See every person, attendance day, amount due, amount paid, amount left, and the payment event that covered it." action={<div className="flex flex-wrap gap-2"><Link href="/reports" className="rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted print:hidden">Payroll summary</Link><Link href="/payments" className="rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted print:hidden">Open unpaid queue</Link><button onClick={exportReport} disabled={!details.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50 print:hidden"><Download size={16} /> Export detail</button></div>} />
 
     <section className="mb-5 rounded-xl border border-border bg-card p-5 shadow-sm print:hidden">
       <div className="grid gap-4 md:grid-cols-4">
@@ -90,7 +90,7 @@ export default function PaymentReportPage() {
         <label><span className="mb-1.5 block text-xs font-semibold">Register</span><select value={source} onChange={(event) => setSource(event.target.value)} className={inputClass}><option value="all">All registers</option><option value="driver-attendance">Driver Attendance</option><option value="daily-attendance">Training Register</option><option value="chowk-labour">Chowk Labour</option></select></label>
         <label><span className="mb-1.5 block text-xs font-semibold">Search person</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="All people" className={inputClass} /></label>
       </div>
-      <div className="mt-4 flex items-center gap-3"><button onClick={() => void load()} disabled={loading || !from || !to || from > to} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> {loading ? 'Loading…' : 'Refresh report'}</button>{error && <span className="text-sm text-destructive">{error}</span>}</div>
+      <div className="mt-4 flex items-center gap-3"><button onClick={() => void load(from, to, source, name)} disabled={loading || !from || !to || from > to} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> {loading ? 'Loading…' : 'Refresh report'}</button>{error && <span className="text-sm text-destructive">{error}</span>}</div>
     </section>
 
     <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 print:hidden">
