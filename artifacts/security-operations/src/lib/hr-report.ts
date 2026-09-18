@@ -36,7 +36,8 @@ export type HrDetail = {
   paymentDates: string[];
   paymentMethods: string[];
   paymentReferences: string[];
-  paymentStatus: 'paid' | 'partial' | 'unpaid';
+  paymentStatus: 'paid' | 'partial' | 'unpaid' | 'excluded';
+  paymentIncluded: boolean;
 };
 
 export type HrReport = {
@@ -110,6 +111,24 @@ export async function fetchPaymentTransactions(from = '', to = '', source = 'all
   const payload = await response.json().catch(() => []);
   if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Payment transaction history could not be loaded');
   return payload as PaymentTransaction[];
+}
+
+export async function updateAttendanceInclusion(input: {
+  recordId: string;
+  fromDate: string;
+  toDate: string;
+  sourceScope: string;
+  included: boolean;
+}): Promise<{ included: boolean }> {
+  const response = await fetch('/api/hr/attendance-inclusion', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Attendance inclusion could not be updated');
+  return payload as { included: boolean };
 }
 
 export async function savePaymentBill(input: {

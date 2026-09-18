@@ -449,3 +449,67 @@
 @keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulse-dot { 0%, 100% { opacity: .45; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
 .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    min-width: 0;
+    background: white !important;
+    color: #111827 !important;
+  }
+
+  .ops-grid {
+    min-height: 0 !important;
+    padding: 0 !important;
+    background-image: none !important;
+  }
+
+  .print-statement > :not([data-print-statement]) {
+    display: none !important;
+  }
+
+  [data-print-statement] {
+    display: block !important;
+    width: 100% !important;
+    max-width: 128mm !important;
+    margin: 0 auto !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  [data-print-screen],
+  [data-payment-form],
+  .print-hidden,
+  button {
+    display: none !important;
+  }
+
+  [data-print-bill] {
+    display: block !important;
+  }
+
+  table {
+    width: 100% !important;
+    min-width: 0 !important;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 5px 4px !important;
+    color: #111827 !important;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+
+  .bg-slate-50\/70 {
+    background: transparent !important;
+  }
+}

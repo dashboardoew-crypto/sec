@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
+import { db, paymentAttendanceExclusionsTable, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
 import {
   CreateRegisterRecordBody,
   CreateRegisterRecordParams,
@@ -327,12 +327,14 @@ const paymentOverlapsPeriod = (payment: { fromDate: string; toDate: string }, fr
   payment.toDate >= from && payment.fromDate <= to;
 
 const hrReport = async (from: string, to: string, sourceScope = "all") => {
-  const [rows, labourRows, bills, transactions] = await Promise.all([
+  const [rows, labourRows, bills, transactions, exclusions] = await Promise.all([
     db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs])),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "labour-master")),
     db.select().from(paymentBillsTable),
     db.select().from(paymentTransactionsTable),
+    db.select().from(paymentAttendanceExclusionsTable),
   ]);
+  const excludedKeys = new Set(exclusions.map((item) => `${item.billKey}|${item.recordId}`));
   const billMap = new Map(bills.map((bill) => [bill.billKey, bill]));
   const wages = new Map(labourRows.map((row) => [
     String(row.data.name ?? "").trim().toLowerCase(),
@@ -370,11 +372,22 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       ? numericValue(data.day_allowance) + numericValue(data.night_allowance)
       : workedDays * wage;
     const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * wageDetails.overtimeRate;
+    const rowAmount = allowanceAmount + overtimeAmount;
+    const billKey = billKeyFor(name, from, to, sourceScope);
+    const paymentIncluded = !excludedKeys.has(`${billKey}|${row.id}`);
     const existing = summary.get(name.toLowerCase()) ?? {
       name, workedDays: 0, leftDays: 0, overtimeMinutes: 0, shortfallMinutes: 0,
       wagePerDay: wage, overtimeRate: wageDetails.overtimeRate,
       baseAmount: 0, overtimeAmount: 0, totalAmount: 0, sources: {}, dates: new Set<string>(),
     };
+    summary.set(name.toLowerCase(), existing);
+    details.push({
+      id: row.id, date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
+      shortfallMinutes, baseAmount: allowanceAmount, overtimeAmount, totalAmount: rowAmount, paymentIncluded,
+    });
+    if (!paymentIncluded) {
+      continue;
+    }
     existing.wagePerDay = existing.wagePerDay || wage;
     existing.overtimeRate = existing.overtimeRate || wageDetails.overtimeRate;
     existing.workedDays += workedDays;
@@ -382,18 +395,13 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     existing.shortfallMinutes += shortfallMinutes;
     existing.baseAmount += allowanceAmount;
     existing.overtimeAmount += overtimeAmount;
-    existing.totalAmount += allowanceAmount + overtimeAmount;
+    existing.totalAmount += rowAmount;
     existing.dates.add(date);
     const source = existing.sources[row.registerSlug] ?? { days: 0, overtimeMinutes: 0, amount: 0 };
     source.days += workedDays;
     source.overtimeMinutes += overtimeMinutes;
-    source.amount += allowanceAmount + overtimeAmount;
+    source.amount += rowAmount;
     existing.sources[row.registerSlug] = source;
-    summary.set(name.toLowerCase(), existing);
-    details.push({
-      id: row.id, date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
-      shortfallMinutes, baseAmount: allowanceAmount, overtimeAmount, totalAmount: allowanceAmount + overtimeAmount,
-    });
   }
   const expectedDays = inclusiveDays(from, to);
   const summaries = Array.from(summary.values()).map(({ dates, ...item }) => {
@@ -401,19 +409,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const bill = billMap.get(exactBillKey);
     const subtotal = item.baseAmount + item.overtimeAmount;
     const calculatedTotal = Math.round(subtotal);
-    const hasSnapshot = Boolean(bill);
-    const payableAmount = hasSnapshot ? numericValue(bill?.totalAmount) : calculatedTotal;
-    const snapshot = hasSnapshot
-      ? {
-          workedDays: numericValue(bill?.totalDays),
-          overtimeMinutes: numericValue(bill?.overtimeMinutes),
-          wagePerDay: numericValue(bill?.wagePerDay),
-          baseAmount: numericValue(bill?.wageAmount),
-          overtimeAmount: numericValue(bill?.overtimeAmount),
-          overtimeRate: numericValue(bill?.overtimeRate),
-          roundingAmount: numericValue(bill?.roundingAmount),
-        }
-      : null;
+    const payableAmount = calculatedTotal;
     const matchingTransactions = transactions.filter((transaction) =>
       transaction.personName.trim().toLowerCase() === item.name.trim().toLowerCase() &&
       sourceMatches(transaction.sourceScope, sourceScope) &&
@@ -432,11 +428,10 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     );
     const roundingAmount = Math.round(subtotal) - subtotal;
     return {
-       ...item,
-       ...(snapshot ?? {}),
-       wageAmount: snapshot?.baseAmount ?? item.baseAmount,
-        overtimeRate: snapshot?.overtimeRate ?? item.overtimeRate,
-       roundingAmount: Number((snapshot?.roundingAmount ?? roundingAmount).toFixed(2)),
+        ...item,
+        wageAmount: item.baseAmount,
+        overtimeRate: item.overtimeRate,
+        roundingAmount: Number(roundingAmount.toFixed(2)),
       totalAmount: payableAmount,
       leftDays: Math.max(expectedDays - dates.size, 0),
       paidAmount,
@@ -489,6 +484,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       let remaining = Math.max(numericValue(payment.amount), 0);
       if (!remaining) continue;
       for (const detail of personDetails) {
+        if (detail["paymentIncluded"] === false) continue;
         const detailDate = String(detail["date"] ?? "");
         if (detailDate < payment.fromDate || detailDate > payment.toDate) continue;
         const detailId = String(detail["id"] ?? "");
@@ -516,12 +512,12 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     from, to, sourceScope, expectedDays, summaries,
     details: sortedDetails.map((item) => ({
       ...item,
-      paidAmount: Number((detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0).toFixed(2)),
-      outstandingAmount: Number(Math.max(numericValue(item["totalAmount"]) - (detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0), 0).toFixed(2)),
+      paidAmount: item["paymentIncluded"] === false ? 0 : Number((detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0).toFixed(2)),
+      outstandingAmount: item["paymentIncluded"] === false ? 0 : Number(Math.max(numericValue(item["totalAmount"]) - (detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0), 0).toFixed(2)),
       paymentDates: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentDates ?? []),
       paymentMethods: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentMethods ?? []),
       paymentReferences: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentReferences ?? []),
-      paymentStatus: paymentStatusFor(
+      paymentStatus: item["paymentIncluded"] === false ? "excluded" : paymentStatusFor(
         detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0,
         numericValue(item["totalAmount"]),
       ),
@@ -677,6 +673,50 @@ router.get("/hr/report", async (req: Request, res: Response) => {
   return res.json(await hrReport(from, to, source));
 });
 
+router.post("/hr/attendance-inclusion", async (req: Request, res: Response) => {
+  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR and admins can change payment attendance inclusion" });
+  }
+  const body = req.body as Record<string, unknown>;
+  const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
+  const fromDate = typeof body.fromDate === "string" ? body.fromDate : "";
+  const toDate = typeof body.toDate === "string" ? body.toDate : "";
+  const sourceScope = typeof body.sourceScope === "string" ? body.sourceScope : "all";
+  const included = body.included === true;
+  if (
+    !recordId ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(toDate) ||
+    fromDate > toDate ||
+    !paymentSourceSlugs.includes(sourceScope as typeof paymentSourceSlugs[number])
+  ) {
+    return res.status(400).json({ error: "Invalid attendance inclusion details" });
+  }
+  const row = (await db.select().from(registerRecordsTable).where(eq(registerRecordsTable.id, recordId)).limit(1))[0];
+  if (!row || !hrRegisterSlugs.includes(row.registerSlug as typeof hrRegisterSlugs[number])) {
+    return res.status(404).json({ error: "HR attendance record not found" });
+  }
+  const name = personNameForRecord(row.registerSlug, row.data);
+  if (!name) return res.status(400).json({ error: "This attendance record has no person name" });
+  const billKey = billKeyFor(name, fromDate, toDate, sourceScope);
+  const existing = (await db.select().from(paymentAttendanceExclusionsTable)
+    .where(and(eq(paymentAttendanceExclusionsTable.recordId, recordId), eq(paymentAttendanceExclusionsTable.billKey, billKey)))
+    .limit(1))[0];
+  if (included) {
+    if (existing) {
+      await db.delete(paymentAttendanceExclusionsTable).where(eq(paymentAttendanceExclusionsTable.id, existing.id));
+    }
+  } else if (!existing) {
+    await db.insert(paymentAttendanceExclusionsTable).values({
+      id: randomUUID(),
+      recordId,
+      billKey,
+      excludedBy: req.user?.displayName ?? req.user?.email ?? null,
+    });
+  }
+  return res.json({ included });
+});
+
 router.get("/payments/bills", async (req: Request, res: Response) => {
   if (!["admin", "manager", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR, managers, and admins can view payment history" });
@@ -753,7 +793,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const result = await db.transaction(async (tx) => {
     const existing = await tx.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
     const current = existing[0];
-    const totalAmount = current?.totalAmount ?? summary.totalAmount;
+    const totalAmount = summary.totalAmount;
     const nextPaidAmount = Math.min(summary.paidAmount + paymentAmount, totalAmount);
     const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
     const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
@@ -763,13 +803,13 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
       fromDate,
       toDate,
       sourceScope,
-      totalDays: current?.totalDays ?? summary.workedDays,
-      wagePerDay: current?.wagePerDay ?? summary.wagePerDay,
-      wageAmount: current?.wageAmount ?? summary.wageAmount,
-      overtimeMinutes: current?.overtimeMinutes ?? Math.round(summary.overtimeMinutes),
-      overtimeRate: current?.overtimeRate ?? summary.overtimeRate,
-      overtimeAmount: current?.overtimeAmount ?? summary.overtimeAmount,
-      roundingAmount: current?.roundingAmount ?? summary.roundingAmount,
+      totalDays: summary.workedDays,
+      wagePerDay: summary.wagePerDay,
+      wageAmount: summary.wageAmount,
+      overtimeMinutes: Math.round(summary.overtimeMinutes),
+      overtimeRate: summary.overtimeRate,
+      overtimeAmount: summary.overtimeAmount,
+      roundingAmount: summary.roundingAmount,
       totalAmount,
       paidAmount: nextPaidAmount,
       status: nextStatus,

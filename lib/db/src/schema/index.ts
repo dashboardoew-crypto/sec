@@ -22,3 +22,4 @@ export * from "./auth";
 export * from "./backup-settings";
 export * from "./payment-bills";
 export * from "./payment-transactions";
+export * from "./payment-attendance-exclusions";

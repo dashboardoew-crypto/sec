@@ -124,12 +124,12 @@ const attendanceTimeFields: FieldDefinition[] = [
 ];
 
 const trainingFields: FieldDefinition[] = [
-  { key: "labour_name", label: "LABOUR NAME", type: "select", required: true },
+  { key: "labour_name", label: "LABOUR NAME", type: "text", required: true },
   ...attendanceTimeFields,
 ];
 
 const chowkLabourFields: FieldDefinition[] = [
-  { key: "name", label: "NAME", type: "select", required: true },
+  { key: "name", label: "NAME", type: "text", required: true },
   ...attendanceTimeFields,
 ];
 
