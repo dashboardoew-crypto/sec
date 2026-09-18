@@ -336,9 +336,10 @@ const paymentOverlapsPeriod = (payment: { fromDate: string; toDate: string }, fr
   payment.toDate >= from && payment.fromDate <= to;
 
 const hrReport = async (from: string, to: string, sourceScope = "all") => {
-  const [rows, labourRows, bills, transactions, exclusions] = await Promise.all([
+  const [rows, labourRows, chowkLabourMasterRows, bills, transactions, exclusions] = await Promise.all([
     db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs])),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "labour-master")),
+    db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "chowk-labour-master")).orderBy(desc(registerRecordsTable.updatedAt)),
     db.select().from(paymentBillsTable),
     db.select().from(paymentTransactionsTable),
     db.select().from(paymentAttendanceExclusionsTable),
@@ -352,6 +353,11 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       overtimeRate: overtimeRateValue(row.data.overtime_wages_per_hours) ?? 0,
     },
   ]));
+  const chowkLabourSettings = chowkLabourMasterRows[0]?.data ?? {};
+  const chowkLabourWageDetails = {
+    wagePerDay: numericValue(chowkLabourSettings.wages_per_day),
+    overtimeRate: overtimeRateValue(chowkLabourSettings.overtime_wages_per_hours) ?? 0,
+  };
   const summary = new Map<string, {
     name: string; workedDays: number; leftDays: number; overtimeMinutes: number; shortfallMinutes: number;
     wagePerDay: number; overtimeRate: number;
@@ -375,10 +381,11 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const workedDays = row.registerSlug === "driver-attendance" ? 1 : totalDaysForMinutes(minutes);
     const overtimeMinutes = overtimeMinutesFor(minutes);
     const shortfallMinutes = Math.max(480 - minutes, 0);
-    const wageDetails = wages.get(name.toLowerCase()) ?? { wagePerDay: 0, overtimeRate: 0 };
+    const wageDetails = row.registerSlug === "chowk-labour"
+      ? chowkLabourWageDetails
+      : wages.get(name.toLowerCase()) ?? { wagePerDay: 0, overtimeRate: 0 };
     const wage = wageDetails.wagePerDay;
-    const attendanceOvertimeRate = overtimeRateValue(data.overtime_wages_per_hours);
-    const overtimeRate = attendanceOvertimeRate ?? wageDetails.overtimeRate;
+    const overtimeRate = wageDetails.overtimeRate;
     const allowanceAmount = row.registerSlug === "driver-attendance"
       ? numericValue(data.day_allowance) + numericValue(data.night_allowance)
       : workedDays * wage;
@@ -873,6 +880,19 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   );
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
+  if (slug === "chowk-labour-master") {
+    const existing = await db.select().from(registerRecordsTable)
+      .where(eq(registerRecordsTable.registerSlug, slug))
+      .orderBy(desc(registerRecordsTable.updatedAt))
+      .limit(1);
+    if (existing[0]) {
+      const row = await db.update(registerRecordsTable).set({
+        data,
+        updatedAt: new Date(),
+      }).where(eq(registerRecordsTable.id, existing[0].id)).returning();
+      return res.json(toResponse(row[0], responseDataForRole(req, definition, row[0].data)));
+    }
+  }
   const row = await db.insert(registerRecordsTable).values({
     id: randomUUID(),
     registerSlug: slug,

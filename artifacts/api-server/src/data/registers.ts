@@ -121,7 +121,6 @@ const attendanceTimeFields: FieldDefinition[] = [
   { key: "total_hours", label: "TOTAL HOURS", type: "text", derived: true },
   { key: "total_days", label: "TOTAL DAYS", type: "text", derived: true },
   { key: "overtime", label: "OVERTIME", type: "text", derived: true },
-  { key: "overtime_wages_per_hours", label: "OVERTIME WAGES PER HOURS", type: "text" },
 ];
 
 const trainingFields: FieldDefinition[] = [
@@ -190,6 +189,11 @@ const labourMasterFields: FieldDefinition[] = [
   { key: "overtime_wages_per_hours", label: "OVERTIME WAGES PER HOURS", type: "text" },
 ];
 
+const chowkLabourMasterFields: FieldDefinition[] = [
+  { key: "wages_per_day", label: "CHOWK LABOUR WAGES PER DAY", type: "number", required: true },
+  { key: "overtime_wages_per_hours", label: "CHOWK LABOUR OVERTIME WAGES PER HOURS", type: "text", required: true },
+];
+
 const driverBackedFieldKeys = new Set(["name", "driver_name", "choosen_driver"]);
 const securitySignField = (field: FieldDefinition) => /sign/i.test(`${field.key} ${field.label}`);
 
@@ -204,6 +208,7 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("service-bill", "Service Bill Entry", "security", [], "Record service bills and invoice details."), fields: serviceBillFields },
   { ...register("jack-register", "Jack Register OEW", "security", [], "Track jack issue and challan records."), fields: jackRegisterFields },
   { ...register("labour-master", "Labour Master", "master", [], "Maintain the labour directory, daily wage rates, and each person’s overtime rate. Enter the overtime rate as text, for example 150 or ₹150/hour."), fields: labourMasterFields },
+  { ...register("chowk-labour-master", "Chowk Labour Master", "master", [], "Set the single daily wage and overtime rate shared by every Chowk Labour attendance record. Enter overtime as text, for example 150 or ₹150/hour."), fields: chowkLabourMasterFields },
   { ...register("driver-master", "Driver Master", "master", [], "Maintain the driver directory for HR and management."), fields: driverMasterFields },
   { ...register("security-master", "Security Master", "master", [], "Maintain the security staff directory for HR and management."), fields: securityMasterFields },
   { ...register("key-master", "Key Master", "master", [], "Maintain the locations available in Key Movement Register."), fields: keyMasterFields },
