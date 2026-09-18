@@ -307,9 +307,15 @@ const formatSignedClockDuration = (minutes: number) => {
   return `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
 };
 const formatTotalDays = (minutes: number) => {
-  if (minutes >= 480) return '1';
-  if (minutes >= 240) return '0.5';
-  return '0';
+  if (minutes < 300) return '0';
+  if (minutes < 480) return '0.5';
+  return '1';
+};
+
+const overtimeMinutesFor = (minutes: number) => {
+  if (minutes < 300) return Math.max(minutes, 0);
+  if (minutes < 480) return minutes - 300;
+  return Math.max(minutes - 480, 0);
 };
 
 const trainingDurationMinutes = (values: Record<string, unknown>) => {
@@ -369,7 +375,7 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
       if (totalMinutes !== undefined) {
         calculated.total_hours = formatClockDuration(totalMinutes);
         calculated.total_days = formatTotalDays(totalMinutes);
-        calculated.overtime = formatClockDuration(Math.max(totalMinutes - 480, 0));
+        calculated.overtime = formatClockDuration(overtimeMinutesFor(totalMinutes));
       }
     }
 

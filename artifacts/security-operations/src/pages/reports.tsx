@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Download, FileBarChart2, RefreshCw } from 'lucide-react';
 import { Link } from 'wouter';
 import { PageIntro } from '@/components/ops-ui';
-import { displayDate, fetchHrReport, formatDays, formatMinutes, monthStart, today, type HrReport } from '@/lib/hr-report';
+import { displayDate, fetchHrReport, fetchPaymentTransactions, formatDays, formatMinutes, monthStart, today, type HrReport, type PaymentTransaction } from '@/lib/hr-report';
 
 const inputClass = 'w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary';
 
@@ -12,18 +12,23 @@ export default function ReportsPage() {
   const [name, setName] = useState('');
   const [source, setSource] = useState('all');
   const [report, setReport] = useState<HrReport | null>(null);
+  const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const load = () => {
     setLoading(true);
     setError('');
-    fetchHrReport(from, to, source).then(setReport).catch((reason) => setError(reason instanceof Error ? reason.message : 'Report could not be loaded')).finally(() => setLoading(false));
+    Promise.all([fetchHrReport(from, to, source), fetchPaymentTransactions(from, to, source, name)])
+      .then(([nextReport, nextTransactions]) => { setReport(nextReport); setTransactions(nextTransactions); })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Report could not be loaded'))
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
 
   const summaries = useMemo(() => (report?.summaries ?? []).filter((row) => row.name.toLowerCase().includes(name.toLowerCase().trim())), [name, report]);
   const details = useMemo(() => (report?.details ?? []).filter((row) => (source === 'all' || row.source === source) && row.name.toLowerCase().includes(name.toLowerCase().trim())), [name, report, source]);
+  const paymentRows = useMemo(() => transactions.filter((transaction) => transaction.personName.toLowerCase().includes(name.toLowerCase().trim())), [name, transactions]);
   const download = () => {
     const columns = ['Name', 'Worked days', 'Left days', 'Overtime', 'Shortfall', 'Base amount', 'Overtime amount', 'Total payable', 'Paid', 'Outstanding', 'Status'];
     const csv = [columns, ...summaries.map((row) => [row.name, formatDays(row.workedDays), formatDays(row.leftDays), formatMinutes(row.overtimeMinutes), formatMinutes(row.shortfallMinutes), row.baseAmount.toFixed(2), row.overtimeAmount.toFixed(2), row.totalAmount.toFixed(2), row.paidAmount.toFixed(2), row.outstandingAmount.toFixed(2), row.paymentStatus])]
@@ -31,10 +36,17 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const link = document.createElement('a'); link.href = url; link.download = `hr-report-${from}-to-${to}.csv`; link.click(); URL.revokeObjectURL(url);
   };
+  const downloadPayments = () => {
+    const columns = ['Payment date', 'Person', 'Period from', 'Period to', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'];
+    const rows = paymentRows.map((transaction) => [transaction.paidAt, transaction.personName, transaction.fromDate, transaction.toDate, transaction.sourceScope, transaction.amount.toFixed(2), transaction.paymentMethod, transaction.paymentReference ?? '', transaction.paidBy ?? '']);
+    const csv = [columns, ...rows].map((row) => row.map((cell) => JSON.stringify(cell)).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const link = document.createElement('a'); link.href = url; link.download = `payment-history-${from}-to-${to}.csv`; link.click(); URL.revokeObjectURL(url);
+  };
 
   return <div className="ops-grid min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10">
     <div className="mb-6 flex items-center justify-between print:hidden"><Link href="/" className="flex items-center gap-2 text-sm font-semibold"><ArrowLeft size={16} /> Back to modules</Link><span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">HR workspace</span></div>
-    <PageIntro eyebrow="Human resources" title="Attendance and payroll report" description="Review worked days, left days, overtime, shortfall, and payable amounts across Driver Attendance, Training Register, and Chowk Labour." action={<button onClick={download} disabled={!summaries.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50 print:hidden"><Download size={16} /> Export report</button>} />
+    <PageIntro eyebrow="Human resources" title="Attendance and payroll report" description="Review worked days, left days, overtime, shortfall, payable amounts, and the payment history for every person." action={<div className="flex gap-2"><button onClick={download} disabled={!summaries.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50 print:hidden"><Download size={16} /> Export payroll</button><button onClick={downloadPayments} disabled={!paymentRows.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50 print:hidden"><Download size={16} /> Export payments</button></div>} />
     <section className="mb-6 rounded-xl border border-border bg-card p-5 shadow-sm print:hidden">
       <div className="grid gap-4 md:grid-cols-4">
         <label><span className="mb-1.5 block text-xs font-semibold">From date</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className={inputClass} /></label>
@@ -51,6 +63,7 @@ export default function ReportsPage() {
       {!loading && !summaries.length && <div className="p-10 text-center text-sm text-muted-foreground">No people match this period and search.</div>}
     </section>
     <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm print:hidden"><div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">Entry detail</h2><p className="text-xs text-muted-foreground">Use the register filter to inspect the rows included in the summary.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Date', 'Person', 'Register', 'Days', 'Hours', 'Overtime', 'Amount', 'Status'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{details.map((row) => <tr key={row.id}><td className="px-4 py-3">{displayDate(row.date)}</td><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{row.source === 'daily-attendance' ? 'Training Register' : row.source === 'driver-attendance' ? 'Driver Attendance' : 'Chowk Labour'}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{formatMinutes(row.minutes)}</td><td className="px-4 py-3 font-mono">{formatMinutes(row.overtimeMinutes)}</td><td className="px-4 py-3 font-mono">{row.totalAmount.toFixed(2)}</td><td className="px-4 py-3 text-xs">{row.paymentStatus}</td></tr>)}</tbody></table></div></section>
+    <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm print:hidden"><div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">All-person payment report</h2><p className="text-xs text-muted-foreground">Payments recorded inside the selected period, including overtime and partial payments.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Payment date', 'Person', 'Paid period', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{paymentRows.map((transaction) => <tr key={transaction.id}><td className="px-4 py-3">{displayDate(transaction.paidAt.slice(0, 10))}</td><td className="px-4 py-3 font-semibold">{transaction.personName}</td><td className="px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td><td className="px-4 py-3">{transaction.sourceScope === 'daily-attendance' ? 'Training Register' : transaction.sourceScope === 'chowk-labour' ? 'Chowk Labour' : transaction.sourceScope === 'driver-attendance' ? 'Driver Attendance' : 'All registers'}</td><td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td><td className="px-4 py-3">{transaction.paymentMethod}</td><td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td><td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td></tr>)}</tbody></table></div>{!loading && !paymentRows.length && <div className="p-8 text-center text-sm text-muted-foreground">No payments recorded in this period.</div>}</section>
   </div>;
 }
 

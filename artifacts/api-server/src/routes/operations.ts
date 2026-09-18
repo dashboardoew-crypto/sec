@@ -65,9 +65,15 @@ const formatSignedClockDuration = (minutes: number) => {
 };
 
 const totalDaysForMinutes = (minutes: number) => {
-  if (minutes >= 480) return 1;
-  if (minutes >= 240) return 0.5;
-  return 0;
+  if (minutes < 300) return 0;
+  if (minutes < 480) return 0.5;
+  return 1;
+};
+
+const overtimeMinutesFor = (minutes: number) => {
+  if (minutes < 300) return Math.max(minutes, 0);
+  if (minutes < 480) return minutes - 300;
+  return Math.max(minutes - 480, 0);
 };
 
 const formatTotalDays = (minutes: number) => String(totalDaysForMinutes(minutes));
@@ -151,7 +157,7 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     if (totalMinutes !== undefined) {
       setIfKnown("total_hours", formatClockDuration(totalMinutes));
       setIfKnown("total_days", formatTotalDays(totalMinutes));
-      setIfKnown("overtime", formatClockDuration(Math.max(totalMinutes - 480, 0)));
+      setIfKnown("overtime", formatClockDuration(overtimeMinutesFor(totalMinutes)));
     }
   }
 
@@ -315,10 +321,11 @@ const paymentStatusFor = (paidAmount: number, totalAmount: number) =>
   paidAmount >= totalAmount && totalAmount > 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
 
 const hrReport = async (from: string, to: string, sourceScope = "all") => {
-  const [rows, labourRows, bills] = await Promise.all([
+  const [rows, labourRows, bills, transactions] = await Promise.all([
     db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs])),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "labour-master")),
     db.select().from(paymentBillsTable),
+    db.select().from(paymentTransactionsTable),
   ]);
   const billMap = new Map(bills.map((bill) => [bill.billKey, bill]));
   const wages = new Map(labourRows.map((row) => [String(row.data.name ?? "").trim().toLowerCase(), numericValue(row.data.wages_per_day)]));
@@ -343,7 +350,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
         ? trainingDurationMinutes(data) ?? parseDurationMinutes(data.total_hours) ?? 0
         : parseDurationMinutes(data.time_duration) ?? 0;
     const workedDays = row.registerSlug === "driver-attendance" ? 1 : totalDaysForMinutes(minutes);
-    const overtimeMinutes = Math.max(minutes - 480, 0);
+    const overtimeMinutes = overtimeMinutesFor(minutes);
     const shortfallMinutes = Math.max(480 - minutes, 0);
     const wage = wages.get(name.toLowerCase()) ?? 0;
     const allowanceAmount = row.registerSlug === "driver-attendance"
@@ -376,11 +383,27 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
   }
   const expectedDays = inclusiveDays(from, to);
   const summaries = Array.from(summary.values()).map(({ dates, ...item }) => {
-    const bill = billMap.get(billKeyFor(item.name, from, to, sourceScope));
+    const exactBillKey = billKeyFor(item.name, from, to, sourceScope);
+    const bill = billMap.get(exactBillKey);
     const subtotal = item.baseAmount + item.overtimeAmount;
+    const payableAmount = Math.round(subtotal);
+    const exactTransactions = transactions.filter((transaction) => transaction.billKey === exactBillKey);
+    const periodTransactions = transactions.filter((transaction) =>
+      transaction.personName.trim().toLowerCase() === item.name.trim().toLowerCase() &&
+      (sourceScope === "all" || transaction.sourceScope === sourceScope) &&
+      transaction.fromDate >= from &&
+      transaction.toDate <= to,
+    );
+    const transactionPaidAmount = (exactTransactions.length ? exactTransactions : periodTransactions)
+      .reduce((sum, transaction) => sum + numericValue(transaction.amount), 0);
     const paidAmount = Math.min(
-      Math.max(numericValue(bill?.paidAmount ?? (bill?.status === "paid" ? subtotal : 0)), 0),
-      Math.max(subtotal, 0),
+      Math.max(
+        transactionPaidAmount > 0
+          ? transactionPaidAmount
+          : numericValue(bill?.paidAmount ?? (bill?.status === "paid" ? payableAmount : 0)),
+        0,
+      ),
+      Math.max(payableAmount, 0),
     );
     const roundingAmount = Math.round(subtotal) - subtotal;
     return {
@@ -388,24 +411,37 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       wageAmount: item.baseAmount,
       overtimeRate: item.wagePerDay / 8,
       roundingAmount: Number(roundingAmount.toFixed(2)),
-      totalAmount: Math.round(subtotal),
+      totalAmount: payableAmount,
       leftDays: Math.max(expectedDays - dates.size, 0),
       paidAmount,
-      outstandingAmount: Math.max(subtotal - paidAmount, 0),
-      paymentStatus: paymentStatusFor(paidAmount, subtotal),
+      outstandingAmount: Math.max(payableAmount - paidAmount, 0),
+      paymentStatus: paymentStatusFor(paidAmount, payableAmount),
       billNumber: bill?.billNumber ?? null,
       paidAt: bill?.paidAt?.toISOString() ?? null,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
-  const statusByName = new Map(summaries.map((item) => [item.name.toLowerCase(), item.paymentStatus]));
   const sortedDetails = details.slice().sort((a, b) =>
     String(a["date"] ?? "").localeCompare(String(b["date"] ?? "")),
   );
+  const detailPaymentStatus = (item: Record<string, unknown>) => {
+    const detailDate = String(item["date"] ?? "");
+    const detailName = String(item["name"] ?? "").trim().toLowerCase();
+    const coveredTransactions = transactions.filter((transaction) =>
+      transaction.personName.trim().toLowerCase() === detailName &&
+      (sourceScope === "all" || transaction.sourceScope === sourceScope) &&
+      transaction.fromDate <= detailDate &&
+      transaction.toDate >= detailDate,
+    );
+    if (coveredTransactions.length) return "paid";
+    const summaryStatus = summaries.find((summary) => summary.name.trim().toLowerCase() === detailName)?.paymentStatus;
+    const exactBill = billMap.get(billKeyFor(String(item["name"] ?? ""), from, to, sourceScope));
+    return exactBill?.status === "paid" ? "paid" : summaryStatus === "paid" ? "paid" : "unpaid";
+  };
   return {
     from, to, sourceScope, expectedDays, summaries,
     details: sortedDetails.map((item) => ({
       ...item,
-      paymentStatus: statusByName.get(String(item["name"] ?? "").toLowerCase()) ?? "unpaid",
+      paymentStatus: detailPaymentStatus(item),
     })),
   };
 };
