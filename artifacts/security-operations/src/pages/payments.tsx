@@ -23,15 +23,12 @@ const shortDate = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateS
 const statusLabel = (status: string) => status === 'paid' ? 'Paid' : status === 'partial' ? 'Partly paid' : 'Unpaid';
 const paymentMethods = ['Cash', 'Bank transfer', 'UPI', 'Cheque', 'Other'];
 
-type StatusFilter = 'all' | 'paid' | 'partial' | 'unpaid';
-
 export default function PaymentsPage() {
   const { user } = useAuth();
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
   const [source, setSource] = useState('all');
   const [name, setName] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [person, setPerson] = useState('');
   const [report, setReport] = useState<HrReport | null>(null);
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
@@ -67,13 +64,12 @@ export default function PaymentsPage() {
 
   const people = useMemo(() => (report?.summaries ?? []).filter((row) => {
     const matchesName = row.name.toLowerCase().includes(name.trim().toLowerCase());
-    const matchesStatus = statusFilter === 'all' || row.paymentStatus === statusFilter;
-    return matchesName && matchesStatus;
-  }), [name, report, statusFilter]);
+    return matchesName && row.outstandingAmount > 0;
+  }), [name, report]);
   const selected = useMemo(() => report?.summaries.find((row) => row.name === person) ?? null, [person, report]);
   const selectedDetails = useMemo(() => (report?.details ?? []).filter((row) => !person || row.name === person), [person, report]);
   const totals = useMemo(() => {
-    const rows = report?.summaries ?? [];
+    const rows = (report?.summaries ?? []).filter((row) => row.outstandingAmount > 0);
     return {
       workers: rows.length,
       payable: rows.reduce((sum, row) => sum + row.totalAmount, 0),
@@ -148,16 +144,15 @@ export default function PaymentsPage() {
 
   return <div className="ops-grid min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10">
     <div className="mb-6 flex items-center justify-between print:hidden"><Link href="/" className="flex items-center gap-2 text-sm font-semibold"><ArrowLeft size={16} /> Back to modules</Link><span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">HR + payment workspace</span></div>
-    <PageIntro eyebrow="Human resources and finance" title="Payroll control centre" description="Review attendance-based earnings, see who is paid or outstanding, and record each worker payment with a clear audit trail." action={<div className="flex gap-2 print:hidden"><button onClick={exportCsv} disabled={!people.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"><Download size={16} /> Export</button><button onClick={() => window.print()} disabled={!selected} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"><Printer size={16} /> Print bill</button></div>} />
+    <PageIntro eyebrow="Human resources and finance" title="Unpaid payment queue" description="Only workers with an amount still left to pay appear here. Open a worker to record the next payment." action={<div className="flex gap-2 print:hidden"><Link href="/payment-report" className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted"><FileText size={16} /> Payment report</Link><button onClick={exportCsv} disabled={!people.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"><Download size={16} /> Export unpaid</button><button onClick={() => window.print()} disabled={!selected} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"><Printer size={16} /> Print bill</button></div>} />
 
     <section className="mb-5 rounded-xl border border-border bg-card p-5 shadow-sm print:hidden">
       <div className="mb-4 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary/10 text-primary"><WalletCards size={20} /></div><div><h2 className="font-serif text-lg font-bold">Payroll period</h2><p className="text-xs text-muted-foreground">Generate the worker balances for a date range and register scope.</p></div></div>
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-4">
         <label><span className="mb-1.5 block text-xs font-semibold">From date</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className={inputClass} /></label>
         <label><span className="mb-1.5 block text-xs font-semibold">To date</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} className={inputClass} /></label>
         <label><span className="mb-1.5 block text-xs font-semibold">Register</span><select value={source} onChange={(event) => setSource(event.target.value)} className={inputClass}><option value="all">All three registers</option><option value="driver-attendance">Driver Attendance</option><option value="daily-attendance">Training Register</option><option value="chowk-labour">Chowk Labour</option></select></label>
         <label><span className="mb-1.5 block text-xs font-semibold">Search worker</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="All names" className={inputClass} /></label>
-        <label><span className="mb-1.5 block text-xs font-semibold">Payment status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} className={inputClass}><option value="all">All statuses</option><option value="unpaid">Unpaid</option><option value="partial">Partly paid</option><option value="paid">Paid</option></select></label>
       </div>
       <div className="mt-4 flex items-center gap-3"><button onClick={() => { setPerson(''); void load(); }} disabled={loading || !from || !to || from > to} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> {loading ? 'Loading…' : 'Generate payroll'}</button>{error && <span className="text-sm text-destructive">{error}</span>}{notice && <span className="text-sm text-primary">{notice}</span>}</div>
     </section>
@@ -171,7 +166,7 @@ export default function PaymentsPage() {
       <Metric label="Pending workers" value={String(totals.pendingWorkers)} tone="warning" />
     </div>
 
-    {report && !person && <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm print:hidden"><div className="flex items-center gap-3 border-b border-border px-5 py-4"><FileText size={18} className="text-primary" /><div><h2 className="font-serif text-lg font-bold">Worker payment queue</h2><p className="text-xs text-muted-foreground">{people.length} workers · {sourceLabel(source)} · {shortDate(report.from)} to {shortDate(report.to)}</p></div></div><div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Worker', 'Days', 'Wage amount', 'Overtime', 'Total payable', 'Paid', 'Outstanding', 'Status', 'Action'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{people.map((row) => <tr key={row.name} className="hover:bg-muted/30"><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{amount(row.wageAmount)}</td><td className="px-4 py-3 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-4 py-3 font-mono font-bold">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td><td className="px-4 py-3"><button onClick={() => setPerson(row.name)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Open worker</button></td></tr>)}</tbody></table></div>{!people.length && <div className="p-10 text-center text-sm text-muted-foreground">No workers match these filters.</div>}</section>}
+    {report && !person && <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm print:hidden"><div className="flex items-center gap-3 border-b border-border px-5 py-4"><FileText size={18} className="text-primary" /><div><h2 className="font-serif text-lg font-bold">Unpaid and outstanding workers</h2><p className="text-xs text-muted-foreground">{people.length} workers · {sourceLabel(source)} · {shortDate(report.from)} to {shortDate(report.to)}</p></div></div><div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Worker', 'Days', 'Wage amount', 'Overtime', 'Total payable', 'Paid', 'Amount left', 'Status', 'Action'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{people.map((row) => <tr key={row.name} className="hover:bg-muted/30"><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{amount(row.wageAmount)}</td><td className="px-4 py-3 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-4 py-3 font-mono font-bold">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td><td className="px-4 py-3"><button onClick={() => setPerson(row.name)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Open worker</button></td></tr>)}</tbody></table></div>{!people.length && <div className="p-10 text-center text-sm text-muted-foreground">No unpaid workers match these filters.</div>}</section>}
 
     {selected && report && <PaymentWorkerCard report={report} source={source} selected={selected} selectedDetails={selectedDetails} transactions={transactions.filter((transaction) => transaction.personName === selected.name)} paymentAmount={paymentAmount} paymentMethod={paymentMethod} paymentReference={paymentReference} paymentNote={paymentNote} saving={saving} editable={editable} onPaymentAmountChange={setPaymentAmount} onPaymentMethodChange={setPaymentMethod} onPaymentReferenceChange={setPaymentReference} onPaymentNoteChange={setPaymentNote} onRecordPayment={recordPayment} onBack={() => setPerson('')} />}
     {report && person && !selected && <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">Select a worker from the generated payroll.</div>}

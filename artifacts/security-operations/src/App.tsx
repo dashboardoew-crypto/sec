@@ -11,6 +11,7 @@ import LoginPage from '@/pages/login';
 import AdminUsersPage from '@/pages/admin-users';
 import PaymentsPage from '@/pages/payments';
 import ReportsPage from '@/pages/reports';
+import PaymentReportPage from '@/pages/payment-report';
 import { AuthProvider, canAccessWorkspace, useAuth } from '@/lib/auth';
 import {
   Route,
@@ -34,6 +35,7 @@ function Router() {
             <Route path="/admin/users" component={AdminUsersPage} />
             <Route path="/payments" component={PaymentAccessRoute} />
             <Route path="/reports" component={ReportAccessRoute} />
+            <Route path="/payment-report" component={PaymentReportAccessRoute} />
             <Route component={NotFound} />
           </Switch>
         </Route>
@@ -54,6 +56,11 @@ function PaymentAccessRoute() {
 function ReportAccessRoute() {
   const { user } = useAuth();
   return canAccessWorkspace(user?.role, 'reports') ? <ReportsPage /> : <NotFound />;
+}
+
+function PaymentReportAccessRoute() {
+  const { user } = useAuth();
+  return canAccessWorkspace(user?.role, 'payment-report') ? <PaymentReportPage /> : <NotFound />;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {

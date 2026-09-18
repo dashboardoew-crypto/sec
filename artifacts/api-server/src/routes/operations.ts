@@ -423,25 +423,83 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
   const sortedDetails = details.slice().sort((a, b) =>
     String(a["date"] ?? "").localeCompare(String(b["date"] ?? "")),
   );
-  const detailPaymentStatus = (item: Record<string, unknown>) => {
-    const detailDate = String(item["date"] ?? "");
-    const detailName = String(item["name"] ?? "").trim().toLowerCase();
-    const coveredTransactions = transactions.filter((transaction) =>
-      transaction.personName.trim().toLowerCase() === detailName &&
-      (sourceScope === "all" || transaction.sourceScope === sourceScope) &&
-      transaction.fromDate <= detailDate &&
-      transaction.toDate >= detailDate,
-    );
-    if (coveredTransactions.length) return "paid";
-    const summaryStatus = summaries.find((summary) => summary.name.trim().toLowerCase() === detailName)?.paymentStatus;
-    const exactBill = billMap.get(billKeyFor(String(item["name"] ?? ""), from, to, sourceScope));
-    return exactBill?.status === "paid" ? "paid" : summaryStatus === "paid" ? "paid" : "unpaid";
-  };
+  const detailPayments = new Map<string, {
+    paidAmount: number;
+    paymentDates: Set<string>;
+    paymentMethods: Set<string>;
+    paymentReferences: Set<string>;
+  }>();
+  const detailsByPerson = new Map<string, Array<Record<string, unknown>>>();
+  for (const detail of sortedDetails) {
+    const personKey = String(detail["name"] ?? "").trim().toLowerCase();
+    const personDetails = detailsByPerson.get(personKey) ?? [];
+    personDetails.push(detail);
+    detailsByPerson.set(personKey, personDetails);
+  }
+  for (const [personKey, personDetails] of detailsByPerson) {
+    const personName = String(personDetails[0]?.["name"] ?? "");
+    const exactBillKey = billKeyFor(personName, from, to, sourceScope);
+    const matchingTransactions = transactions
+      .filter((transaction) =>
+        transaction.personName.trim().toLowerCase() === personKey &&
+        (sourceScope === "all" || transaction.sourceScope === sourceScope) &&
+        transaction.fromDate >= from &&
+        transaction.toDate <= to,
+      )
+      .sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
+    const bill = billMap.get(exactBillKey);
+    const paymentEvents = matchingTransactions.length
+      ? matchingTransactions
+      : bill && numericValue(bill.paidAmount) > 0
+        ? [{
+          amount: numericValue(bill.paidAmount),
+          fromDate: from,
+          toDate: to,
+          paidAt: bill.paidAt ?? new Date(),
+          paymentMethod: bill.paymentMethod ?? "Recorded payment",
+          paymentReference: bill.paymentReference,
+        }]
+        : [];
+    for (const payment of paymentEvents) {
+      let remaining = Math.max(numericValue(payment.amount), 0);
+      if (!remaining) continue;
+      for (const detail of personDetails) {
+        const detailDate = String(detail["date"] ?? "");
+        if (detailDate < payment.fromDate || detailDate > payment.toDate) continue;
+        const detailId = String(detail["id"] ?? "");
+        const existing = detailPayments.get(detailId) ?? {
+          paidAmount: 0,
+          paymentDates: new Set<string>(),
+          paymentMethods: new Set<string>(),
+          paymentReferences: new Set<string>(),
+        };
+        const due = Math.max(numericValue(detail["totalAmount"]), 0);
+        const available = Math.max(due - existing.paidAmount, 0);
+        const allocation = Math.min(available, remaining);
+        if (!allocation) continue;
+        existing.paidAmount += allocation;
+        existing.paymentDates.add(payment.paidAt.toISOString());
+        if (payment.paymentMethod) existing.paymentMethods.add(payment.paymentMethod);
+        if (payment.paymentReference) existing.paymentReferences.add(payment.paymentReference);
+        detailPayments.set(detailId, existing);
+        remaining -= allocation;
+        if (remaining <= 0.005) break;
+      }
+    }
+  }
   return {
     from, to, sourceScope, expectedDays, summaries,
     details: sortedDetails.map((item) => ({
       ...item,
-      paymentStatus: detailPaymentStatus(item),
+      paidAmount: Number((detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0).toFixed(2)),
+      outstandingAmount: Number(Math.max(numericValue(item["totalAmount"]) - (detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0), 0).toFixed(2)),
+      paymentDates: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentDates ?? []),
+      paymentMethods: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentMethods ?? []),
+      paymentReferences: Array.from(detailPayments.get(String(item["id"] ?? ""))?.paymentReferences ?? []),
+      paymentStatus: paymentStatusFor(
+        detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0,
+        numericValue(item["totalAmount"]),
+      ),
     })),
   };
 };

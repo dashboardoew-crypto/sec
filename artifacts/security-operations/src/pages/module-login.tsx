@@ -1,4 +1,4 @@
-import { ArrowRight, FileBarChart2, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
+import { ArrowRight, FileBarChart2, FileSpreadsheet, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
 import { canAccessWorkspace, useAuth, type WorkspaceSlug } from '@/lib/auth';
 
@@ -34,8 +34,15 @@ const modules: Array<{
     slug: 'payments',
     href: '/payments',
     label: 'HR & Payments',
-    description: 'Attendance reports, bill generation, paid/unpaid history',
+    description: 'Record the next payment for unpaid workers',
     icon: WalletCards,
+  },
+  {
+    slug: 'payment-report',
+    href: '/payment-report',
+    label: 'Payment Report',
+    description: 'Daily paid, unpaid, and amount-left ledger',
+    icon: FileSpreadsheet,
   },
 ];
 

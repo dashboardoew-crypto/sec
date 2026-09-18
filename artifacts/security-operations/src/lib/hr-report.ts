@@ -31,7 +31,12 @@ export type HrDetail = {
   baseAmount: number;
   overtimeAmount: number;
   totalAmount: number;
-  paymentStatus: string;
+  paidAmount: number;
+  outstandingAmount: number;
+  paymentDates: string[];
+  paymentMethods: string[];
+  paymentReferences: string[];
+  paymentStatus: 'paid' | 'partial' | 'unpaid';
 };
 
 export type HrReport = {
