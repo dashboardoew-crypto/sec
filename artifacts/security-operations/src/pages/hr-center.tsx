@@ -12,6 +12,7 @@ import {
   Printer,
   RefreshCw,
   Search,
+  Trash2,
   WalletCards,
 } from 'lucide-react';
 import { Link } from 'wouter';
@@ -81,6 +82,7 @@ export default function HrCenterPage() {
   const [paymentNote, setPaymentNote] = useState('');
   const [updatingAttendanceId, setUpdatingAttendanceId] = useState('');
   const [billTransactionId, setBillTransactionId] = useState('');
+  const [hiddenQueuePeople, setHiddenQueuePeople] = useState<string[]>([]);
   const requestId = useRef(0);
   const editable = canEditPayments(user?.role);
 
@@ -102,6 +104,7 @@ export default function HrCenterPage() {
       if (currentRequest !== requestId.current) return;
       setReport(nextReport);
       setTransactions(nextTransactions);
+      setHiddenQueuePeople([]);
       setSelectedPerson((current) =>
         current && nextReport.summaries.some((row) => row.name === current) ? current : '');
       return { report: nextReport, transactions: nextTransactions };
@@ -383,6 +386,8 @@ export default function HrCenterPage() {
            billDetails={(report?.details ?? []).filter((row) =>
              row.name === selectedPerson &&
              row.paymentAllocations.some((allocation) => allocation.transactionId === billTransactionId))}
+           hiddenQueuePeople={hiddenQueuePeople}
+           onRemoveFromQueue={(name) => setHiddenQueuePeople((current) => [...new Set([...current, name.trim().toLowerCase()])])}
           loading={loading}
         />
       )}
@@ -429,7 +434,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
   );
 }
 
-function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, paymentAmount, setPaymentAmount, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onToggleAttendance, updatingAttendanceId, onOpenBill, onCloseBill, billTransaction, billDetails, loading }: {
+function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, paymentAmount, setPaymentAmount, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onToggleAttendance, updatingAttendanceId, onOpenBill, onCloseBill, billTransaction, billDetails, hiddenQueuePeople, onRemoveFromQueue, loading }: {
   report: HrReport | null;
   summaries: HrSummary[];
   details: HrReport['details'];
@@ -455,9 +460,12 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   onCloseBill: () => void;
   billTransaction: PaymentTransaction | null;
   billDetails: HrReport['details'];
+  hiddenQueuePeople: string[];
+  onRemoveFromQueue: (name: string) => void;
   loading: boolean;
 }) {
-  const unpaid = summaries.filter((row) => row.outstandingAmount > 0);
+  const unpaid = summaries.filter((row) =>
+    row.outstandingAmount > 0 && !hiddenQueuePeople.includes(row.name.trim().toLowerCase()));
   return (
     <>
       <div className={`mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 ${selected ? 'print:hidden' : ''}`}>
@@ -470,7 +478,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
       {!selected && (
         <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm print:hidden">
           <div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">Payment queue</h2><p className="text-xs text-muted-foreground">{unpaid.length} person(s) have an amount left to pay.</p></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Person', 'Worked days', 'Total payable', 'Paid', 'Amount left', 'Status', 'Action'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{unpaid.map((row) => <tr key={row.name} className="hover:bg-muted/30"><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td><td className="px-4 py-3"><button onClick={() => setSelectedPerson(row.name)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Open worker</button></td></tr>)}</tbody></table></div>{!loading && !unpaid.length && <EmptyTable text="No unpaid people match this period and filter." />}</section>
+           <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Person', 'Worked days', 'Total payable', 'Paid', 'Amount left', 'Status', 'Action'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{unpaid.map((row) => <tr key={row.name} className="hover:bg-muted/30"><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button onClick={() => setSelectedPerson(row.name)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Open worker</button><button type="button" onClick={() => onRemoveFromQueue(row.name)} className="inline-flex items-center gap-1 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10" title="Remove from this queue only"><Trash2 size={13} /> Delete</button></div></td></tr>)}</tbody></table></div>{!loading && !unpaid.length && <EmptyTable text={hiddenQueuePeople.length ? 'No unpaid people remain in this queue.' : 'No unpaid people match this period and filter.'} />}</section>
       )}
       {selected && report && (
         <section data-print-statement className="mb-6 rounded-xl border-2 border-foreground/15 bg-card p-6 shadow-sm md:p-8 print:mb-0 print:border-0 print:p-0 print:shadow-none">

@@ -166,6 +166,9 @@ const jackRegisterFields: FieldDefinition[] = [
 const driverMasterFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
   { key: "mobile_no", label: "MOBILE NO", type: "number", required: true },
+  { key: "wages_per_day", label: "WAGES PER DAY", type: "number", required: true },
+  { key: "day_allowance", label: "DAY ALLOWANCE", type: "number", required: true },
+  { key: "night_allowance", label: "NIGHT ALLOWANCE", type: "number", required: true },
 ];
 
 const securityMasterFields: FieldDefinition[] = [
