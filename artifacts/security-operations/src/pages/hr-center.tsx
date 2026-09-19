@@ -526,17 +526,64 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
 }
 
 function LedgerView({ details, transactions, loading }: { details: HrReport['details']; transactions: PaymentTransaction[]; loading: boolean }) {
+  const [attendanceQuery, setAttendanceQuery] = useState('');
+  const [attendanceSearch, setAttendanceSearch] = useState('');
+  const [transactionQuery, setTransactionQuery] = useState('');
+  const [transactionSearch, setTransactionSearch] = useState('');
+  const normalizedAttendanceSearch = attendanceSearch.trim().toLowerCase();
+  const normalizedTransactionSearch = transactionSearch.trim().toLowerCase();
+  const filteredDetails = details.filter((row) => {
+    if (!normalizedAttendanceSearch) return true;
+    return [
+      row.date,
+      displayDate(row.date),
+      row.name,
+      sourceLabel(row.source),
+      row.paymentStatus,
+      amount(row.totalAmount),
+    ].join(' ').toLowerCase().includes(normalizedAttendanceSearch);
+  });
+  const filteredTransactions = transactions.filter((transaction) => {
+    if (!normalizedTransactionSearch) return true;
+    return [
+      transaction.paidAt,
+      displayDate(transaction.paidAt.slice(0, 10)),
+      transaction.personName,
+      displayDate(transaction.fromDate),
+      displayDate(transaction.toDate),
+      sourceLabel(transaction.sourceScope),
+      transaction.paymentMethod,
+      transaction.paymentReference ?? '',
+      transaction.billNumber,
+    ].join(' ').toLowerCase().includes(normalizedTransactionSearch);
+  });
   return (
     <>
       <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex items-center gap-3 border-b border-border px-5 py-4"><ListChecks size={19} className="text-primary" /><div><h2 className="font-serif text-lg font-bold">Attendance payment ledger</h2><p className="text-xs text-muted-foreground">Every attendance entry with its due, paid and remaining amount.</p></div></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Date', 'Person', 'Register', 'Days', 'Hours', 'Overtime', 'Amount due', 'Paid', 'Amount left', 'Status'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{details.map((row) => <tr key={row.id} className="hover:bg-muted/30"><td className="px-4 py-3">{displayDate(row.date)}</td><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{sourceLabel(row.source)}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{formatMinutes(row.minutes)}</td><td className="px-4 py-3 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-4 py-3 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td></tr>)}</tbody></table></div>
-        {!loading && !details.length && <EmptyTable text="No attendance rows match this period and filter." />}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="flex items-center gap-3"><ListChecks size={19} className="text-primary" /><div><h2 className="font-serif text-lg font-bold">Attendance payment ledger</h2><p className="text-xs text-muted-foreground">Every attendance entry with its due, paid and remaining amount.</p></div></div>
+          <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); setAttendanceSearch(attendanceQuery); }}>
+            <div className="relative min-w-0 flex-1 sm:w-64"><Search size={14} className="pointer-events-none absolute left-3 top-3 text-muted-foreground" /><input value={attendanceQuery} onChange={(event) => setAttendanceQuery(event.target.value)} placeholder="Search attendance" className={`${inputClass} pl-8`} aria-label="Search attendance payment ledger" /></div>
+            <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground"><Search size={14} /> Search</button>
+          </form>
+        </div>
+        <div className="max-h-[32rem] overflow-auto">
+          <table className="w-full min-w-[1250px] text-left text-sm"><thead className="sticky top-0 z-10 border-b border-border bg-muted/95"><tr>{['Date', 'Person', 'Register', 'Days', 'Hours', 'Overtime', 'Amount due', 'Paid', 'Amount left', 'Status'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{filteredDetails.map((row) => <tr key={row.id} className="hover:bg-muted/30"><td className="px-4 py-3">{displayDate(row.date)}</td><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{sourceLabel(row.source)}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{formatMinutes(row.minutes)}</td><td className="px-4 py-3 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-4 py-3 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td></tr>)}</tbody></table>
+          {!loading && !filteredDetails.length && <EmptyTable text={attendanceSearch ? 'No attendance rows match this search.' : 'No attendance rows match this period and filter.'} />}
+        </div>
       </section>
       <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">Payment transactions</h2><p className="text-xs text-muted-foreground">Payments recorded inside the selected period.</p></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Paid on', 'Person', 'Paid period', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{transactions.map((transaction) => <tr key={transaction.id} className="hover:bg-muted/30"><td className="px-4 py-3">{displayDate(transaction.paidAt.slice(0, 10))}</td><td className="px-4 py-3 font-semibold">{transaction.personName}</td><td className="px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td><td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td><td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td><td className="px-4 py-3">{transaction.paymentMethod}</td><td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td><td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td></tr>)}</tbody></table></div>
-        {!loading && !transactions.length && <EmptyTable text="No payment transactions match this period and filter." />}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div><h2 className="font-serif text-lg font-bold">Payment transactions</h2><p className="text-xs text-muted-foreground">Payments recorded inside the selected period.</p></div>
+          <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); setTransactionSearch(transactionQuery); }}>
+            <div className="relative min-w-0 flex-1 sm:w-64"><Search size={14} className="pointer-events-none absolute left-3 top-3 text-muted-foreground" /><input value={transactionQuery} onChange={(event) => setTransactionQuery(event.target.value)} placeholder="Search transactions" className={`${inputClass} pl-8`} aria-label="Search payment transactions" /></div>
+            <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground"><Search size={14} /> Search</button>
+          </form>
+        </div>
+        <div className="max-h-[28rem] overflow-auto">
+          <table className="w-full min-w-[1000px] text-left text-sm"><thead className="sticky top-0 z-10 border-b border-border bg-muted/95"><tr>{['Paid on', 'Person', 'Paid period', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{filteredTransactions.map((transaction) => <tr key={transaction.id} className="hover:bg-muted/30"><td className="px-4 py-3">{displayDate(transaction.paidAt.slice(0, 10))}</td><td className="px-4 py-3 font-semibold">{transaction.personName}</td><td className="px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td><td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td><td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td><td className="px-4 py-3">{transaction.paymentMethod}</td><td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td><td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td></tr>)}</tbody></table>
+          {!loading && !filteredTransactions.length && <EmptyTable text={transactionSearch ? 'No payment transactions match this search.' : 'No payment transactions match this period and filter.'} />}
+        </div>
       </section>
     </>
   );
