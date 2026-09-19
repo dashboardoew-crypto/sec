@@ -409,28 +409,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
         <Metric label="Open people" value={String(totals.openPeople)} tone={totals.openPeople ? 'warning' : 'success'} />
         <Metric label="Attendance entries" value={String(totals.attendanceEntries)} detail={report ? `${displayDate(report.from)} – ${displayDate(report.to)}` : 'Loading period'} />
       </div>
-      <section className="mb-5 grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
-        <div className="rounded-xl border border-border bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <div><h2 className="font-serif text-lg font-bold">Payroll controls</h2><p className="mt-0.5 text-xs text-muted-foreground">Checks that keep the selected period reliable.</p></div>
-            <FileSpreadsheet size={19} className="text-primary" />
-          </div>
-          <div className="divide-y divide-border">
-            <Control label="Attendance coverage" detail={totals.attendanceEntries ? `${totals.attendanceEntries} entries included in this period.` : 'No attendance entries found for this period.'} good={Boolean(totals.attendanceEntries)} />
-            <Control label="Payment balance" detail={totals.outstanding ? `${amount(totals.outstanding)} remains open across ${totals.openPeople} person(s).` : 'All included people are fully paid.'} good={!totals.outstanding} />
-            <Control label="Time exceptions" detail={totals.shortfallMinutes ? `${formatMinutes(totals.shortfallMinutes)} of shortfall time needs review.` : 'No shortfall time is present in the report.'} good={!totals.shortfallMinutes} />
-          </div>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="mb-4"><h2 className="font-serif text-lg font-bold">How to use HR</h2><p className="mt-0.5 text-xs text-muted-foreground">The workflow stays in this page.</p></div>
-          <div className="space-y-4">
-            <WorkflowStep number="01" title="Set the period" text="Choose dates and register scope, then apply the filters." />
-            <WorkflowStep number="02" title="Review balances" text="Use the overview to find people with an amount still open." />
-            <WorkflowStep number="03" title="Record payment" text="Open a person in the payment queue and enter the exact amount paid." />
-            <WorkflowStep number="04" title="Export evidence" text="Export the summary or day-by-day ledger when reconciliation is complete." />
-          </div>
-        </div>
-      </section>
+
       <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div><h2 className="font-serif text-lg font-bold">People at a glance</h2><p className="mt-0.5 text-xs text-muted-foreground">Sorted by the amount still open.</p></div>
