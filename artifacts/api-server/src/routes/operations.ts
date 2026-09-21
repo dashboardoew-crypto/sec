@@ -337,6 +337,23 @@ const parseAttendanceReferences = (value: string | null | undefined) => {
     return [];
   }
 };
+const uniqueTransactionBillNumbers = <T extends { billNumber: string; id: string }>(rows: T[]) => {
+  const used = new Set<string>();
+  return rows.map((row) => {
+    if (!used.has(row.billNumber)) {
+      used.add(row.billNumber);
+      return row;
+    }
+    let billNumber = `${row.billNumber}-${row.id.replaceAll("-", "").slice(0, 8).toUpperCase()}`;
+    let suffix = 2;
+    while (used.has(billNumber)) {
+      billNumber = `${row.billNumber}-${row.id.replaceAll("-", "").slice(0, 8).toUpperCase()}-${suffix}`;
+      suffix += 1;
+    }
+    used.add(billNumber);
+    return { ...row, billNumber };
+  });
+};
 const paymentStatusFor = (paidAmount: number, totalAmount: number) =>
   paidAmount >= totalAmount && totalAmount > 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
 const sourceMatches = (paymentSource: string, reportSource: string) =>
@@ -794,7 +811,7 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
   const source = typeof req.query.source === "string" ? req.query.source : "all";
   const name = typeof req.query.name === "string" ? req.query.name.trim().toLowerCase() : "";
   const paidOn = typeof req.query.paidOn === "string" ? req.query.paidOn : "";
-  return res.json(rows.filter((transaction) =>
+  return res.json(uniqueTransactionBillNumbers(rows).filter((transaction) =>
     (!from || transaction.toDate >= from) &&
     (!to || transaction.fromDate <= to) &&
     sourceMatches(transaction.sourceScope, source) &&
@@ -866,6 +883,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
     const nextPaidAmount = Math.min(summary.paidAmount + paymentAmount, totalAmount);
     const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
     const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
+    const transactionBillNumber = `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
     const paidAt = new Date();
     const payload = {
       personName: summary.name,
@@ -897,7 +915,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
     await tx.insert(paymentTransactionsTable).values({
       id: randomUUID(),
       billKey,
-      billNumber: bill?.billNumber ?? billNumber,
+      billNumber: transactionBillNumber,
       personName: summary.name,
       fromDate,
       toDate,

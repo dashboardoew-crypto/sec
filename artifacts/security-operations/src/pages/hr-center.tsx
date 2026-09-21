@@ -223,11 +223,17 @@ export default function HrCenterPage() {
       });
       setNotice(`${selected.name}: ${amount(selectedPaymentTotal)} recorded against ${selectedIds.length} attendance ${selectedIds.length === 1 ? 'entry' : 'entries'}.`);
       const loaded = await load();
+      const selectedReferences = new Set(
+        payableDetails
+          .filter((row) => selectedIds.includes(row.id))
+          .map((row) => row.referenceNo),
+      );
       const savedTransaction = loaded?.transactions.find((transaction) =>
-        transaction.billNumber === savedBill.billNumber &&
+        transaction.personName === selected.name &&
         Math.abs(transaction.amount - selectedPaymentTotal) < 0.005 &&
-        transaction.paidAt === savedBill.paidAt,
-      ) ?? loaded?.transactions.find((transaction) => transaction.billNumber === savedBill.billNumber);
+        transaction.paidAt === savedBill.paidAt &&
+        transaction.attendanceReferences.some((reference) => selectedReferences.has(reference)),
+      );
       if (savedTransaction) setBillTransactionId(savedTransaction.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Payment could not be saved');
