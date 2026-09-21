@@ -2,8 +2,8 @@ import ExcelJS from "exceljs";
 import nodemailer from "nodemailer";
 import { randomUUID } from "node:crypto";
 import { Router, raw, type IRouter, type Request, type Response } from "express";
-import { db, backupSettingsTable, registerRecordsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, backupSettingsTable, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
+import { desc, eq } from "drizzle-orm";
 import { getRegister, REGISTER_DEFINITIONS, type FieldDefinition, type RegisterDefinition } from "../data/registers";
 import { applyDerivedValues, validateRequiredFields } from "./operations";
 import { requireRole } from "../middlewares/authMiddleware";
@@ -112,8 +112,18 @@ const publicSettings = (settings: typeof backupSettingsTable.$inferSelect | null
   lastSentAt: settings?.lastSentAt?.toISOString() ?? null,
 });
 
+const styleWorkbookSheet = (worksheet: ExcelJS.Worksheet) => {
+  worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF123B59" } };
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+};
+
 const workbookForAllRegisters = async () => {
-  const rows = await db.select().from(registerRecordsTable).orderBy(registerRecordsTable.registerSlug);
+  const [rows, transactions, bills] = await Promise.all([
+    db.select().from(registerRecordsTable).orderBy(registerRecordsTable.registerSlug),
+    db.select().from(paymentTransactionsTable).orderBy(desc(paymentTransactionsTable.paidAt)),
+    db.select().from(paymentBillsTable).orderBy(desc(paymentBillsTable.updatedAt)),
+  ]);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Security Operations Management";
   workbook.created = new Date();
@@ -127,9 +137,7 @@ const workbookForAllRegisters = async () => {
       ...definition.fields.map((field) => ({ header: field.label, key: field.key, width: Math.min(Math.max(field.label.length + 4, 14), 28) })),
     ];
     worksheet.columns = columns;
-    worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF123B59" } };
-    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+    styleWorkbookSheet(worksheet);
 
     rows
       .filter((row) => row.registerSlug === definition.slug)
@@ -144,6 +152,68 @@ const workbookForAllRegisters = async () => {
       }));
     worksheet.autoFilter = { from: "A1", to: `${String.fromCharCode(65 + Math.min(columns.length - 1, 25))}1` };
   }
+
+  const paymentHistory = workbook.addWorksheet("Payment History");
+  paymentHistory.columns = [
+    { header: "id", key: "id", width: 38 },
+    { header: "billNumber", key: "billNumber", width: 28 },
+    { header: "billKey", key: "billKey", width: 54 },
+    { header: "personName", key: "personName", width: 24 },
+    { header: "fromDate", key: "fromDate", width: 14 },
+    { header: "toDate", key: "toDate", width: 14 },
+    { header: "sourceScope", key: "sourceScope", width: 22 },
+    { header: "amount", key: "amount", width: 14 },
+    { header: "paymentMethod", key: "paymentMethod", width: 18 },
+    { header: "paymentReference", key: "paymentReference", width: 24 },
+    { header: "paymentNote", key: "paymentNote", width: 28 },
+    { header: "attendanceReferences", key: "attendanceReferences", width: 48 },
+    { header: "paidAt", key: "paidAt", width: 24 },
+    { header: "paidBy", key: "paidBy", width: 24 },
+    { header: "createdAt", key: "createdAt", width: 24 },
+  ];
+  styleWorkbookSheet(paymentHistory);
+  transactions.forEach((transaction) => paymentHistory.addRow({
+    ...transaction,
+    paidAt: transaction.paidAt.toISOString(),
+    createdAt: transaction.createdAt.toISOString(),
+  }));
+  paymentHistory.autoFilter = { from: "A1", to: "O1" };
+
+  const paymentBills = workbook.addWorksheet("Payment Bills");
+  paymentBills.columns = [
+    { header: "id", key: "id", width: 38 },
+    { header: "billNumber", key: "billNumber", width: 28 },
+    { header: "billKey", key: "billKey", width: 54 },
+    { header: "personName", key: "personName", width: 24 },
+    { header: "fromDate", key: "fromDate", width: 14 },
+    { header: "toDate", key: "toDate", width: 14 },
+    { header: "sourceScope", key: "sourceScope", width: 22 },
+    { header: "totalDays", key: "totalDays", width: 14 },
+    { header: "wagePerDay", key: "wagePerDay", width: 14 },
+    { header: "wageAmount", key: "wageAmount", width: 14 },
+    { header: "overtimeMinutes", key: "overtimeMinutes", width: 18 },
+    { header: "overtimeRate", key: "overtimeRate", width: 16 },
+    { header: "overtimeAmount", key: "overtimeAmount", width: 18 },
+    { header: "roundingAmount", key: "roundingAmount", width: 18 },
+    { header: "totalAmount", key: "totalAmount", width: 16 },
+    { header: "paidAmount", key: "paidAmount", width: 16 },
+    { header: "status", key: "status", width: 14 },
+    { header: "paymentMethod", key: "paymentMethod", width: 18 },
+    { header: "paymentReference", key: "paymentReference", width: 24 },
+    { header: "paymentNote", key: "paymentNote", width: 28 },
+    { header: "paidAt", key: "paidAt", width: 24 },
+    { header: "paidBy", key: "paidBy", width: 24 },
+    { header: "createdAt", key: "createdAt", width: 24 },
+    { header: "updatedAt", key: "updatedAt", width: 24 },
+  ];
+  styleWorkbookSheet(paymentBills);
+  bills.forEach((bill) => paymentBills.addRow({
+    ...bill,
+    paidAt: bill.paidAt?.toISOString() ?? "",
+    createdAt: bill.createdAt.toISOString(),
+    updatedAt: bill.updatedAt.toISOString(),
+  }));
+  paymentBills.autoFilter = { from: "A1", to: "X1" };
 
   return workbook.xlsx.writeBuffer();
 };
@@ -288,11 +358,119 @@ const resolveWorksheetRegister = (name: string) => {
   );
 };
 
+const worksheetRows = (worksheet: ExcelJS.Worksheet) => {
+  const headers = (worksheet.getRow(1).values as unknown[]).slice(1).map((value) => normalizeHeader(String(value ?? "")));
+  const rows: Array<{ rowNumber: number; values: unknown[] }> = [];
+  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const values = (worksheet.getRow(rowNumber).values as unknown[]).slice(1);
+    if (values.some((value) => String(value ?? "").trim())) rows.push({ rowNumber, values });
+  }
+  return { headers, rows };
+};
+
+const worksheetCell = (headers: string[], values: unknown[], name: string) =>
+  values[headers.indexOf(name)];
+
+const requiredPaymentText = (value: unknown, label: string, rowNumber: number) => {
+  const text = value instanceof Date ? value.toISOString() : String(value ?? "").trim();
+  if (!text) throw new Error(`Payment row ${rowNumber}: "${label}" is required.`);
+  return text;
+};
+
+const optionalPaymentText = (value: unknown) => {
+  if (value === undefined || value === null || value === "") return null;
+  return value instanceof Date ? value.toISOString() : String(value).trim() || null;
+};
+
+const paymentDate = (value: unknown, label: string, rowNumber: number) => {
+  const normalized = normalizeDateValue(value);
+  if (typeof normalized !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error(`Payment row ${rowNumber}: "${label}" must be a date in YYYY-MM-DD format.`);
+  }
+  return normalized;
+};
+
+const paymentTimestamp = (value: unknown, label: string, rowNumber: number, optional = false) => {
+  const text = optional ? optionalPaymentText(value) : requiredPaymentText(value, label, rowNumber);
+  if (!text) return null;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) throw new Error(`Payment row ${rowNumber}: "${label}" is not a valid date/time.`);
+  return parsed;
+};
+
+const paymentNumber = (value: unknown, label: string, rowNumber: number) => {
+  const number = Number(value ?? 0);
+  if (!Number.isFinite(number)) throw new Error(`Payment row ${rowNumber}: "${label}" must be a number.`);
+  return number;
+};
+
+const parseImportedPaymentTransactions = (worksheet: ExcelJS.Worksheet) => {
+  const { headers, rows } = worksheetRows(worksheet);
+  return rows.map(({ rowNumber, values }) => ({
+    id: requiredPaymentText(worksheetCell(headers, values, "id"), "id", rowNumber),
+    billKey: requiredPaymentText(worksheetCell(headers, values, "bill_key"), "billKey", rowNumber),
+    billNumber: requiredPaymentText(worksheetCell(headers, values, "bill_number"), "billNumber", rowNumber),
+    personName: requiredPaymentText(worksheetCell(headers, values, "person_name"), "personName", rowNumber),
+    fromDate: paymentDate(worksheetCell(headers, values, "from_date"), "fromDate", rowNumber),
+    toDate: paymentDate(worksheetCell(headers, values, "to_date"), "toDate", rowNumber),
+    sourceScope: optionalPaymentText(worksheetCell(headers, values, "source_scope")) ?? "all",
+    amount: paymentNumber(worksheetCell(headers, values, "amount"), "amount", rowNumber),
+    paymentMethod: optionalPaymentText(worksheetCell(headers, values, "payment_method")) ?? "Cash",
+    paymentReference: optionalPaymentText(worksheetCell(headers, values, "payment_reference")),
+    paymentNote: optionalPaymentText(worksheetCell(headers, values, "payment_note")),
+    attendanceReferences: optionalPaymentText(worksheetCell(headers, values, "attendance_references")),
+    paidAt: paymentTimestamp(worksheetCell(headers, values, "paid_at"), "paidAt", rowNumber) ?? new Date(),
+    paidBy: optionalPaymentText(worksheetCell(headers, values, "paid_by")),
+    createdAt: paymentTimestamp(worksheetCell(headers, values, "created_at"), "createdAt", rowNumber, true) ?? new Date(),
+  }));
+};
+
+const parseImportedPaymentBills = (worksheet: ExcelJS.Worksheet) => {
+  const { headers, rows } = worksheetRows(worksheet);
+  return rows.map(({ rowNumber, values }) => ({
+    id: requiredPaymentText(worksheetCell(headers, values, "id"), "id", rowNumber),
+    billNumber: requiredPaymentText(worksheetCell(headers, values, "bill_number"), "billNumber", rowNumber),
+    billKey: requiredPaymentText(worksheetCell(headers, values, "bill_key"), "billKey", rowNumber),
+    personName: requiredPaymentText(worksheetCell(headers, values, "person_name"), "personName", rowNumber),
+    fromDate: paymentDate(worksheetCell(headers, values, "from_date"), "fromDate", rowNumber),
+    toDate: paymentDate(worksheetCell(headers, values, "to_date"), "toDate", rowNumber),
+    sourceScope: optionalPaymentText(worksheetCell(headers, values, "source_scope")) ?? "all",
+    totalDays: paymentNumber(worksheetCell(headers, values, "total_days"), "totalDays", rowNumber),
+    wagePerDay: paymentNumber(worksheetCell(headers, values, "wage_per_day"), "wagePerDay", rowNumber),
+    wageAmount: paymentNumber(worksheetCell(headers, values, "wage_amount"), "wageAmount", rowNumber),
+    overtimeMinutes: Math.round(paymentNumber(worksheetCell(headers, values, "overtime_minutes"), "overtimeMinutes", rowNumber)),
+    overtimeRate: paymentNumber(worksheetCell(headers, values, "overtime_rate"), "overtimeRate", rowNumber),
+    overtimeAmount: paymentNumber(worksheetCell(headers, values, "overtime_amount"), "overtimeAmount", rowNumber),
+    roundingAmount: paymentNumber(worksheetCell(headers, values, "rounding_amount"), "roundingAmount", rowNumber),
+    totalAmount: paymentNumber(worksheetCell(headers, values, "total_amount"), "totalAmount", rowNumber),
+    paidAmount: paymentNumber(worksheetCell(headers, values, "paid_amount"), "paidAmount", rowNumber),
+    status: optionalPaymentText(worksheetCell(headers, values, "status")) ?? "unpaid",
+    paymentMethod: optionalPaymentText(worksheetCell(headers, values, "payment_method")),
+    paymentReference: optionalPaymentText(worksheetCell(headers, values, "payment_reference")),
+    paymentNote: optionalPaymentText(worksheetCell(headers, values, "payment_note")),
+    paidAt: paymentTimestamp(worksheetCell(headers, values, "paid_at"), "paidAt", rowNumber, true),
+    paidBy: optionalPaymentText(worksheetCell(headers, values, "paid_by")),
+    createdAt: paymentTimestamp(worksheetCell(headers, values, "created_at"), "createdAt", rowNumber, true) ?? new Date(),
+    updatedAt: paymentTimestamp(worksheetCell(headers, values, "updated_at"), "updatedAt", rowNumber, true) ?? new Date(),
+  }));
+};
+
 const parseImportedWorkbook = async (source: Buffer) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(source as any);
   const imported: Array<{ registerSlug: string; recordDate: string | null; data: Record<string, unknown> }> = [];
+  const importedTransactions: ReturnType<typeof parseImportedPaymentTransactions> = [];
+  const importedBills: ReturnType<typeof parseImportedPaymentBills> = [];
   workbook.worksheets.forEach((worksheet) => {
+    const normalizedSheetName = normalizeHeader(worksheet.name);
+    if (normalizedSheetName === "payment_history") {
+      importedTransactions.push(...parseImportedPaymentTransactions(worksheet));
+      return;
+    }
+    if (normalizedSheetName === "payment_bills") {
+      importedBills.push(...parseImportedPaymentBills(worksheet));
+      return;
+    }
     const headerValues = (worksheet.getRow(1).values as unknown[]).slice(1);
     const headers = headerValues.map((value) => normalizeHeader(String(value ?? "")));
     if (!headers.some(Boolean)) return;
@@ -328,8 +506,10 @@ const parseImportedWorkbook = async (source: Buffer) => {
       ));
     }
   });
-  if (!imported.length) throw new Error("The workbook does not contain any register rows.");
-  return imported;
+  if (!imported.length && !importedTransactions.length && !importedBills.length) {
+    throw new Error("The workbook does not contain any register or payment rows.");
+  }
+  return { registerRows: imported, transactions: importedTransactions, bills: importedBills };
 };
 
 router.use(requireRole("admin"));
@@ -400,11 +580,28 @@ router.post("/admin/data/import", raw({
   try {
     const imported = workbookBuffer.subarray(0, 2).toString("utf8") === "PK"
       ? await parseImportedWorkbook(workbookBuffer)
-      : parseImportedCsvRows(workbookBuffer.toString("utf8"));
+      : {
+        registerRows: parseImportedCsvRows(workbookBuffer.toString("utf8")),
+        transactions: [],
+        bills: [],
+      };
     await db.transaction(async (tx) => {
-      await tx.insert(registerRecordsTable).values(imported.map((row) => ({ id: randomUUID(), ...row })));
+      if (imported.registerRows.length) {
+        await tx.insert(registerRecordsTable).values(imported.registerRows.map((row) => ({ id: randomUUID(), ...row })));
+      }
+      if (imported.bills.length) {
+        await tx.insert(paymentBillsTable).values(imported.bills).onConflictDoNothing();
+      }
+      if (imported.transactions.length) {
+        await tx.insert(paymentTransactionsTable).values(imported.transactions).onConflictDoNothing();
+      }
     });
-    return res.status(201).json({ imported: imported.length, registers: Array.from(new Set(imported.map((row) => row.registerSlug))).length });
+    return res.status(201).json({
+      imported: imported.registerRows.length,
+      registers: Array.from(new Set(imported.registerRows.map((row) => row.registerSlug))).length,
+      payments: imported.transactions.length,
+      bills: imported.bills.length,
+    });
   } catch (error) {
     return res.status(400).json({ error: error instanceof Error ? error.message : "The CSV could not be imported." });
   }

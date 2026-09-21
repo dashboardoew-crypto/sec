@@ -183,7 +183,10 @@ export default function AdminUsersPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? 'The workbook could not be imported.');
-      setNotice(`${payload.imported} records imported across ${payload.registers} registers.`);
+       const paymentMessage = payload.payments || payload.bills
+         ? ` ${payload.payments ?? 0} payment records and ${payload.bills ?? 0} payment bills preserved.`
+         : '';
+       setNotice(`${payload.imported} records imported across ${payload.registers} registers.${paymentMessage}`);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'The workbook could not be imported.');
     } finally {
@@ -261,7 +264,7 @@ export default function AdminUsersPage() {
         <section className="rounded-xl border border-border bg-card shadow-sm lg:col-span-2">
           <div className="flex items-center gap-3 border-b border-border px-5 py-4">
             <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary"><FileSpreadsheet size={17} /></span>
-            <div><h2 className="font-serif text-lg font-bold">Register data tools</h2><p className="text-xs text-muted-foreground">Import every register from one CSV and keep a daily workbook backup.</p></div>
+             <div><h2 className="font-serif text-lg font-bold">Register data tools</h2><p className="text-xs text-muted-foreground">Import every register and keep payment history in the same daily workbook backup.</p></div>
           </div>
           <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="rounded-xl border border-border bg-muted/20 p-4">
@@ -271,10 +274,10 @@ export default function AdminUsersPage() {
                 <button type="button" disabled={importPending} onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Upload size={15} />{importPending ? 'Importing…' : 'Import workbook'}</button>
                 <button type="button" onClick={() => void downloadWorkbook()} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm font-semibold hover:bg-muted"><Download size={15} /> Export workbook</button>
               </div>
-              <p className="mt-3 text-[11px] text-muted-foreground">Import or export the same multi-tab Excel workbook used by the daily email backup. Existing records are not overwritten; uploaded rows are added.</p>
+               <p className="mt-3 text-[11px] text-muted-foreground">Import or export the same multi-tab Excel workbook used by the daily email backup. Payment History and Payment Bills tabs are included. Existing records are not overwritten; duplicate backup rows are skipped.</p>
             </div>
             <form onSubmit={(event) => void saveBackupSettings(event)} className="rounded-xl border border-border bg-muted/20 p-4">
-              <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><Mail size={16} /></span><div><h3 className="text-sm font-semibold">Daily email backup</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Every day at 6:00 PM India time, all registers are sent as one workbook with a separate tab for each register.</p></div></div>
+               <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><Mail size={16} /></span><div><h3 className="text-sm font-semibold">Daily email backup</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Every day at 6:00 PM India time, registers, payment history, and payment bills are sent as one workbook.</p></div></div>
               <label className="mt-4 block"><span className="mb-1.5 block text-xs font-semibold">Backup recipient email</span><input required={backupEnabled} type="email" value={backupEmail} onChange={(event) => setBackupEmail(event.target.value)} placeholder="admin@example.com" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary" /></label>
               <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={backupEnabled} onChange={(event) => setBackupEnabled(event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" /><span className="font-semibold">Enable daily backup at 6:00 PM</span></label>
               <div className="mt-4 flex flex-wrap gap-2">
