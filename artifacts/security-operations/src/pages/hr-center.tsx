@@ -44,6 +44,16 @@ const sourceLabel = (source: string) => source === 'daily-attendance'
     : source === 'chowk-labour'
       ? 'Chowk Labour'
       : 'All registers';
+const paymentAttendanceSummary = (transaction: PaymentTransaction, details: HrReport['details']) => {
+  const references = new Set(transaction.attendanceReferences);
+  const linkedRows = details.filter((row) => references.has(row.referenceNo));
+  const dates = Array.from(new Set(linkedRows.map((row) => row.date))).sort();
+  const linkedReferences = linkedRows.map((row) => row.referenceNo);
+  const shownReferences = linkedReferences.length ? linkedReferences : transaction.attendanceReferences;
+  const dateLabel = dates.length ? dates.map(displayDate).join(', ') : 'date unavailable';
+  const referenceLabel = shownReferences.length ? shownReferences.join(', ') : 'reference unavailable';
+  return `${dateLabel} · ${referenceLabel}`;
+};
 const statusLabel = (status: string) => status === 'paid'
   ? 'Paid'
   : status === 'partial'
@@ -472,7 +482,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
               </div>
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-serif text-lg font-bold">Payment history</h3><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{transactions.length} reference{transactions.length === 1 ? '' : 's'}</span></div>
-                {transactions.length ? <div className="max-h-56 space-y-2 overflow-y-auto pr-1">{transactions.map((transaction) => <div key={transaction.id} className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs shadow-sm"><div className="flex items-center justify-between gap-2"><span className="font-semibold">{amount(transaction.amount)} · {transaction.paymentMethod}</span><span className="shrink-0 text-[10px] text-muted-foreground">{displayDate(transaction.paidAt.slice(0, 10))}</span></div><div className="mt-1 truncate text-[11px] text-muted-foreground">{transaction.billNumber}{transaction.paymentReference ? ` · Ref ${transaction.paymentReference}` : ''}</div><div className="mt-2 flex items-center justify-between gap-2"><span className="truncate text-[11px] text-muted-foreground">{transaction.paymentNote || (transaction.paidBy ? `by ${transaction.paidBy}` : 'Payment recorded')}</span><button onClick={() => onOpenBill(transaction.id)} className="shrink-0 rounded-md border border-primary/30 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/10">Open bill</button></div></div>)}</div> : <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">No payment has been recorded for this period.</div>}
+                {transactions.length ? <div className="max-h-56 space-y-2 overflow-y-auto pr-1">{transactions.map((transaction) => <div key={transaction.id} className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs shadow-sm"><div className="flex items-start justify-between gap-2"><span className="font-semibold">{amount(transaction.amount)} · {transaction.paymentMethod}</span><span className="shrink-0 text-right text-[10px] leading-4 text-muted-foreground">Paid {displayDate(transaction.paidAt.slice(0, 10))}</span></div><div className="mt-1 truncate text-[11px] text-muted-foreground">{transaction.billNumber}{transaction.paymentReference ? ` · Ref ${transaction.paymentReference}` : ''}</div><div className="mt-1 truncate text-[10px] text-muted-foreground" title="Attendance date and reference">Work: {paymentAttendanceSummary(transaction, report?.details ?? [])}</div><div className="mt-2 flex items-center justify-between gap-2"><span className="truncate text-[11px] text-muted-foreground">{transaction.paymentNote || (transaction.paidBy ? `by ${transaction.paidBy}` : 'Payment recorded')}</span><button onClick={() => onOpenBill(transaction.id)} className="shrink-0 rounded-md border border-primary/30 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/10">Open bill</button></div></div>)}</div> : <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">No payment has been recorded for this period.</div>}
               </div>
             </div>
            <div data-print-bill className="hidden">
