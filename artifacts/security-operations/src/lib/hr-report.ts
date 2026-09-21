@@ -9,7 +9,6 @@ export type HrSummary = {
   baseAmount: number;
   overtimeAmount: number;
   overtimeRate: number;
-  roundingAmount: number;
   totalAmount: number;
   sources: Record<string, { days: number; overtimeMinutes: number; amount: number }>;
   paidAmount: number;
@@ -65,7 +64,6 @@ export type PaymentBill = {
   overtimeMinutes: number;
   overtimeRate: number;
   overtimeAmount: number;
-  roundingAmount: number;
   totalAmount: number;
   paidAmount: number;
   status: 'paid' | 'partial' | 'unpaid';
@@ -145,7 +143,6 @@ export async function savePaymentBill(input: {
   overtimeMinutes: number;
   overtimeRate: number;
   overtimeAmount: number;
-  roundingAmount: number;
   totalAmount: number;
   attendanceRecordIds: string[];
   status: 'paid' | 'partial' | 'unpaid';

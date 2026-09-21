@@ -456,8 +456,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const exactBillKey = billKeyFor(item.name, from, to, sourceScope);
     const bill = billMap.get(exactBillKey);
     const subtotal = item.baseAmount + item.overtimeAmount;
-    const calculatedTotal = Math.round(subtotal);
-    const payableAmount = calculatedTotal;
+    const payableAmount = Number(subtotal.toFixed(2));
     const matchingTransactions = transactions.filter((transaction) =>
       transaction.personName.trim().toLowerCase() === item.name.trim().toLowerCase() &&
       sourceMatches(transaction.sourceScope, sourceScope) &&
@@ -484,12 +483,10 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       ),
        Math.max(payableAmount, 0),
     );
-    const roundingAmount = Math.round(subtotal) - subtotal;
     return {
         ...item,
         wageAmount: item.baseAmount,
         overtimeRate: item.overtimeRate,
-        roundingAmount: Number(roundingAmount.toFixed(2)),
       totalAmount: payableAmount,
       leftDays: Math.max(expectedDays - dates.size, 0),
       paidAmount,
@@ -896,7 +893,6 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
       overtimeMinutes: Math.round(summary.overtimeMinutes),
       overtimeRate: summary.overtimeRate,
       overtimeAmount: summary.overtimeAmount,
-      roundingAmount: summary.roundingAmount,
       totalAmount,
       paidAmount: nextPaidAmount,
       status: nextStatus,
