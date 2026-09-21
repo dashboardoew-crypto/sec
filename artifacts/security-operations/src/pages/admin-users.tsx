@@ -33,6 +33,7 @@ export default function AdminUsersPage() {
   const [backupLastSentAt, setBackupLastSentAt] = useState<string | null>(null);
   const [backupPending, setBackupPending] = useState(false);
   const [importPending, setImportPending] = useState(false);
+  const [truncatePending, setTruncatePending] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadUsers = async () => {
@@ -209,6 +210,33 @@ export default function AdminUsersPage() {
     URL.revokeObjectURL(url);
   };
 
+  const truncateAllData = async () => {
+    const confirmation = window.prompt(
+      'This permanently deletes all register records, payment bills, payment transactions, and payment exclusions. Users and backup settings are preserved.\n\nType TRUNCATE ALL DATA to continue.',
+    );
+    if (confirmation !== 'TRUNCATE ALL DATA') return;
+    resetMessages();
+    setTruncatePending(true);
+    try {
+      const response = await fetch('/api/admin/data/truncate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ confirmation }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error ?? 'All data could not be cleared.');
+      const cleared = payload.cleared ?? {};
+      setNotice(
+        `All operational data was cleared: ${cleared.records ?? 0} register records, ${cleared.bills ?? 0} bills, ${cleared.transactions ?? 0} payments, and ${cleared.attendanceExclusions ?? 0} exclusions.`,
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'All data could not be cleared.');
+    } finally {
+      setTruncatePending(false);
+    }
+  };
+
   if (user?.role !== 'admin') {
     return <div className="p-8 text-sm text-destructive">You do not have permission to manage users.</div>;
   }
@@ -286,6 +314,18 @@ export default function AdminUsersPage() {
               </div>
               <p className="mt-3 text-[11px] text-muted-foreground">{backupLastSentAt ? `Last sent ${new Date(backupLastSentAt).toLocaleString('en-IN')}.` : 'No backup has been sent yet.'} Gmail delivery uses the server-side Replit Secrets configuration.</p>
             </form>
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 lg:col-span-2">
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive"><Trash2 size={16} /></span>
+                <div>
+                  <h3 className="text-sm font-semibold text-destructive">Clear all operational data</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Permanently removes all register records, payment bills, payment transactions, and payment exclusions. Admin users and backup settings are preserved.</p>
+                </div>
+              </div>
+              <button type="button" disabled={truncatePending} onClick={() => void truncateAllData()} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-destructive/40 px-3 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50">
+                <Trash2 size={15} /> {truncatePending ? 'Clearing…' : 'Truncate all data'}
+              </button>
+            </div>
           </div>
         </section>
       </div>

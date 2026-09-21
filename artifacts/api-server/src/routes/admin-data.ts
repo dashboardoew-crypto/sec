@@ -2,7 +2,14 @@ import ExcelJS from "exceljs";
 import nodemailer from "nodemailer";
 import { randomUUID } from "node:crypto";
 import { Router, raw, type IRouter, type Request, type Response } from "express";
-import { db, backupSettingsTable, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
+import {
+  db,
+  backupSettingsTable,
+  paymentAttendanceExclusionsTable,
+  paymentBillsTable,
+  paymentTransactionsTable,
+  registerRecordsTable,
+} from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
 import { getRegister, REGISTER_DEFINITIONS, type FieldDefinition, type RegisterDefinition } from "../data/registers";
 import { applyDerivedValues, validateRequiredFields } from "./operations";
@@ -604,6 +611,29 @@ router.post("/admin/data/import", raw({
     });
   } catch (error) {
     return res.status(400).json({ error: error instanceof Error ? error.message : "The CSV could not be imported." });
+  }
+});
+
+router.post("/admin/data/truncate", async (req: Request, res: Response) => {
+  if (req.body?.confirmation !== "TRUNCATE ALL DATA") {
+    return res.status(400).json({ error: 'Type "TRUNCATE ALL DATA" to confirm this destructive action.' });
+  }
+  try {
+    const cleared = await db.transaction(async (tx) => {
+      const exclusions = await tx.delete(paymentAttendanceExclusionsTable).returning({ id: paymentAttendanceExclusionsTable.id });
+      const transactions = await tx.delete(paymentTransactionsTable).returning({ id: paymentTransactionsTable.id });
+      const bills = await tx.delete(paymentBillsTable).returning({ id: paymentBillsTable.id });
+      const records = await tx.delete(registerRecordsTable).returning({ id: registerRecordsTable.id });
+      return {
+        attendanceExclusions: exclusions.length,
+        transactions: transactions.length,
+        bills: bills.length,
+        records: records.length,
+      };
+    });
+    return res.json({ cleared });
+  } catch (error) {
+    return res.status(500).json({ error: error instanceof Error ? error.message : "All data could not be cleared." });
   }
 });
 
