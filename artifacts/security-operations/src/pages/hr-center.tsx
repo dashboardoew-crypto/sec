@@ -12,7 +12,6 @@ import {
   Printer,
   RefreshCw,
   Search,
-  Trash2,
   WalletCards,
 } from 'lucide-react';
 import { Link } from 'wouter';
@@ -76,13 +75,12 @@ export default function HrCenterPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [selectedPerson, setSelectedPerson] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState('');
+  const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
   const [updatingAttendanceId, setUpdatingAttendanceId] = useState('');
   const [billTransactionId, setBillTransactionId] = useState('');
-  const [hiddenQueuePeople, setHiddenQueuePeople] = useState<string[]>([]);
   const requestId = useRef(0);
   const editable = canEditPayments(user?.role);
 
@@ -104,7 +102,6 @@ export default function HrCenterPage() {
       if (currentRequest !== requestId.current) return;
       setReport(nextReport);
       setTransactions(nextTransactions);
-      setHiddenQueuePeople([]);
       setSelectedPerson((current) =>
         current && nextReport.summaries.some((row) => row.name === current) ? current : '');
       return { report: nextReport, transactions: nextTransactions };
@@ -147,6 +144,16 @@ export default function HrCenterPage() {
     () => details.filter((row) => row.name === selectedPerson),
     [details, selectedPerson],
   );
+  const payableDetails = useMemo(
+    () => selectedDetails.filter((row) => row.paymentIncluded && row.outstandingAmount > 0),
+    [selectedDetails],
+  );
+  const selectedPaymentTotal = useMemo(
+    () => payableDetails
+      .filter((row) => selectedEntryIds.includes(row.id))
+      .reduce((sum, row) => sum + row.outstandingAmount, 0),
+    [payableDetails, selectedEntryIds],
+  );
 
   const visibleTransactions = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -166,16 +173,16 @@ export default function HrCenterPage() {
   }), [details, summaries]);
 
   useEffect(() => {
-    setPaymentAmount(selected?.outstandingAmount ? selected.outstandingAmount.toFixed(2) : '');
+    setSelectedEntryIds(payableDetails.map((row) => row.id));
     setPaymentReference('');
     setPaymentNote('');
-  }, [selected?.name, selected?.outstandingAmount]);
+  }, [selected?.name, payableDetails]);
 
   const recordPayment = async () => {
     if (!selected || !report) return;
-    const entered = Number(paymentAmount);
-    if (!Number.isFinite(entered) || entered <= 0 || entered > selected.outstandingAmount + 0.005) {
-      setError(`Enter an amount between ₹0.01 and ${amount(selected.outstandingAmount)}.`);
+    const selectedIds = selectedEntryIds.filter((id) => payableDetails.some((row) => row.id === id));
+    if (!selectedIds.length || selectedPaymentTotal <= 0) {
+      setError('Select at least one unpaid attendance entry before recording payment.');
       return;
     }
     const reference = paymentReference.trim();
@@ -200,17 +207,17 @@ export default function HrCenterPage() {
         overtimeAmount: selected.overtimeAmount,
         roundingAmount: selected.roundingAmount,
         totalAmount: selected.totalAmount,
-        paymentAmount: entered,
-        status: entered >= selected.outstandingAmount - 0.005 ? 'paid' : 'partial',
+        attendanceRecordIds: selectedIds,
+        status: selectedPaymentTotal >= selected.outstandingAmount - 0.005 ? 'paid' : 'partial',
         paymentMethod,
         paymentReference: reference,
         paymentNote: paymentNote.trim(),
       });
-      setNotice(`${selected.name}: ${amount(entered)} recorded successfully.`);
+      setNotice(`${selected.name}: ${amount(selectedPaymentTotal)} recorded against ${selectedIds.length} attendance ${selectedIds.length === 1 ? 'entry' : 'entries'}.`);
       const loaded = await load();
       const savedTransaction = loaded?.transactions.find((transaction) =>
         transaction.billNumber === savedBill.billNumber &&
-        transaction.amount === entered &&
+        Math.abs(transaction.amount - selectedPaymentTotal) < 0.005 &&
         transaction.paidAt === savedBill.paidAt,
       ) ?? loaded?.transactions.find((transaction) => transaction.billNumber === savedBill.billNumber);
       if (savedTransaction) setBillTransactionId(savedTransaction.id);
@@ -366,8 +373,9 @@ export default function HrCenterPage() {
           selected={selected}
           selectedPerson={selectedPerson}
           setSelectedPerson={setSelectedPerson}
-          paymentAmount={paymentAmount}
-          setPaymentAmount={setPaymentAmount}
+           selectedEntryIds={selectedEntryIds}
+           paymentTotal={selectedPaymentTotal}
+           onTogglePaymentEntry={(recordId, checked) => setSelectedEntryIds((current) => checked ? Array.from(new Set([...current, recordId])) : current.filter((id) => id !== recordId))}
           paymentMethod={paymentMethod}
           setPaymentMethod={setPaymentMethod}
           paymentReference={paymentReference}
@@ -378,7 +386,7 @@ export default function HrCenterPage() {
           editable={editable}
           onRecordPayment={() => void recordPayment()}
           onPrint={() => window.print()}
-           onToggleAttendance={(recordId, included) => void toggleAttendance(recordId, included)}
+            onToggleAttendance={(recordId, included) => void toggleAttendance(recordId, included)}
            updatingAttendanceId={updatingAttendanceId}
            onOpenBill={setBillTransactionId}
            onCloseBill={() => setBillTransactionId('')}
@@ -386,8 +394,6 @@ export default function HrCenterPage() {
            billDetails={(report?.details ?? []).filter((row) =>
              row.name === selectedPerson &&
              row.paymentAllocations.some((allocation) => allocation.transactionId === billTransactionId))}
-           hiddenQueuePeople={hiddenQueuePeople}
-           onRemoveFromQueue={(name) => setHiddenQueuePeople((current) => [...new Set([...current, name.trim().toLowerCase()])])}
           loading={loading}
         />
       )}
@@ -434,7 +440,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
   );
 }
 
-function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, paymentAmount, setPaymentAmount, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onToggleAttendance, updatingAttendanceId, onOpenBill, onCloseBill, billTransaction, billDetails, hiddenQueuePeople, onRemoveFromQueue, loading }: {
+function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onToggleAttendance, updatingAttendanceId, onOpenBill, onCloseBill, billTransaction, billDetails, loading }: {
   report: HrReport | null;
   summaries: HrSummary[];
   details: HrReport['details'];
@@ -442,8 +448,9 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   selected: HrSummary | null;
   selectedPerson: string;
   setSelectedPerson: (value: string) => void;
-  paymentAmount: string;
-  setPaymentAmount: (value: string) => void;
+  selectedEntryIds: string[];
+  paymentTotal: number;
+  onTogglePaymentEntry: (recordId: string, checked: boolean) => void;
   paymentMethod: string;
   setPaymentMethod: (value: string) => void;
   paymentReference: string;
@@ -460,12 +467,9 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   onCloseBill: () => void;
   billTransaction: PaymentTransaction | null;
   billDetails: HrReport['details'];
-  hiddenQueuePeople: string[];
-  onRemoveFromQueue: (name: string) => void;
   loading: boolean;
 }) {
-  const unpaid = summaries.filter((row) =>
-    row.outstandingAmount > 0 && !hiddenQueuePeople.includes(row.name.trim().toLowerCase()));
+  const unpaid = summaries.filter((row) => row.outstandingAmount > 0);
   return (
     <>
       <div className={`mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 ${selected ? 'print:hidden' : ''}`}>
@@ -478,21 +482,21 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
       {!selected && (
         <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm print:hidden">
           <div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">Payment queue</h2><p className="text-xs text-muted-foreground">{unpaid.length} person(s) have an amount left to pay.</p></div>
-           <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Person', 'Worked days', 'Total payable', 'Paid', 'Amount left', 'Status', 'Action'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{unpaid.map((row) => <tr key={row.name} className="hover:bg-muted/30"><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button onClick={() => setSelectedPerson(row.name)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Open worker</button><button type="button" onClick={() => onRemoveFromQueue(row.name)} className="inline-flex items-center gap-1 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10" title="Remove from this queue only"><Trash2 size={13} /> Delete</button></div></td></tr>)}</tbody></table></div>{!loading && !unpaid.length && <EmptyTable text={hiddenQueuePeople.length ? 'No unpaid people remain in this queue.' : 'No unpaid people match this period and filter.'} />}</section>
+          <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="border-b border-border bg-muted/45"><tr>{['Person', 'Worked days', 'Total payable', 'Paid', 'Amount left', 'Status', 'Action'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{unpaid.map((row) => <tr key={row.name} className="hover:bg-muted/30"><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td><td className="px-4 py-3"><button onClick={() => setSelectedPerson(row.name)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Open worker</button></td></tr>)}</tbody></table></div>{!loading && !unpaid.length && <EmptyTable text="No unpaid people match this period and filter." />}</section>
       )}
       {selected && report && (
         <section data-print-statement className="mb-6 rounded-xl border-2 border-foreground/15 bg-card p-6 shadow-sm md:p-8 print:mb-0 print:border-0 print:p-0 print:shadow-none">
            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5"><div><button onClick={() => setSelectedPerson('')} className="mb-3 text-xs font-semibold text-primary hover:underline print:hidden">← Back to payment queue</button><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Worker payment statement</div><h2 className="mt-2 font-serif text-3xl font-bold">{selected.name}</h2><p className="mt-1 text-sm text-muted-foreground">{displayDate(report.from)} to {displayDate(report.to)} · {sourceLabel(report.sourceScope)}</p></div><div className="text-right"><StatusBadge status={selected.paymentStatus} /><div className="mt-2 text-xs text-muted-foreground">Amount left</div><div className="font-mono text-2xl font-bold text-amber-700">{amount(selected.outstandingAmount)}</div></div></div>
            <div data-print-screen className="mt-6 grid gap-3 sm:grid-cols-4"><Metric label="Worked days" value={formatDays(selected.workedDays)} /><Metric label="Total payable" value={amount(selected.totalAmount)} /><Metric label="Paid" value={amount(selected.paidAmount)} tone="success" /><Metric label="Balance left" value={amount(selected.outstandingAmount)} tone="warning" /></div>
            <div data-print-screen className="mt-6 divide-y divide-border"><BillLine label="Base wages" detail={`${formatDays(selected.workedDays)} days × ${amount(selected.wagePerDay)}`} value={amount(selected.wageAmount)} /><BillLine label="Overtime" detail={`${formatMinutes(selected.overtimeMinutes)} at ${amount(selected.overtimeRate)}/hour`} value={amount(selected.overtimeAmount)} /><BillLine label="Round off" detail="Nearest rupee adjustment" value={`${selected.roundingAmount >= 0 ? '+' : ''}${amount(selected.roundingAmount)}`} /></div>
-           {editable && selected.outstandingAmount > 0 && <div data-payment-form className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-5"><div className="mb-4"><h3 className="font-serif text-lg font-bold">Record a payment</h3><p className="text-xs text-muted-foreground">Enter the amount actually paid. Non-cash methods require a reference.</p></div><div className="grid gap-4 md:grid-cols-4"><label><span className="mb-1.5 block text-xs font-semibold">Amount paid</span><input type="number" min="0.01" max={selected.outstandingAmount} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Payment method</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold">Reference / UTR {paymentMethod !== 'Cash' && paymentMethod !== 'Other' ? '(required)' : '(optional)'}</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={paymentMethod === 'Cash' || paymentMethod === 'Other' ? 'Optional' : 'Enter reference'} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Note</span><input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional" className={inputClass} /></label></div><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={onRecordPayment} disabled={saving} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} {saving ? 'Saving…' : 'Record payment'}</button><button onClick={onPrint} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"><Printer size={15} /> Print statement</button></div></div>}
+            {editable && selected.outstandingAmount > 0 && <div data-payment-form className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-5"><div className="mb-4"><h3 className="font-serif text-lg font-bold">Record a payment</h3><p className="text-xs text-muted-foreground">Select the exact attendance entries this payment covers. The total is calculated automatically; a payment cannot be assigned to an earlier or later entry.</p></div><div className="grid gap-4 md:grid-cols-4"><label><span className="mb-1.5 block text-xs font-semibold">Payment total</span><input value={paymentTotal ? amount(paymentTotal) : 'Select entries'} readOnly className={`${inputClass} bg-muted/50 font-mono font-semibold`} /></label><label><span className="mb-1.5 block text-xs font-semibold">Payment method</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold">Reference / UTR {paymentMethod !== 'Cash' && paymentMethod !== 'Other' ? '(required)' : '(optional)'}</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={paymentMethod === 'Cash' || paymentMethod === 'Other' ? 'Optional' : 'Enter reference'} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Note</span><input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional" className={inputClass} /></label></div><div className="mt-3 text-xs text-muted-foreground">{selectedEntryIds.length ? `${selectedEntryIds.length} attendance ${selectedEntryIds.length === 1 ? 'entry' : 'entries'} selected. Each reference will be attached to this payment.` : 'Select an unpaid attendance entry below.'}</div><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={onRecordPayment} disabled={saving || !paymentTotal} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} {saving ? 'Saving…' : 'Record payment'}</button><button onClick={onPrint} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"><Printer size={15} /> Print statement</button></div></div>}
             <div data-print-screen className="mt-7 grid gap-7 lg:grid-cols-[1.35fr_.65fr]">
               <div>
                 <div className="mb-3 flex items-start justify-between gap-3">
-                  <div><h3 className="font-serif text-lg font-bold">Attendance for this payment</h3><p className="text-xs text-muted-foreground">Paid rows move to payment history. Exclude a row when it should not be paid in this period.</p></div>
+                   <div><h3 className="font-serif text-lg font-bold">Attendance for this payment</h3><p className="text-xs text-muted-foreground">Select exact unpaid entries above the payment form. Each row has a reference number, and only selected rows are paid.</p></div>
                   <span className="print:hidden text-xs text-muted-foreground">{details.filter((row) => row.paymentIncluded && row.paymentStatus !== 'paid').length} open · {details.filter((row) => !row.paymentIncluded).length} excluded</span>
                 </div>
-                <DetailTable details={details} onToggleAttendance={onToggleAttendance} updatingAttendanceId={updatingAttendanceId} editable={editable} />
+                 <DetailTable details={details} selectedEntryIds={selectedEntryIds} onTogglePaymentEntry={onTogglePaymentEntry} onToggleAttendance={onToggleAttendance} updatingAttendanceId={updatingAttendanceId} editable={editable} />
               </div>
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-serif text-lg font-bold">Payment history</h3><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{transactions.length} reference{transactions.length === 1 ? '' : 's'}</span></div>
@@ -576,7 +580,7 @@ function LedgerView({ details, transactions, loading }: { details: HrReport['det
           </form>
         </div>
         <div className="max-h-[32rem] overflow-auto">
-          <table className="w-full min-w-[1250px] text-left text-sm"><thead className="sticky top-0 z-10 border-b border-border bg-muted/95"><tr>{['Date', 'Person', 'Register', 'Days', 'Hours', 'Overtime', 'Amount due', 'Paid', 'Amount left', 'Status'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{filteredDetails.map((row) => <tr key={row.id} className="hover:bg-muted/30"><td className="px-4 py-3">{displayDate(row.date)}</td><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{sourceLabel(row.source)}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{formatMinutes(row.minutes)}</td><td className="px-4 py-3 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-4 py-3 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td></tr>)}</tbody></table>
+           <table className="w-full min-w-[1400px] text-left text-sm"><thead className="sticky top-0 z-10 border-b border-border bg-muted/95"><tr>{['Reference no.', 'Date', 'Person', 'Register', 'Days', 'Hours', 'Overtime', 'Amount due', 'Paid', 'Amount left', 'Status'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{filteredDetails.map((row) => <tr key={row.id} className="hover:bg-muted/30"><td className="px-4 py-3 font-mono text-xs">{row.referenceNo}</td><td className="px-4 py-3">{displayDate(row.date)}</td><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{sourceLabel(row.source)}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{formatMinutes(row.minutes)}</td><td className="px-4 py-3 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-4 py-3 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-4 py-3 font-mono text-emerald-700">{amount(row.paidAmount)}</td><td className="px-4 py-3 font-mono font-bold text-amber-700">{amount(row.outstandingAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td></tr>)}</tbody></table>
           {!loading && !filteredDetails.length && <EmptyTable text={attendanceSearch ? 'No attendance rows match this search.' : 'No attendance rows match this period and filter.'} />}
         </div>
       </section>
@@ -611,7 +615,7 @@ function BillDialog({ transaction, details, onClose }: {
       </div>
       <div className="p-6">
         {details.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-border bg-muted/45"><tr>{['Date', 'Register', 'Days', 'Per day amount', 'Overtime amount', 'Total amount'].map((label) => <th key={label} className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{details.map((row) => { const line = billAmounts(row, transaction.id); return <tr key={row.id}><td className="px-3 py-2">{displayDate(row.date)}</td><td className="px-3 py-2">{sourceLabel(row.source)}</td><td className="px-3 py-2">{formatDays(row.workedDays)}</td><td className="px-3 py-2 font-mono">{amount(line.base)}</td><td className="px-3 py-2 font-mono text-primary">{amount(line.overtime)}</td><td className="px-3 py-2 font-mono font-semibold">{amount(line.total)}</td></tr>; })}</tbody></table></div> : <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No attendance rows are linked to this payment in the selected date range.</div>}
-        <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-border pt-4"><div className="text-xs text-muted-foreground"><div>Payment date: {displayDate(transaction.paidAt.slice(0, 10))}</div><div className="mt-1">Reference: {transaction.paymentReference || 'No reference'}</div></div><div className="text-right"><div className="text-xs text-muted-foreground">Payment total</div><div className="font-mono text-xl font-bold">{amount(transaction.amount)}</div>{details.length && Math.abs(billTotal - transaction.amount) > 0.005 ? <div className="mt-1 text-[10px] text-amber-700">Linked attendance total: {amount(billTotal)}</div> : null}</div></div>
+         <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-border pt-4"><div className="text-xs text-muted-foreground"><div>Payment date: {displayDate(transaction.paidAt.slice(0, 10))}</div><div className="mt-1">Payment reference: {transaction.paymentReference || 'No reference'}</div><div className="mt-1">Attendance references: {transaction.attendanceReferences.length ? transaction.attendanceReferences.join(', ') : 'Legacy period allocation'}</div></div><div className="text-right"><div className="text-xs text-muted-foreground">Payment total</div><div className="font-mono text-xl font-bold">{amount(transaction.amount)}</div>{details.length && Math.abs(billTotal - transaction.amount) > 0.005 ? <div className="mt-1 text-[10px] text-amber-700">Linked attendance total: {amount(billTotal)}</div> : null}</div></div>
         <div className="mt-5 flex flex-wrap justify-end gap-2"><button onClick={() => downloadBill(transaction, details)} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"><Download size={14} /> Download bill</button><button onClick={() => printBill(transaction, details)} className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"><Printer size={14} /> Print bill</button></div>
       </div>
     </div>
@@ -643,9 +647,9 @@ function escapeHtml(value: unknown) {
 function buildBillHtml(transaction: PaymentTransaction, details: HrReport['details']) {
   const rows = details.map((row) => {
     const line = billAmounts(row, transaction.id);
-    return `<tr><td>${escapeHtml(displayDate(row.date))}</td><td>${escapeHtml(sourceLabel(row.source))}</td><td>${escapeHtml(formatDays(row.workedDays))}</td><td>${escapeHtml(amount(line.base))}</td><td>${escapeHtml(amount(line.overtime))}</td><td><strong>${escapeHtml(amount(line.total))}</strong></td></tr>`;
+    return `<tr><td>${escapeHtml(row.referenceNo)}</td><td>${escapeHtml(displayDate(row.date))}</td><td>${escapeHtml(sourceLabel(row.source))}</td><td>${escapeHtml(formatDays(row.workedDays))}</td><td>${escapeHtml(amount(line.base))}</td><td>${escapeHtml(amount(line.overtime))}</td><td><strong>${escapeHtml(amount(line.total))}</strong></td></tr>`;
   }).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(transaction.billNumber)}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:32px}h1{margin:0 0 4px;font-size:22px}p{color:#555;font-size:12px}table{border-collapse:collapse;width:100%;margin-top:24px;font-size:12px}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f1f1f1;text-transform:uppercase;font-size:10px}td:nth-child(n+3){text-align:right}.summary{margin-top:20px;margin-left:auto;width:260px}.summary div{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:7px 0;font-size:13px}.summary strong{font-size:16px}</style></head><body><h1>Payment bill</h1><p><strong>Person:</strong> ${escapeHtml(transaction.personName)}<br><strong>Bill:</strong> ${escapeHtml(transaction.billNumber)}<br><strong>Attendance period:</strong> ${escapeHtml(displayDate(transaction.fromDate))} to ${escapeHtml(displayDate(transaction.toDate))}<br><strong>Payment date:</strong> ${escapeHtml(displayDate(transaction.paidAt.slice(0, 10)))}<br><strong>Reference:</strong> ${escapeHtml(transaction.paymentReference || 'No reference')}</p><table><thead><tr><th>Date</th><th>Register</th><th>Days</th><th>Per day amount</th><th>Overtime amount</th><th>Total amount</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No linked attendance rows.</td></tr>'}</tbody></table><div class="summary"><div><span>Payment total</span><strong>${escapeHtml(amount(transaction.amount))}</strong></div></div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(transaction.billNumber)}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:32px}h1{margin:0 0 4px;font-size:22px}p{color:#555;font-size:12px}table{border-collapse:collapse;width:100%;margin-top:24px;font-size:12px}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f1f1f1;text-transform:uppercase;font-size:10px}td:nth-child(n+4){text-align:right}.summary{margin-top:20px;margin-left:auto;width:260px}.summary div{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:7px 0;font-size:13px}.summary strong{font-size:16px}</style></head><body><h1>Payment bill</h1><p><strong>Person:</strong> ${escapeHtml(transaction.personName)}<br><strong>Bill:</strong> ${escapeHtml(transaction.billNumber)}<br><strong>Attendance period:</strong> ${escapeHtml(displayDate(transaction.fromDate))} to ${escapeHtml(displayDate(transaction.toDate))}<br><strong>Payment date:</strong> ${escapeHtml(displayDate(transaction.paidAt.slice(0, 10)))}<br><strong>Payment reference:</strong> ${escapeHtml(transaction.paymentReference || 'No reference')}<br><strong>Attendance references:</strong> ${escapeHtml(transaction.attendanceReferences.join(', ') || 'Legacy period allocation')}</p><table><thead><tr><th>Attendance reference</th><th>Date</th><th>Register</th><th>Days</th><th>Per day amount</th><th>Overtime amount</th><th>Total amount</th></tr></thead><tbody>${rows || '<tr><td colspan="7">No linked attendance rows.</td></tr>'}</tbody></table><div class="summary"><div><span>Payment total</span><strong>${escapeHtml(amount(transaction.amount))}</strong></div></div></body></html>`;
 }
 
 function downloadBill(transaction: PaymentTransaction, details: HrReport['details']) {
@@ -701,14 +705,16 @@ function BillLine({ label, detail, value }: { label: string; detail: string; val
   return <div className="flex items-center justify-between gap-5 py-4"><div><div className="font-semibold">{label}</div><div className="mt-1 text-xs text-muted-foreground">{detail}</div></div><div className="font-mono text-base font-semibold">{value}</div></div>;
 }
 
-function DetailTable({ details, onToggleAttendance, updatingAttendanceId, editable }: {
+function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry, onToggleAttendance, updatingAttendanceId, editable }: {
   details: HrReport['details'];
+  selectedEntryIds: string[];
+  onTogglePaymentEntry: (recordId: string, checked: boolean) => void;
   onToggleAttendance: (recordId: string, included: boolean) => void;
   updatingAttendanceId: string;
   editable: boolean;
 }) {
   const visibleDetails = details.filter((row) => row.paymentStatus !== 'paid');
-  return <div className="overflow-x-auto"><table className="w-full min-w-[960px] text-left text-xs"><thead className="border-b border-border"><tr>{['Date', 'Register', 'Days', 'Hours', 'Overtime', 'Per day amount', 'Overtime amount', 'Total amount', 'Status', 'Action'].map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{displayDate(row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono text-primary">{amount(row.overtimeAmount)}</td><td className="px-2 py-2 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td><td className="px-2 py-2 print:hidden">{editable ? <button onClick={() => onToggleAttendance(row.id, !row.paymentIncluded)} disabled={updatingAttendanceId === row.id} className="whitespace-nowrap rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-muted disabled:opacity-50">{updatingAttendanceId === row.id ? 'Saving…' : row.paymentIncluded ? 'Exclude from payment' : 'Include in payment'}</button> : <span className="text-muted-foreground">View only</span>}</td></tr>)}</tbody></table>{!visibleDetails.length && <div className="border-t border-border p-6 text-center text-sm text-muted-foreground">All attendance in this period has been paid and moved to payment history.</div>}</div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-xs"><thead className="border-b border-border"><tr>{['Pay', 'Reference no.', 'Date', 'Register', 'Days', 'Hours', 'Overtime', 'Per day amount', 'Overtime amount', 'Total amount', 'Status', 'Action'].map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; return <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="text-muted-foreground">—</span>}</td><td className="px-2 py-2 font-mono text-[10px]">{row.referenceNo}</td><td className="px-2 py-2">{displayDate(row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono text-primary">{amount(row.overtimeAmount)}</td><td className="px-2 py-2 font-mono font-semibold">{amount(row.outstandingAmount)}</td><td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td><td className="px-2 py-2 print:hidden">{editable ? <button onClick={() => onToggleAttendance(row.id, !row.paymentIncluded)} disabled={updatingAttendanceId === row.id} className="whitespace-nowrap rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-muted disabled:opacity-50">{updatingAttendanceId === row.id ? 'Saving…' : row.paymentIncluded ? 'Exclude from payment' : 'Include in payment'}</button> : <span className="text-muted-foreground">View only</span>}</td></tr>; })}</tbody></table>{!visibleDetails.length && <div className="border-t border-border p-6 text-center text-sm text-muted-foreground">All attendance in this period has been paid and moved to payment history.</div>}</div>;
 }
 
 function EmptyTable({ text }: { text: string }) {

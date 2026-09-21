@@ -326,6 +326,17 @@ const paymentSourceSlugs = ["all", ...hrRegisterSlugs] as const;
 const paymentMethods = ["Cash", "Bank transfer", "UPI", "Cheque", "Other"] as const;
 const billKeyFor = (name: string, from: string, to: string, source: string) =>
   `${name.trim().toLowerCase()}|${from}|${to}|${source}`;
+const attendanceReferenceFor = (id: string, date: string, registerSlug: string) =>
+  `ATT-${date.replaceAll("-", "")}-${registerSlug.slice(0, 3).toUpperCase()}-${id.slice(0, 8).toUpperCase()}`;
+const parseAttendanceReferences = (value: string | null | undefined) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+};
 const paymentStatusFor = (paidAmount: number, totalAmount: number) =>
   paidAmount >= totalAmount && totalAmount > 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
 const sourceMatches = (paymentSource: string, reportSource: string) =>
@@ -400,7 +411,9 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     };
     summary.set(name.toLowerCase(), existing);
     details.push({
-      id: row.id, date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
+      id: row.id,
+      referenceNo: attendanceReferenceFor(row.id, date, row.registerSlug),
+      date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
       shortfallMinutes, baseAmount: allowanceAmount, overtimeAmount, totalAmount: rowAmount, paymentIncluded,
     });
     if (!paymentIncluded) {
@@ -502,10 +515,17 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     for (const payment of paymentEvents) {
       let remaining = Math.max(numericValue(payment.amount), 0);
       if (!remaining) continue;
+      const targetedReferences = "attendanceReferences" in payment
+        ? parseAttendanceReferences(payment.attendanceReferences)
+        : [];
+      const targetedReferenceSet = targetedReferences.length ? new Set(targetedReferences) : null;
       for (const detail of personDetails) {
         if (detail["paymentIncluded"] === false) continue;
         const detailDate = String(detail["date"] ?? "");
-        if (detailDate < payment.fromDate || detailDate > payment.toDate) continue;
+        const detailReference = String(detail["referenceNo"] ?? "");
+        if (targetedReferenceSet
+          ? !targetedReferenceSet.has(detailReference)
+          : detailDate < payment.fromDate || detailDate > payment.toDate) continue;
         const detailId = String(detail["id"] ?? "");
         const existing = detailPayments.get(detailId) ?? {
           paidAmount: 0,
@@ -773,7 +793,10 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
     sourceMatches(transaction.sourceScope, source) &&
     (!paidOn || dateInIndia(transaction.paidAt) === paidOn) &&
     (!name || transaction.personName.toLowerCase().includes(name)),
-  ));
+  ).map((transaction) => ({
+    ...transaction,
+    attendanceReferences: parseAttendanceReferences(transaction.attendanceReferences),
+  })));
 });
 
 router.post("/payments/bills", async (req: Request, res: Response) => {
@@ -785,7 +808,11 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const fromDate = typeof body.fromDate === "string" ? body.fromDate : "";
   const toDate = typeof body.toDate === "string" ? body.toDate : "";
   const sourceScope = typeof body.sourceScope === "string" ? body.sourceScope : "all";
-  const paymentAmount = Number(body.paymentAmount);
+  const attendanceRecordIds = Array.from(new Set(
+    Array.isArray(body.attendanceRecordIds)
+      ? body.attendanceRecordIds.filter((value): value is string => typeof value === "string" && value.trim()).map((value) => value.trim())
+      : [],
+  ));
   const paymentMethod = paymentMethods.includes(body.paymentMethod as typeof paymentMethods[number])
     ? body.paymentMethod as typeof paymentMethods[number]
     : "Cash";
@@ -797,8 +824,8 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
     !/^\d{4}-\d{2}-\d{2}$/.test(toDate) ||
     fromDate > toDate ||
     !paymentSourceSlugs.includes(sourceScope as typeof paymentSourceSlugs[number]) ||
-    !Number.isFinite(paymentAmount) ||
-    paymentAmount <= 0 ||
+    !attendanceRecordIds.length ||
+    attendanceRecordIds.length > 500 ||
     paymentReference.length > 160 ||
     paymentNote.length > 500 ||
     (["Bank transfer", "UPI", "Cheque"].includes(paymentMethod) && !paymentReference)
@@ -808,6 +835,18 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const report = await hrReport(fromDate, toDate, sourceScope);
   const summary = report.summaries.find((item) => item.name.trim().toLowerCase() === personName.toLowerCase());
   if (!summary) return res.status(404).json({ error: "No attendance or payable amount was found for this person and period" });
+  const selectedDetails = report.details.filter((detail) =>
+    detail.name.trim().toLowerCase() === personName.toLowerCase() &&
+    attendanceRecordIds.includes(detail.id),
+  );
+  if (selectedDetails.length !== attendanceRecordIds.length) {
+    return res.status(400).json({ error: "Each selected attendance entry must belong to this person and payment period" });
+  }
+  if (selectedDetails.some((detail) => !detail.paymentIncluded || detail.outstandingAmount <= 0)) {
+    return res.status(400).json({ error: "Only included attendance entries with an unpaid balance can be paid" });
+  }
+  const paymentAmount = Number(selectedDetails.reduce((sum, detail) => sum + detail.outstandingAmount, 0).toFixed(2));
+  if (!paymentAmount) return res.status(400).json({ error: "The selected attendance entries have no amount left to pay" });
   if (paymentAmount > summary.outstandingAmount + 0.005) {
     return res.status(400).json({ error: `Payment cannot exceed the outstanding amount of ${summary.outstandingAmount.toFixed(2)}` });
   }
@@ -860,6 +899,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
       paymentMethod,
       paymentReference: paymentReference || null,
       paymentNote: paymentNote || null,
+      attendanceReferences: JSON.stringify(selectedDetails.map((detail) => detail.referenceNo)),
       paidAt,
       paidBy: req.user?.displayName ?? req.user?.email ?? null,
     });

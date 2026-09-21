@@ -21,6 +21,7 @@ export type HrSummary = {
 
 export type HrDetail = {
   id: string;
+  referenceNo: string;
   date: string;
   name: string;
   source: string;
@@ -87,6 +88,7 @@ export type PaymentTransaction = {
   paymentMethod: string;
   paymentReference: string | null;
   paymentNote: string | null;
+  attendanceReferences: string[];
   paidAt: string;
   paidBy: string | null;
 };
@@ -145,7 +147,7 @@ export async function savePaymentBill(input: {
   overtimeAmount: number;
   roundingAmount: number;
   totalAmount: number;
-  paymentAmount?: number;
+  attendanceRecordIds: string[];
   status: 'paid' | 'partial' | 'unpaid';
   paymentMethod?: string;
   paymentReference?: string;
