@@ -26,7 +26,6 @@ import {
   monthStart,
   savePaymentBill,
   today,
-  updateAttendanceInclusion,
   type HrReport,
   type HrSummary,
   type PaymentTransaction,
@@ -79,7 +78,6 @@ export default function HrCenterPage() {
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
-  const [updatingAttendanceId, setUpdatingAttendanceId] = useState('');
   const [billTransactionId, setBillTransactionId] = useState('');
   const requestId = useRef(0);
   const editable = canEditPayments(user?.role);
@@ -228,28 +226,6 @@ export default function HrCenterPage() {
     }
   };
 
-  const toggleAttendance = async (recordId: string, included: boolean) => {
-    if (!report) return;
-    setUpdatingAttendanceId(recordId);
-    setError('');
-    setNotice('');
-    try {
-      await updateAttendanceInclusion({
-        recordId,
-        fromDate: report.from,
-        toDate: report.to,
-        sourceScope: source,
-        included,
-      });
-      setNotice(included ? 'Attendance included. The unpaid amount was recalculated.' : 'Attendance excluded from this payment period. The unpaid amount was recalculated.');
-      await load();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Attendance inclusion could not be updated');
-    } finally {
-      setUpdatingAttendanceId('');
-    }
-  };
-
   const exportCsv = () => {
     const rows = [
       ['Name', 'Worked days', 'Overtime', 'Total payable', 'Paid', 'Outstanding', 'Status'],
@@ -386,8 +362,6 @@ export default function HrCenterPage() {
           editable={editable}
           onRecordPayment={() => void recordPayment()}
           onPrint={() => window.print()}
-            onToggleAttendance={(recordId, included) => void toggleAttendance(recordId, included)}
-           updatingAttendanceId={updatingAttendanceId}
            onOpenBill={setBillTransactionId}
            onCloseBill={() => setBillTransactionId('')}
            billTransaction={transactions.find((transaction) => transaction.id === billTransactionId) ?? null}
@@ -440,7 +414,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
   );
 }
 
-function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onToggleAttendance, updatingAttendanceId, onOpenBill, onCloseBill, billTransaction, billDetails, loading }: {
+function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onOpenBill, onCloseBill, billTransaction, billDetails, loading }: {
   report: HrReport | null;
   summaries: HrSummary[];
   details: HrReport['details'];
@@ -461,8 +435,6 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   editable: boolean;
   onRecordPayment: () => void;
   onPrint: () => void;
-  onToggleAttendance: (recordId: string, included: boolean) => void;
-  updatingAttendanceId: string;
   onOpenBill: (transactionId: string) => void;
   onCloseBill: () => void;
   billTransaction: PaymentTransaction | null;
@@ -496,7 +468,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
                     <div><h3 className="font-serif text-lg font-bold">Attendance for this payment</h3><p className="text-xs text-muted-foreground">Each row has one reference number. Select only the row(s) that this payment is for; rows are never selected automatically.</p></div>
                   <span className="print:hidden text-xs text-muted-foreground">{details.filter((row) => row.paymentIncluded && row.paymentStatus !== 'paid').length} open · {details.filter((row) => !row.paymentIncluded).length} excluded</span>
                 </div>
-                 <DetailTable details={details} selectedEntryIds={selectedEntryIds} onTogglePaymentEntry={onTogglePaymentEntry} onToggleAttendance={onToggleAttendance} updatingAttendanceId={updatingAttendanceId} editable={editable} />
+                  <DetailTable details={details} selectedEntryIds={selectedEntryIds} onTogglePaymentEntry={onTogglePaymentEntry} />
               </div>
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-serif text-lg font-bold">Payment history</h3><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{transactions.length} reference{transactions.length === 1 ? '' : 's'}</span></div>
@@ -662,15 +634,20 @@ function downloadBill(transaction: PaymentTransaction, details: HrReport['detail
 }
 
 function printBill(transaction: PaymentTransaction, details: HrReport['details']) {
-  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=700');
+  const printWindow = window.open('', '_blank', 'width=900,height=700');
   if (!printWindow) return;
+  let printed = false;
+  const print = () => {
+    if (printed) return;
+    printed = true;
+    printWindow.print();
+    window.setTimeout(() => printWindow.close(), 250);
+  };
+  printWindow.onload = print;
+  printWindow.document.open();
   printWindow.document.write(buildBillHtml(transaction, details));
   printWindow.document.close();
-  printWindow.focus();
-  printWindow.onload = () => {
-    printWindow.print();
-    printWindow.close();
-  };
+  window.setTimeout(print, 500);
 }
 
 function DateField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -705,16 +682,13 @@ function BillLine({ label, detail, value }: { label: string; detail: string; val
   return <div className="flex items-center justify-between gap-5 py-4"><div><div className="font-semibold">{label}</div><div className="mt-1 text-xs text-muted-foreground">{detail}</div></div><div className="font-mono text-base font-semibold">{value}</div></div>;
 }
 
-function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry, onToggleAttendance, updatingAttendanceId, editable }: {
+function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry }: {
   details: HrReport['details'];
   selectedEntryIds: string[];
   onTogglePaymentEntry: (recordId: string, checked: boolean) => void;
-  onToggleAttendance: (recordId: string, included: boolean) => void;
-  updatingAttendanceId: string;
-  editable: boolean;
 }) {
   const visibleDetails = details.filter((row) => row.paymentStatus !== 'paid');
-  return <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-xs"><thead className="border-b border-border"><tr>{['Pay', 'Reference no.', 'Date', 'Register', 'Days', 'Hours', 'Overtime', 'Per day amount', 'Overtime amount', 'Total amount', 'Status', 'Action'].map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; return <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="text-muted-foreground">—</span>}</td><td className="px-2 py-2 font-mono text-[10px]">{row.referenceNo}</td><td className="px-2 py-2">{displayDate(row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono text-primary">{amount(row.overtimeAmount)}</td><td className="px-2 py-2 font-mono font-semibold">{amount(row.outstandingAmount)}</td><td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td><td className="px-2 py-2 print:hidden">{editable ? <button onClick={() => onToggleAttendance(row.id, !row.paymentIncluded)} disabled={updatingAttendanceId === row.id} className="whitespace-nowrap rounded-md border border-border px-2 py-1 text-[10px] font-semibold hover:bg-muted disabled:opacity-50">{updatingAttendanceId === row.id ? 'Saving…' : row.paymentIncluded ? 'Exclude from payment' : 'Include in payment'}</button> : <span className="text-muted-foreground">View only</span>}</td></tr>; })}</tbody></table>{!visibleDetails.length && <div className="border-t border-border p-6 text-center text-sm text-muted-foreground">All attendance in this period has been paid and moved to payment history.</div>}</div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-xs"><thead className="border-b border-border"><tr>{['Pay', 'Reference no.', 'Date', 'Register', 'Days', 'Hours', 'Overtime', 'Per day amount', 'Overtime amount', 'Total amount', 'Status'].map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; return <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="text-muted-foreground">—</span>}</td><td className="px-2 py-2 font-mono text-[10px]">{row.referenceNo}</td><td className="px-2 py-2">{displayDate(row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono text-primary">{amount(row.overtimeAmount)}</td><td className="px-2 py-2 font-mono font-semibold">{amount(row.outstandingAmount)}</td><td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td></tr>; })}</tbody></table>{!visibleDetails.length && <div className="border-t border-border p-6 text-center text-sm text-muted-foreground">All attendance in this period has been paid and moved to payment history.</div>}</div>;
 }
 
 function EmptyTable({ text }: { text: string }) {
