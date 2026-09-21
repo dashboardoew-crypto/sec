@@ -156,11 +156,17 @@ export default function HrCenterPage() {
     () => selectedDetails.filter((row) => row.paymentIncluded && row.outstandingAmount > 0),
     [selectedDetails],
   );
+  const payableDetailIds = useMemo(
+    () => new Set(payableDetails.map((row) => row.id)),
+    [payableDetails],
+  );
+  const selectedEntryIdSet = useMemo(() => new Set(selectedEntryIds), [selectedEntryIds]);
   const selectedPaymentTotal = useMemo(
-    () => payableDetails
-      .filter((row) => selectedEntryIds.includes(row.id))
-      .reduce((sum, row) => sum + row.outstandingAmount, 0),
-    [payableDetails, selectedEntryIds],
+    () => payableDetails.reduce(
+      (sum, row) => sum + (selectedEntryIdSet.has(row.id) ? row.outstandingAmount : 0),
+      0,
+    ),
+    [payableDetails, selectedEntryIdSet],
   );
 
   const visibleTransactions = useMemo(() => {
@@ -169,16 +175,37 @@ export default function HrCenterPage() {
       !query || transaction.personName.toLowerCase().includes(query));
   }, [search, transactions]);
 
-  const totals = useMemo(() => ({
-    people: summaries.length,
-    payable: summaries.reduce((sum, row) => sum + row.totalAmount, 0),
-    paid: summaries.reduce((sum, row) => sum + row.paidAmount, 0),
-    outstanding: summaries.reduce((sum, row) => sum + row.outstandingAmount, 0),
-    openPeople: summaries.filter((row) => row.outstandingAmount > 0).length,
-    paidPeople: summaries.filter((row) => row.paymentStatus === 'paid').length,
-    attendanceEntries: details.length,
-    shortfallMinutes: details.reduce((sum, row) => sum + row.shortfallMinutes, 0),
-  }), [details, summaries]);
+  const selectedTransactions = useMemo(
+    () => visibleTransactions.filter((transaction) =>
+      !selectedPerson || transaction.personName === selectedPerson),
+    [selectedPerson, visibleTransactions],
+  );
+  const billDetails = useMemo(
+    () => (report?.details ?? []).filter((row) =>
+      row.name === selectedPerson &&
+      row.paymentAllocations.some((allocation) => allocation.transactionId === billTransactionId)),
+    [billTransactionId, report, selectedPerson],
+  );
+  const selectedBillTransaction = useMemo(
+    () => transactions.find((transaction) => transaction.id === billTransactionId) ?? null,
+    [billTransactionId, transactions],
+  );
+
+  const totals = useMemo(() => {
+    const summaryTotals = { payable: 0, paid: 0, outstanding: 0, openPeople: 0, paidPeople: 0 };
+    for (const row of summaries) {
+      summaryTotals.payable += row.totalAmount;
+      summaryTotals.paid += row.paidAmount;
+      summaryTotals.outstanding += row.outstandingAmount;
+      if (row.outstandingAmount > 0) summaryTotals.openPeople += 1;
+      if (row.paymentStatus === 'paid') summaryTotals.paidPeople += 1;
+    }
+    return {
+      people: summaries.length,
+      ...summaryTotals,
+      attendanceEntries: details.length,
+    };
+  }, [details, summaries]);
 
   useEffect(() => {
     setSelectedEntryIds([]);
@@ -188,7 +215,7 @@ export default function HrCenterPage() {
 
   const recordPayment = async () => {
     if (!selected || !report) return;
-    const selectedIds = selectedEntryIds.filter((id) => payableDetails.some((row) => row.id === id));
+    const selectedIds = selectedEntryIds.filter((id) => payableDetailIds.has(id));
     if (!selectedIds.length || selectedPaymentTotal <= 0) {
       setError('Select at least one unpaid attendance entry before recording payment.');
       return;
@@ -224,7 +251,7 @@ export default function HrCenterPage() {
       const loaded = await load();
       const selectedReferences = new Set(
         payableDetails
-          .filter((row) => selectedIds.includes(row.id))
+          .filter((row) => selectedEntryIdSet.has(row.id))
           .map((row) => row.referenceNo),
       );
       const savedTransaction = loaded?.transactions.find((transaction) =>
@@ -360,7 +387,7 @@ export default function HrCenterPage() {
           report={report}
           summaries={summaries}
           details={selectedDetails}
-          transactions={visibleTransactions.filter((transaction) => !selectedPerson || transaction.personName === selectedPerson)}
+          transactions={selectedTransactions}
           selected={selected}
           selectedPerson={selectedPerson}
           setSelectedPerson={setSelectedPerson}
@@ -379,10 +406,8 @@ export default function HrCenterPage() {
           onPrint={() => window.print()}
            onOpenBill={setBillTransactionId}
            onCloseBill={() => setBillTransactionId('')}
-           billTransaction={transactions.find((transaction) => transaction.id === billTransactionId) ?? null}
-           billDetails={(report?.details ?? []).filter((row) =>
-             row.name === selectedPerson &&
-             row.paymentAllocations.some((allocation) => allocation.transactionId === billTransactionId))}
+           billTransaction={selectedBillTransaction}
+           billDetails={billDetails}
           loading={loading}
         />
       )}
@@ -394,7 +419,7 @@ export default function HrCenterPage() {
 function Overview({ report, summaries, totals, loading, onOpenPayments, onSelectPerson }: {
   report: HrReport | null;
   summaries: HrSummary[];
-  totals: { people: number; payable: number; paid: number; outstanding: number; openPeople: number; paidPeople: number; attendanceEntries: number; shortfallMinutes: number };
+  totals: { people: number; payable: number; paid: number; outstanding: number; openPeople: number; paidPeople: number; attendanceEntries: number };
   loading: boolean;
   onOpenPayments: () => void;
   onSelectPerson: (name: string) => void;
