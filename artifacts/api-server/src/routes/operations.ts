@@ -446,13 +446,23 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       sourceMatches(transaction.sourceScope, sourceScope) &&
       paymentOverlapsPeriod(transaction, from, to),
     );
+    const personDetails = details.filter((detail) =>
+      String(detail["name"] ?? "").trim().toLowerCase() === item.name.trim().toLowerCase() &&
+      detail["paymentIncluded"] !== false,
+    );
     const transactionPaidAmount = matchingTransactions
+      .filter((transaction) => {
+        const targetedReferences = parseAttendanceReferences(transaction.attendanceReferences);
+        if (!targetedReferences.length) return false;
+        const references = new Set(personDetails.map((detail) => String(detail["referenceNo"] ?? "")));
+        return targetedReferences.some((reference) => references.has(reference));
+      })
       .reduce((sum, transaction) => sum + numericValue(transaction.amount), 0);
     const paidAmount = Math.min(
       Math.max(
         transactionPaidAmount > 0
           ? transactionPaidAmount
-          : numericValue(bill?.paidAmount ?? (bill?.status === "paid" ? payableAmount : 0)),
+          : 0,
         0,
       ),
        Math.max(payableAmount, 0),
@@ -521,11 +531,8 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       const targetedReferenceSet = targetedReferences.length ? new Set(targetedReferences) : null;
       for (const detail of personDetails) {
         if (detail["paymentIncluded"] === false) continue;
-        const detailDate = String(detail["date"] ?? "");
         const detailReference = String(detail["referenceNo"] ?? "");
-        if (targetedReferenceSet
-          ? !targetedReferenceSet.has(detailReference)
-          : detailDate < payment.fromDate || detailDate > payment.toDate) continue;
+        if (!targetedReferenceSet || !targetedReferenceSet.has(detailReference)) continue;
         const detailId = String(detail["id"] ?? "");
         const existing = detailPayments.get(detailId) ?? {
           paidAmount: 0,
@@ -810,7 +817,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const sourceScope = typeof body.sourceScope === "string" ? body.sourceScope : "all";
   const attendanceRecordIds = Array.from(new Set(
     Array.isArray(body.attendanceRecordIds)
-      ? body.attendanceRecordIds.filter((value): value is string => typeof value === "string" && value.trim()).map((value) => value.trim())
+      ? body.attendanceRecordIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0).map((value) => value.trim())
       : [],
   ));
   const paymentMethod = paymentMethods.includes(body.paymentMethod as typeof paymentMethods[number])
@@ -835,17 +842,17 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const report = await hrReport(fromDate, toDate, sourceScope);
   const summary = report.summaries.find((item) => item.name.trim().toLowerCase() === personName.toLowerCase());
   if (!summary) return res.status(404).json({ error: "No attendance or payable amount was found for this person and period" });
-  const selectedDetails = report.details.filter((detail) =>
-    detail.name.trim().toLowerCase() === personName.toLowerCase() &&
-    attendanceRecordIds.includes(detail.id),
+  const selectedDetails = (report.details as Array<Record<string, unknown>>).filter((detail) =>
+    String(detail["name"] ?? "").trim().toLowerCase() === personName.toLowerCase() &&
+    attendanceRecordIds.includes(String(detail["id"] ?? "")),
   );
   if (selectedDetails.length !== attendanceRecordIds.length) {
     return res.status(400).json({ error: "Each selected attendance entry must belong to this person and payment period" });
   }
-  if (selectedDetails.some((detail) => !detail.paymentIncluded || detail.outstandingAmount <= 0)) {
+  if (selectedDetails.some((detail) => detail["paymentIncluded"] === false || numericValue(detail["outstandingAmount"]) <= 0)) {
     return res.status(400).json({ error: "Only included attendance entries with an unpaid balance can be paid" });
   }
-  const paymentAmount = Number(selectedDetails.reduce((sum, detail) => sum + detail.outstandingAmount, 0).toFixed(2));
+  const paymentAmount = Number(selectedDetails.reduce((sum, detail) => sum + numericValue(detail["outstandingAmount"]), 0).toFixed(2));
   if (!paymentAmount) return res.status(400).json({ error: "The selected attendance entries have no amount left to pay" });
   if (paymentAmount > summary.outstandingAmount + 0.005) {
     return res.status(400).json({ error: `Payment cannot exceed the outstanding amount of ${summary.outstandingAmount.toFixed(2)}` });
@@ -899,7 +906,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
       paymentMethod,
       paymentReference: paymentReference || null,
       paymentNote: paymentNote || null,
-      attendanceReferences: JSON.stringify(selectedDetails.map((detail) => detail.referenceNo)),
+      attendanceReferences: JSON.stringify(selectedDetails.map((detail) => String(detail["referenceNo"] ?? ""))),
       paidAt,
       paidBy: req.user?.displayName ?? req.user?.email ?? null,
     });
