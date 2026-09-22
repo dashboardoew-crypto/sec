@@ -348,6 +348,7 @@ const numericValue = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
 };
+const yesValue = (value: unknown) => String(value ?? "").trim().toLowerCase() === "yes";
 const overtimeRateValue = (value: unknown) => {
   if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return undefined;
   const candidate = typeof value === "number"
@@ -402,10 +403,11 @@ const paymentOverlapsPeriod = (payment: { fromDate: string; toDate: string }, fr
   payment.toDate >= from && payment.fromDate <= to;
 
 const hrReport = async (from: string, to: string, sourceScope = "all") => {
-  const [rows, labourRows, chowkLabourMasterRows, bills, transactions, exclusions] = await Promise.all([
+  const [rows, labourRows, chowkLabourMasterRows, driverMasterRows, bills, transactions, exclusions] = await Promise.all([
     db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs])),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "labour-master")),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "chowk-labour-master")).orderBy(desc(registerRecordsTable.updatedAt)),
+    db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "driver-master")).orderBy(desc(registerRecordsTable.updatedAt)),
     db.select().from(paymentBillsTable),
     db.select().from(paymentTransactionsTable),
     db.select().from(paymentAttendanceExclusionsTable),
@@ -424,6 +426,13 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     wagePerDay: numericValue(chowkLabourSettings.wages_per_day),
     overtimeRate: overtimeRateValue(chowkLabourSettings.overtime_wages_per_hours) ?? 0,
   };
+  const driverAllowances = new Map(driverMasterRows.map((row) => [
+    String(row.data.name ?? "").trim().toLowerCase(),
+    {
+      dayAllowance: numericValue(row.data.day_allowance),
+      nightAllowance: numericValue(row.data.night_allowance),
+    },
+  ]));
   const summary = new Map<string, {
     name: string; workedDays: number; leftDays: number; overtimeMinutes: number; shortfallMinutes: number;
     wagePerDay: number; overtimeRate: number;
@@ -439,12 +448,15 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     if (!name) continue;
     const definition = getRegister(row.registerSlug);
     const data = definition ? applyDerivedValues(definition, row.data) : row.data;
-    const minutes = row.registerSlug === "driver-attendance"
+    const isDriverAttendance = row.registerSlug === "driver-attendance";
+    const minutes = isDriverAttendance
       ? parseDurationMinutes(data.time_duration) ?? 480
       : ["daily-attendance", "chowk-labour"].includes(row.registerSlug)
         ? trainingDurationMinutes(data) ?? parseDurationMinutes(data.total_hours) ?? 0
         : parseDurationMinutes(data.time_duration) ?? 0;
-    const workedDays = row.registerSlug === "driver-attendance" ? 1 : totalDaysForMinutes(minutes);
+    const workedDays = isDriverAttendance
+      ? Math.max(1, numericValue(data.total_days) || 1)
+      : totalDaysForMinutes(minutes);
     const overtimeMinutes = overtimeMinutesFor(minutes);
     const shortfallMinutes = Math.max(480 - minutes, 0);
     const wageDetails = row.registerSlug === "chowk-labour"
@@ -452,10 +464,19 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       : wages.get(name.toLowerCase()) ?? { wagePerDay: 0, overtimeRate: 0 };
     const wage = wageDetails.wagePerDay;
     const overtimeRate = wageDetails.overtimeRate;
-    const allowanceAmount = row.registerSlug === "driver-attendance"
-      ? numericValue(data.day_allowance) + numericValue(data.night_allowance)
-      : workedDays * wage;
-    const overtimeAmount = row.registerSlug === "driver-attendance" ? 0 : (overtimeMinutes / 60) * overtimeRate;
+    const driverAllowance = isDriverAttendance
+      ? driverAllowances.get(name.toLowerCase()) ?? { dayAllowance: 0, nightAllowance: 0 }
+      : { dayAllowance: 0, nightAllowance: 0 };
+    const da = isDriverAttendance && yesValue(data.day_allowance_applicable)
+      ? numericValue(data.day_allowance)
+      : 0;
+    const na = isDriverAttendance && yesValue(data.night_allowance_applicable)
+      ? numericValue(data.night_allowance)
+      : 0;
+    const daAmount = da * driverAllowance.dayAllowance;
+    const naAmount = na * driverAllowance.nightAllowance;
+    const allowanceAmount = isDriverAttendance ? daAmount + naAmount : workedDays * wage;
+    const overtimeAmount = isDriverAttendance ? 0 : (overtimeMinutes / 60) * overtimeRate;
     const rowAmount = allowanceAmount + overtimeAmount;
     const billKey = billKeyFor(name, from, to, sourceScope);
     const paymentIncluded = !excludedKeys.has(`${billKey}|${row.id}`);
@@ -469,7 +490,8 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       id: row.id,
       referenceNo: attendanceReferenceFor(row.id, date, row.registerSlug),
       date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
-      shortfallMinutes, baseAmount: allowanceAmount, overtimeAmount, totalAmount: rowAmount, paymentIncluded,
+      shortfallMinutes, da, na, daAmount, naAmount,
+      baseAmount: allowanceAmount, overtimeAmount, totalAmount: rowAmount, paymentIncluded,
     });
     if (!paymentIncluded) {
       continue;

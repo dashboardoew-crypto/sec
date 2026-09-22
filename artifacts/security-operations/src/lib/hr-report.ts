@@ -25,6 +25,10 @@ export type HrDetail = {
   name: string;
   source: string;
   workedDays: number;
+  da: number;
+  na: number;
+  daAmount: number;
+  naAmount: number;
   minutes: number;
   overtimeMinutes: number;
   shortfallMinutes: number;
