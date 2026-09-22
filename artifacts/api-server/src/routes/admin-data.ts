@@ -482,7 +482,13 @@ const parseImportedPaymentBills = (worksheet: ExcelJS.Worksheet) => {
 const parseImportedWorkbook = async (source: Buffer) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(source as any);
-  const imported: Array<{ registerSlug: string; recordDate: string | null; data: Record<string, unknown> }> = [];
+  const imported: Array<{
+    id: string;
+    recordIdProvided: boolean;
+    registerSlug: string;
+    recordDate: string | null;
+    data: Record<string, unknown>;
+  }> = [];
   const importedTransactions: ReturnType<typeof parseImportedPaymentTransactions> = [];
   const importedBills: ReturnType<typeof parseImportedPaymentBills> = [];
   workbook.worksheets.forEach((worksheet) => {
@@ -614,7 +620,7 @@ const validateImportConsistency = async (imported: {
     recordDate: string | null;
     data: Record<string, unknown>;
   }>;
-  transactions: Array<{ id: string; billKey: string; attendanceReferences: string | null }>;
+  transactions: Array<{ id: string; billKey: string; personName: string; attendanceReferences: string | null }>;
   bills: Array<{ billKey: string }>;
 }) => {
   reconcileLegacyAttendanceReferences(imported.registerRows, imported.transactions);
@@ -628,7 +634,11 @@ const validateImportConsistency = async (imported: {
       row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : ""),
       row.registerSlug,
     )),
-    ...imported.registerRows.map((row) => attendanceReferenceFor(row.id, row.recordDate ?? row.data.date ?? "", row.registerSlug)),
+    ...imported.registerRows.map((row) => attendanceReferenceFor(
+      row.id,
+      row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : ""),
+      row.registerSlug,
+    )),
   ]);
   const billKeys = new Set([
     ...existingBills.map((bill) => bill.billKey),
@@ -722,9 +732,12 @@ router.post("/admin/data/import", raw({
         transactions: [],
         bills: [],
       };
+    await validateImportConsistency(imported);
     await db.transaction(async (tx) => {
       if (imported.registerRows.length) {
-        await tx.insert(registerRecordsTable).values(imported.registerRows.map((row) => ({ id: randomUUID(), ...row })));
+        await tx.insert(registerRecordsTable).values(
+          imported.registerRows.map(({ recordIdProvided: _recordIdProvided, ...row }) => row),
+        ).onConflictDoNothing();
       }
       if (imported.bills.length) {
         await tx.insert(paymentBillsTable).values(imported.bills).onConflictDoNothing();

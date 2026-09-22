@@ -1,1 +1,2 @@
 - [API Zod generation](api-zod-generation.md) — parameterized endpoints can create duplicate barrel exports; keep generated API schemas as the public validation surface.
+- [Backup restore identity](backup-restore-identity.md) — payment attendance references depend on stable register record IDs; restore must preserve and validate those links atomically.
