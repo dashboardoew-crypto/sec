@@ -176,6 +176,22 @@ const securityMasterFields: FieldDefinition[] = [
   { key: "mobile_no", label: "MOBILE NO", type: "number", required: true },
 ];
 
+const driverAttendanceFields: FieldDefinition[] = [
+  { key: "name", label: "NAME", type: "select", required: true },
+  { key: "in_time", label: "IN-TIME", type: "time", required: true },
+  { key: "out_time", label: "OUT-TIME", type: "time" },
+  { key: "station", label: "STATION", type: "select", options: ["Yes", "No"] },
+  { key: "station_name", label: "STATION NAME", type: "text" },
+  { key: "station_out_time", label: "STATION OUT-TIME", type: "time" },
+  { key: "station_in_time", label: "STATION IN-TIME", type: "time" },
+  { key: "station_in_date", label: "STATION IN DATE", type: "date" },
+  { key: "sign", label: "SIGN", type: "text" },
+  { key: "day_allowance_applicable", label: "DAY ALLOWANCE", type: "select", options: ["Yes", "No"] },
+  { key: "day_allowance", label: "DA", type: "number" },
+  { key: "night_allowance_applicable", label: "NIGHT ALLOWANCE", type: "select", options: ["Yes", "No"] },
+  { key: "night_allowance", label: "NA", type: "number" },
+];
+
 const nameMasterFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
 ];
@@ -226,7 +242,7 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
    register("guest-food", "Guest Food Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record guest meal requirements for the kitchen.", { optional: ["Add", "Breakfast", "Lunch", "Dinner", "Sign"] }),
    register("jain-food-service", "Jain Food Service Register", "main-gate", ["Date", "Name", "Count Guest", "Add", "Breakfast", "Lunch", "Dinner", "Sign"], "Record Jain food service requirements.", { optional: ["Add", "Breakfast", "Lunch", "Dinner", "Sign"] }),
   register("unit-2-gate-pass", "Unit 2 Gate Pass Register", "main-gate", ["Date", "Name", "Department", "Out Time from unit 1", "IN Time in unit 2", "Out Time from unit 2", "In Time in unit 1", "security sign", "time taken to travel from unit1 to 2", "time taken to travel from unit 2 to 1"], "Track Unit 1 to Unit 2 movements and travel times."),
-   register("driver-attendance", "Driver Attendance Record", "main-gate", ["Date", "Name", "In-Time", "Out-Time", "Station", "Station Out Time", "Station In Date", "Station In Time", "Sign", "Payment Status", "Day Allowance", "Night Allowance"], "Track driver attendance, station movements, and allowances.", { required: ["In-Time"] }),
+    { ...register("driver-attendance", "Driver Attendance Record", "main-gate", [], "Track driver attendance, station movements, and allowances."), fields: driverAttendanceFields },
  ].map((definition) => ({
    ...definition,
    fields: withStandardDateField(definition.fields).map((field) => {

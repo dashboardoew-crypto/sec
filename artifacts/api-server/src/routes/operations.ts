@@ -161,6 +161,18 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     }
   }
 
+  if (register.slug === "driver-attendance") {
+    const isYes = (value: unknown) => String(value ?? "").trim().toLowerCase() === "yes";
+    if (!isYes(data.station)) {
+      delete data.station_name;
+      delete data.station_out_time;
+      delete data.station_in_time;
+      delete data.station_in_date;
+    }
+    if (!isYes(data.day_allowance_applicable)) delete data.day_allowance;
+    if (!isYes(data.night_allowance_applicable)) delete data.night_allowance;
+  }
+
   const initialReading = Number(data.initial_reading);
   const finalReading = Number(data.final_reading);
   if (Number.isFinite(initialReading) && Number.isFinite(finalReading)) {
@@ -200,7 +212,7 @@ export const validateRequiredFields = (register: RegisterDefinition, recordDate:
 };
 
 const responseDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
-  const calculatedData = ["daily-attendance", "chowk-labour"].includes(definition.slug)
+  const calculatedData = ["daily-attendance", "chowk-labour", "driver-attendance"].includes(definition.slug)
     ? applyDerivedValues(definition, data)
     : data;
 
@@ -604,7 +616,7 @@ const editWindowForRole = (role: string | undefined, definition?: RegisterDefini
   if (definition?.module === "master" && (role === "admin" || role === "manager" || role === "hr")) return null;
   if (role === "admin") return null;
   if (role === "manager") return 7;
-  if (role === "security") return 3;
+  if (role === "security") return 7;
   return undefined;
 };
 
@@ -1023,7 +1035,7 @@ router.delete("/registers/:slug/records/:id", async (req: Request, res: Response
     .where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug)))
     .limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
-  if (!canEditRecord(existing[0].createdAt, req.user?.role)) {
+  if (!canEditRecord(existing[0].createdAt, req.user?.role, definition)) {
     return res.status(403).json({
       error: "Managers can delete records only within 7 days of entry. Admins can delete records at any time.",
     });

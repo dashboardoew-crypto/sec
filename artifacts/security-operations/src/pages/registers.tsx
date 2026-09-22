@@ -24,7 +24,7 @@ const indiaDateKey = (value: Date) => {
 const editWindowForRole = (role?: string) => {
   if (role === 'admin') return null;
   if (role === 'manager') return 7;
-  if (role === 'security') return 3;
+  if (role === 'security') return 7;
   return undefined;
 };
 
@@ -45,12 +45,29 @@ const canDeleteRecord = (createdAt?: string, role?: string) =>
 
 const editWindowLabel = (role?: string, module?: RegisterDefinition['module']) => module === 'master' && ['admin', 'manager', 'hr'].includes(role ?? '')
   ? 'anytime'
-  : role === 'manager' ? '7 days' : role === 'security' ? '3 days' : 'your access window';
+  : ['manager', 'security'].includes(role ?? '') ? '7 days' : 'your access window';
 const moduleLabel = (module: RegisterDefinition['module']) => module === 'security' ? 'Security operations' : module === 'main-gate' ? 'Main gate security' : 'Master data';
 const moduleTitle = (module: RegisterDefinition['module']) => module === 'security' ? 'Security registers' : module === 'main-gate' ? 'Main gate registers' : 'Master registers';
 const moduleEyebrow = (module: RegisterDefinition['module']) => module === 'security' ? 'Security' : module === 'main-gate' ? 'Main gate security' : 'Master data';
 const isSecuritySignField = (field: FieldDefinition) => /sign/i.test(`${field.key} ${field.label}`);
 const driverRegisterSlugs = ['driver-attendance', 'outgoing-vehicles', 'outgoing-vehicle-log', 'driver-schedule'];
+const isYes = (value: unknown) => String(value ?? '').trim().toLowerCase() === 'yes';
+
+const normalizeDriverAttendanceValues = (data: Record<string, unknown>) => {
+  const values = { ...data };
+  const legacyStation = String(values.station ?? '').trim();
+  if (legacyStation && !['yes', 'no'].includes(legacyStation.toLowerCase())) {
+    values.station = 'Yes';
+    if (!values.station_name) values.station_name = legacyStation;
+  }
+  if (values.day_allowance !== undefined && values.day_allowance !== null && values.day_allowance !== '' && values.day_allowance_applicable === undefined) {
+    values.day_allowance_applicable = Number(values.day_allowance) > 0 ? 'Yes' : 'No';
+  }
+  if (values.night_allowance !== undefined && values.night_allowance !== null && values.night_allowance !== '' && values.night_allowance_applicable === undefined) {
+    values.night_allowance_applicable = Number(values.night_allowance) > 0 ? 'Yes' : 'No';
+  }
+  return values;
+};
 
 export default function RegistersPage() {
   const { slug = '' } = useParams<{ slug: string }>();
@@ -349,26 +366,46 @@ const trainingDurationMinutes = (values: Record<string, unknown>) => {
 
 function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
   const initialValues = useMemo(() => ({
-    ...(initial?.data ?? {}),
+    ...(definition.slug === 'driver-attendance' ? normalizeDriverAttendanceValues(initial?.data ?? {}) : (initial?.data ?? {})),
     ...(!initial?.data?.date && definition.fields.some((field) => field.key === 'date')
       ? { date: initial?.recordDate ?? indiaDateKey(new Date()) }
       : {}),
   }), [definition.fields, initial]);
   const [values, setValues] = useState<Record<string, unknown>>(initialValues);
   const [error, setError] = useState('');
-  const setValue = (key: string, value: unknown) => setValues((prev) => ({ ...prev, [key]: value }));
+  const setValue = (key: string, value: unknown) => setValues((prev) => {
+    const next = { ...prev, [key]: value };
+    if (definition.slug === 'driver-attendance') {
+      if (key === 'station' && !isYes(value)) {
+        delete next.station_name;
+        delete next.station_out_time;
+        delete next.station_in_time;
+        delete next.station_in_date;
+      }
+      if (key === 'day_allowance_applicable' && !isYes(value)) delete next.day_allowance;
+      if (key === 'night_allowance_applicable' && !isYes(value)) delete next.night_allowance;
+    }
+    return next;
+  });
+  const formFields = useMemo(() => fields.filter((field) => {
+    if (definition.slug !== 'driver-attendance') return true;
+    if (['station_name', 'station_out_time', 'station_in_time', 'station_in_date'].includes(field.key)) return isYes(values.station);
+    if (field.key === 'day_allowance') return isYes(values.day_allowance_applicable);
+    if (field.key === 'night_allowance') return isYes(values.night_allowance_applicable);
+    return true;
+  }), [definition.slug, fields, values.day_allowance_applicable, values.night_allowance_applicable, values.station]);
   const orderedFields = useMemo(() => {
-    if (!['daily-attendance', 'chowk-labour'].includes(definition.slug)) return fields;
+    if (!['daily-attendance', 'chowk-labour'].includes(definition.slug)) return formFields;
     const timeOrder = String(values.shift ?? '').toLowerCase() === 'evening'
       ? ['evening_in', 'evening_out', 'morning_in', 'morning_out']
       : ['morning_in', 'morning_out', 'evening_in', 'evening_out'];
     const orderedKeys = [definition.slug === 'daily-attendance' ? 'labour_name' : 'name', 'shift', ...timeOrder];
     const ordered = orderedKeys
-      .map((key) => fields.find((field) => field.key === key))
+      .map((key) => formFields.find((field) => field.key === key))
       .filter((field): field is FieldDefinition => Boolean(field));
     const orderedKeySet = new Set(ordered.map((field) => field.key));
-    return [...ordered, ...fields.filter((field) => !orderedKeySet.has(field.key))];
-  }, [definition.slug, fields, values.shift]);
+    return [...ordered, ...formFields.filter((field) => !orderedKeySet.has(field.key))];
+  }, [definition.slug, formFields, values.shift]);
   const derivedValues = useMemo(() => {
     const calculated: Record<string, unknown> = {};
     if (['daily-attendance', 'chowk-labour'].includes(definition.slug)) {
@@ -420,9 +457,20 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
   useEffect(() => { setValues(initialValues); setError(''); }, [initialValues]);
   const displayValues: Record<string, unknown> = { ...values, ...derivedValues };
   const submit = () => {
-    const missing = fields.filter((field) => field.required && !field.derived && (displayValues[field.key] === undefined || displayValues[field.key] === '')).map((field) => field.label);
+    const missing = formFields.filter((field) => field.required && !field.derived && (displayValues[field.key] === undefined || displayValues[field.key] === '')).map((field) => field.label);
     if (missing.length) { setError(`Enter the required fields: ${missing.join(', ')}`); return; }
-    onSubmit({ data: displayValues }, initial);
+    const data = { ...displayValues };
+    if (definition.slug === 'driver-attendance') {
+      if (!isYes(data.station)) {
+        delete data.station_name;
+        delete data.station_out_time;
+        delete data.station_in_time;
+        delete data.station_in_date;
+      }
+      if (!isYes(data.day_allowance_applicable)) delete data.day_allowance;
+      if (!isYes(data.night_allowance_applicable)) delete data.night_allowance;
+    }
+    onSubmit({ data }, initial);
   };
   return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4" role="dialog" aria-modal="true"><div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"><div className="sticky top-0 flex items-start justify-between border-b border-border bg-card px-6 py-5"><div><div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">{initial ? 'Edit record' : 'New record'}</div><h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2><p className="mt-2 text-xs text-muted-foreground">Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated from the values you enter.</p></div><button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted" data-testid="button-close-record-dialog"><X size={18} /></button></div><div className="grid gap-4 p-6 sm:grid-cols-2">{orderedFields.map((field) => <FieldInput key={field.key} field={field} value={displayValues[field.key]} labourNames={labourNames} keyNames={keyNames} driverNames={driverNames} securityNames={securityNames} nameOptions={nameOptions} onChange={(v) => setValue(field.key, v)} />)}</div>{error && <div className="mx-6 mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}<div className="flex justify-end gap-3 border-t border-border px-6 py-4"><button onClick={onClose} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted" data-testid="button-cancel-record">Cancel</button><button disabled={pending} onClick={submit} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50" data-testid="button-save-record">{pending ? 'Saving…' : initial ? 'Save changes' : 'Add record'}</button></div></div></div>;
 }
