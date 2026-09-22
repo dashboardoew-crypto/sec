@@ -1,4 +1,4 @@
-import { ArrowRight, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
+import { ArrowRight, BarChart3, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
 import { canAccessWorkspace, useAuth, type WorkspaceSlug } from '@/lib/auth';
 
@@ -36,6 +36,13 @@ const modules: Array<{
     label: 'HR',
     description: 'People, payroll, payments and the daily ledger',
     icon: WalletCards,
+  },
+  {
+    slug: 'reports',
+    href: '/reports',
+    label: 'Reports',
+    description: 'Person-wise driver, labour and training reports',
+    icon: BarChart3,
   },
 ];
 

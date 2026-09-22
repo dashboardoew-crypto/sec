@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export type UserRole = 'admin' | 'manager' | 'hr' | 'security';
-export type WorkspaceSlug = 'security' | 'main-gate' | 'master' | 'hr' | 'payments' | 'reports' | 'payment-report';
+export type WorkspaceSlug = 'security' | 'main-gate' | 'master' | 'hr' | 'reports' | 'payments' | 'payment-report';
 export type AuthUser = {
   id: string;
   email: string;
