@@ -435,8 +435,8 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
   const chowkLabourWageDetails = {
     wagePerDay: numericValue(chowkLabourSettings.wages_per_day),
     overtimeRate: overtimeRateValue(chowkLabourSettings.overtime_wages_per_hours) ?? 0,
-    workLocation: "",
-    supervisor: "",
+    workLocation: String(chowkLabourSettings.work_location ?? "").trim(),
+    supervisor: String(chowkLabourSettings.supervisor ?? "").trim(),
   };
   const driverAllowances = new Map<string, {
     dayAllowance: number;

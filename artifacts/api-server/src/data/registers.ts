@@ -130,6 +130,8 @@ const trainingFields: FieldDefinition[] = [
 
 const chowkLabourFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
+  { key: "work_location", label: "WORKING AREA", type: "text", required: true },
+  { key: "supervisor", label: "SUPERVISOR NAME", type: "text", required: true },
   ...attendanceTimeFields,
 ];
 
@@ -166,6 +168,8 @@ const jackRegisterFields: FieldDefinition[] = [
 const driverMasterFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
   { key: "mobile_no", label: "MOBILE NO", type: "number", required: true },
+  { key: "work_location", label: "WORKING AREA", type: "text", required: true },
+  { key: "supervisor", label: "SUPERVISOR NAME", type: "text", required: true },
   { key: "wages_per_day", label: "WAGES PER DAY", type: "number", required: true },
   { key: "day_allowance", label: "DAY ALLOWANCE", type: "number", required: true },
   { key: "night_allowance", label: "NIGHT ALLOWANCE", type: "number", required: true },
@@ -204,12 +208,15 @@ const keyMasterFields: FieldDefinition[] = [
 const labourMasterFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
   { key: "father_name", label: "FATHER NAME", type: "text", required: true },
-  { key: "work_location", label: "WORK LOCATION", type: "text", required: true },
+  { key: "work_location", label: "WORKING AREA", type: "text", required: true },
+  { key: "supervisor", label: "SUPERVISOR NAME", type: "text", required: true },
   { key: "wages_per_day", label: "WAGES PER DAY", type: "number", required: true },
   { key: "overtime_wages_per_hours", label: "OVERTIME WAGES PER HOURS", type: "text" },
 ];
 
 const chowkLabourMasterFields: FieldDefinition[] = [
+  { key: "work_location", label: "WORKING AREA", type: "text", required: true },
+  { key: "supervisor", label: "SUPERVISOR NAME", type: "text", required: true },
   { key: "wages_per_day", label: "CHOWK LABOUR WAGES PER DAY", type: "number", required: true },
   { key: "overtime_wages_per_hours", label: "CHOWK LABOUR OVERTIME WAGES PER HOURS", type: "text", required: true },
 ];
@@ -221,15 +228,15 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   { ...register("mango-tree-meter", "Mango Tree Meter Reading", "security", [], "Track irrigation meter readings and water usage."), fields: meterFields },
   { ...register("clinic-gate-meter", "Clinic Gate Meter Reading", "security", [], "Track clinic gate irrigation and meter usage."), fields: meterFields },
   { ...register("key-movement", "Key Movement Register", "security", [], "Record who takes keys, where they go, and when the keys return."), fields: keyMovementFields },
-  { ...register("chowk-labour", "Chowk Labour", "security", [], "Track daily chowk labour attendance. Names are entered per record and are not stored in Labour Master."), fields: chowkLabourFields },
+  { ...register("chowk-labour", "Chowk Labour", "security", [], "Track daily chowk labour attendance with its working area and supervisor."), fields: chowkLabourFields },
    { ...register("daily-attendance", "Training Register", "security", [], "Track labour training attendance, hours, and overtime."), fields: trainingFields },
   { ...register("solar-panel-cleaning", "Solar Panel Cleaning Record", "security", [], "Record cleaning work across solar panel zones."), fields: solarPanelCleaningFields },
   register("driver-schedule", "Driver Daily Schedule", "security", ["CHOOSEN DRIVER", "DATE", "SCHEDULE TIME", "CAR NAME", "FETCHED PHONE", "LOCATION", "Print Batch"], "Schedule drivers and vehicles for daily assignments.", { optional: ["FETCHED PHONE", "Print Batch"] }),
   { ...register("service-bill", "Service Bill Entry", "security", [], "Record service bills and invoice details."), fields: serviceBillFields },
   { ...register("jack-register", "Jack Register OEW", "security", [], "Track jack issue and challan records."), fields: jackRegisterFields },
-  { ...register("labour-master", "Labour Master", "master", [], "Maintain the labour directory, daily wage rates, and each person’s overtime rate. Enter the overtime rate as text, for example 150 or ₹150/hour."), fields: labourMasterFields },
-  { ...register("chowk-labour-master", "Chowk Labour Master", "master", [], "Set the single daily wage and overtime rate shared by every Chowk Labour attendance record. Enter overtime as text, for example 150 or ₹150/hour."), fields: chowkLabourMasterFields },
-  { ...register("driver-master", "Driver Master", "master", [], "Maintain the driver directory for HR and management."), fields: driverMasterFields },
+  { ...register("labour-master", "Labour Master", "master", [], "Maintain the labour directory, working area, supervisor, daily wage rates, and each person’s overtime rate. Enter the overtime rate as text, for example 150 or ₹150/hour."), fields: labourMasterFields },
+  { ...register("chowk-labour-master", "Chowk Labour Master", "master", [], "Set the working area, supervisor, daily wage, and overtime rate shared by every Chowk Labour attendance record. Enter overtime as text, for example 150 or ₹150/hour."), fields: chowkLabourMasterFields },
+  { ...register("driver-master", "Driver Master", "master", [], "Maintain the driver directory, working area, and supervisor for HR and management."), fields: driverMasterFields },
   { ...register("security-master", "Security Master", "master", [], "Maintain the security staff directory for HR and management."), fields: securityMasterFields },
   { ...register("key-master", "Key Master", "master", [], "Maintain the locations available in Key Movement Register."), fields: keyMasterFields },
   { ...register("kothi-master", "Kothi Master", "master", [], "Maintain the names available in Kothi Attendance Register."), fields: nameMasterFields },
