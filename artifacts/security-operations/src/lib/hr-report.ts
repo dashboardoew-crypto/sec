@@ -1,5 +1,7 @@
 export type HrSummary = {
   name: string;
+  workLocation: string;
+  supervisor: string;
   workedDays: number;
   leftDays: number;
   overtimeMinutes: number;
@@ -22,7 +24,10 @@ export type HrDetail = {
   id: string;
   referenceNo: string;
   date: string;
+  displayDate?: string;
   name: string;
+  workLocation: string;
+  supervisor: string;
   source: string;
   workedDays: number;
   da: number;
@@ -52,6 +57,12 @@ export type HrReport = {
   summaries: HrSummary[];
   details: HrDetail[];
   sourceScope: string;
+};
+
+export type BillSignatories = {
+  preparedBy: string;
+  checkedBy: string;
+  verifiedBy: string;
 };
 
 export type PaymentBill = {
@@ -118,6 +129,13 @@ export async function fetchPaymentTransactions(from = '', to = '', source = 'all
   return payload as PaymentTransaction[];
 }
 
+export async function fetchBillSignatories(): Promise<BillSignatories> {
+  const response = await fetch('/api/admin/bill-signatories', { credentials: 'include' });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Bill signatories could not be loaded');
+  return payload as BillSignatories;
+}
+
 export async function updateAttendanceInclusion(input: {
   recordId: string;
   fromDate: string;
@@ -172,7 +190,11 @@ export const formatMinutes = (minutes: number) => {
 };
 
 export const formatDays = (days: number) => Number.isInteger(days) ? String(days) : days.toFixed(2);
-export const displayDate = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+export const displayDate = (value: string): string => {
+  const range = value.split(' to ');
+  if (range.length === 2) return `${displayDate(range[0])} to ${displayDate(range[1])}`;
+  return new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 export const today = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;

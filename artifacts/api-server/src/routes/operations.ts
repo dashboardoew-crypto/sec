@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, paymentAttendanceExclusionsTable, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
+import { db, backupSettingsTable, paymentAttendanceExclusionsTable, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
 import {
   CreateRegisterRecordBody,
   CreateRegisterRecordParams,
@@ -18,7 +18,7 @@ import {
   sampleRecords,
   type RegisterDefinition,
 } from "../data/registers";
-import { canAccessModule, canCreateRegisterRecord, requireAuth } from "../middlewares/authMiddleware";
+import { canAccessModule, canCreateRegisterRecord, requireAuth, requireRole } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
 router.use(requireAuth);
@@ -370,6 +370,7 @@ const inclusiveDays = (from: string, to: string) =>
 
 const paymentSourceSlugs = ["all", ...hrRegisterSlugs] as const;
 const paymentMethods = ["Cash", "Bank transfer", "UPI", "Cheque", "Other"] as const;
+const BILL_SETTINGS_ID = "default";
 const billKeyFor = (name: string, from: string, to: string, source: string) =>
   `${name.trim().toLowerCase()}|${from}|${to}|${source}`;
 const attendanceReferenceFor = (id: string, date: string, registerSlug: string) =>
@@ -426,26 +427,38 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     {
       wagePerDay: numericValue(row.data.wages_per_day),
       overtimeRate: overtimeRateValue(row.data.overtime_wages_per_hours) ?? 0,
+      workLocation: String(row.data.work_location ?? "").trim(),
+      supervisor: String(row.data.supervisor ?? "").trim(),
     },
   ]));
   const chowkLabourSettings = chowkLabourMasterRows[0]?.data ?? {};
   const chowkLabourWageDetails = {
     wagePerDay: numericValue(chowkLabourSettings.wages_per_day),
     overtimeRate: overtimeRateValue(chowkLabourSettings.overtime_wages_per_hours) ?? 0,
+    workLocation: "",
+    supervisor: "",
   };
-  const driverAllowances = new Map<string, { dayAllowance: number; nightAllowance: number }>();
+  const driverAllowances = new Map<string, {
+    dayAllowance: number;
+    nightAllowance: number;
+    workLocation: string;
+    supervisor: string;
+  }>();
   for (const row of driverMasterRows) {
     const key = personKey(row.data.name);
     if (!key || driverAllowances.has(key)) continue;
     driverAllowances.set(key, {
       dayAllowance: numericValue(row.data.day_allowance),
       nightAllowance: numericValue(row.data.night_allowance),
+      workLocation: String(row.data.work_location ?? "").trim(),
+      supervisor: String(row.data.supervisor ?? "").trim(),
     });
   }
   const summary = new Map<string, {
     name: string; workedDays: number; leftDays: number; overtimeMinutes: number; shortfallMinutes: number;
     wagePerDay: number; overtimeRate: number;
     baseAmount: number; overtimeAmount: number; totalAmount: number; sources: Record<string, { days: number; overtimeMinutes: number; amount: number }>;
+    workLocation: string; supervisor: string;
     dates: Set<string>;
   }>();
   const details: Array<Record<string, unknown>> = [];
@@ -470,12 +483,20 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const shortfallMinutes = Math.max(480 - minutes, 0);
     const wageDetails = row.registerSlug === "chowk-labour"
       ? chowkLabourWageDetails
-      : wages.get(name.toLowerCase()) ?? { wagePerDay: 0, overtimeRate: 0 };
+      : wages.get(name.toLowerCase()) ?? { wagePerDay: 0, overtimeRate: 0, workLocation: "", supervisor: "" };
     const wage = wageDetails.wagePerDay;
     const overtimeRate = wageDetails.overtimeRate;
     const driverAllowance = isDriverAttendance
-      ? driverAllowances.get(personKey(name)) ?? { dayAllowance: 0, nightAllowance: 0 }
-      : { dayAllowance: 0, nightAllowance: 0 };
+      ? driverAllowances.get(personKey(name)) ?? { dayAllowance: 0, nightAllowance: 0, workLocation: "", supervisor: "" }
+      : { dayAllowance: 0, nightAllowance: 0, workLocation: "", supervisor: "" };
+    const workLocation = String(data.work_location ?? "").trim() ||
+      (isDriverAttendance ? driverAllowance.workLocation : wageDetails.workLocation);
+    const supervisor = String(data.supervisor ?? "").trim() ||
+      (isDriverAttendance ? driverAllowance.supervisor : wageDetails.supervisor);
+    const stationInDate = isDriverAttendance ? driverAttendanceDate(data.station_in_date) : undefined;
+    const displayDate = stationInDate !== undefined && stationInDate > new Date(`${date}T00:00:00Z`).getTime()
+      ? `${date} to ${new Date(stationInDate).toISOString().slice(0, 10)}`
+      : date;
     const da = isDriverAttendance ? numericValue(data.day_allowance) : 0;
     const na = isDriverAttendance ? numericValue(data.night_allowance) : 0;
     const daAmount = da * driverAllowance.dayAllowance;
@@ -489,6 +510,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       name, workedDays: 0, leftDays: 0, overtimeMinutes: 0, shortfallMinutes: 0,
       wagePerDay: wage, overtimeRate,
       baseAmount: 0, overtimeAmount: 0, totalAmount: 0, sources: {}, dates: new Set<string>(),
+      workLocation, supervisor,
     };
     summary.set(name.toLowerCase(), existing);
     details.push({
@@ -497,6 +519,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       date, name, source: row.registerSlug, workedDays, minutes, overtimeMinutes,
       shortfallMinutes, da, na, daAmount, naAmount,
       baseAmount: allowanceAmount, overtimeAmount, totalAmount: rowAmount, paymentIncluded,
+      workLocation, supervisor, displayDate,
     });
     if (!paymentIncluded) {
       continue;
@@ -844,6 +867,40 @@ router.post("/hr/attendance-inclusion", async (req: Request, res: Response) => {
     });
   }
   return res.json({ included });
+});
+
+router.get("/admin/bill-signatories", requireRole("admin", "manager", "hr"), async (_req: Request, res: Response) => {
+  const settings = (await db.select().from(backupSettingsTable).where(eq(backupSettingsTable.id, BILL_SETTINGS_ID)).limit(1))[0];
+  return res.json({
+    preparedBy: settings?.preparedBy ?? "",
+    checkedBy: settings?.checkedBy ?? "",
+    verifiedBy: settings?.verifiedBy ?? "",
+  });
+});
+
+router.put("/admin/bill-signatories", requireRole("admin"), async (req: Request, res: Response) => {
+  const clean = (value: unknown) => typeof value === "string" ? value.trim().slice(0, 120) : "";
+  const preparedBy = clean(req.body?.preparedBy);
+  const checkedBy = clean(req.body?.checkedBy);
+  const verifiedBy = clean(req.body?.verifiedBy);
+  const current = (await db.select({ id: backupSettingsTable.id }).from(backupSettingsTable)
+    .where(eq(backupSettingsTable.id, BILL_SETTINGS_ID)).limit(1))[0];
+  if (current) {
+    await db.update(backupSettingsTable).set({
+      preparedBy: preparedBy || null,
+      checkedBy: checkedBy || null,
+      verifiedBy: verifiedBy || null,
+      updatedAt: new Date(),
+    }).where(eq(backupSettingsTable.id, BILL_SETTINGS_ID));
+  } else {
+    await db.insert(backupSettingsTable).values({
+      id: BILL_SETTINGS_ID,
+      preparedBy: preparedBy || null,
+      checkedBy: checkedBy || null,
+      verifiedBy: verifiedBy || null,
+    });
+  }
+  return res.json({ preparedBy, checkedBy, verifiedBy });
 });
 
 router.get("/payments/bills", async (req: Request, res: Response) => {

@@ -6,6 +6,9 @@ export const backupSettingsTable = pgTable("backup_settings", {
   enabled: boolean("enabled").notNull().default(false),
   lastSentDate: text("last_sent_date"),
   lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  preparedBy: text("prepared_by"),
+  checkedBy: text("checked_by"),
+  verifiedBy: text("verified_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
