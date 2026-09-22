@@ -138,6 +138,7 @@ const workbookForAllRegisters = async () => {
   for (const definition of REGISTER_DEFINITIONS) {
     const worksheet = workbook.addWorksheet(definition.title.slice(0, 31));
     const columns = [
+      { header: "recordId", key: "recordId", width: 38 },
       { header: "Register", key: "Register", width: 24 },
       { header: "registerSlug", key: "registerSlug", width: 24 },
       { header: "recordDate", key: "recordDate", width: 14 },
@@ -149,6 +150,7 @@ const workbookForAllRegisters = async () => {
     rows
       .filter((row) => row.registerSlug === definition.slug)
       .forEach((row) => worksheet.addRow({
+        recordId: row.id,
         Register: definition.title,
         registerSlug: definition.slug,
         recordDate: displayDate(row.recordDate ?? row.data.date ?? indiaDateKey(new Date())),
@@ -298,6 +300,7 @@ const parseImportedDataRows = (
   values: unknown[],
   rowIndex: number,
   recordDateOverride?: unknown,
+  recordIdOverride?: unknown,
 ) => {
   const raw: Record<string, string> = {};
   headers.forEach((header, index) => {
@@ -331,7 +334,14 @@ const parseImportedDataRows = (
   const processed = applyDerivedValues(definition, data);
   const missing = validateRequiredFields(definition, recordDate, processed);
   if (missing.length) throw new Error(`Row ${rowIndex} (${definition.title}): missing ${missing.map((field) => field.label).join(", ")}.`);
-  return { registerSlug: definition.slug, recordDate, data: processed };
+  const recordId = typeof recordIdOverride === "string" ? recordIdOverride.trim() : "";
+  return {
+    id: recordId || randomUUID(),
+    recordIdProvided: Boolean(recordId),
+    registerSlug: definition.slug,
+    recordDate,
+    data: processed,
+  };
 };
 
 const parseImportedCsvRows = (source: string) => {
@@ -339,7 +349,7 @@ const parseImportedCsvRows = (source: string) => {
   if (rows.length < 2) throw new Error("The CSV must include a header row and at least one data row.");
   const headers = rows[0].map(normalizeHeader);
   const registerHeaders = ["register", "register_slug", "registerslug", "register_name", "registername", "register_title", "registertitle"];
-  const metadataHeaders = [...registerHeaders, "record_date", "recorddate"];
+  const metadataHeaders = [...registerHeaders, "record_id", "recordid", "record_date", "recorddate"];
   const registerIndex = headers.findIndex((header) => registerHeaders.includes(header));
   if (registerIndex < 0) throw new Error("Add a Register or registerSlug column so each row can be assigned to a register.");
 
@@ -352,7 +362,14 @@ const parseImportedCsvRows = (source: string) => {
     const dataHeaders = headers.filter((header) => !metadataHeaders.includes(header));
     const dataValues = values.filter((_value, index) => !metadataHeaders.includes(headers[index]));
     const recordDate = raw.record_date ?? raw.recorddate;
-    return parseImportedDataRows(definition, dataHeaders, dataValues, rowIndex + 2, recordDate);
+    return parseImportedDataRows(
+      definition,
+      dataHeaders,
+      dataValues,
+      rowIndex + 2,
+      recordDate,
+      raw.record_id ?? raw.recordid,
+    );
   });
 };
 
@@ -482,7 +499,7 @@ const parseImportedWorkbook = async (source: Buffer) => {
     const headers = headerValues.map((value) => normalizeHeader(String(value ?? "")));
     if (!headers.some(Boolean)) return;
     const registerHeaders = ["register", "register_slug", "registerslug", "register_name", "registername", "register_title", "registertitle"];
-    const metadataHeaders = [...registerHeaders, "record_date", "recorddate"];
+    const metadataHeaders = [...registerHeaders, "record_id", "recordid", "record_date", "recorddate"];
     const definition = resolveWorksheetRegister(worksheet.name);
     const registerIndex = headers.findIndex((header) => registerHeaders.includes(header));
     const dataRows = Array.from({ length: Math.max(worksheet.rowCount - 1, 0) }, (_, index) => worksheet.getRow(index + 2).values as unknown[])
@@ -496,7 +513,14 @@ const parseImportedWorkbook = async (source: Buffer) => {
       const values = (worksheet.getRow(rowNumber).values as unknown[]).slice(1);
       if (!values.some((value) => String(value ?? "").trim())) continue;
       if (definition) {
-        imported.push(parseImportedDataRows(definition, headers.filter((header) => !metadataHeaders.includes(header)), values.filter((_value, index) => !metadataHeaders.includes(headers[index])), rowNumber, values[headers.findIndex((header) => ["record_date", "recorddate"].includes(header))]));
+        imported.push(parseImportedDataRows(
+          definition,
+          headers.filter((header) => !metadataHeaders.includes(header)),
+          values.filter((_value, index) => !metadataHeaders.includes(headers[index])),
+          rowNumber,
+          values[headers.findIndex((header) => ["record_date", "recorddate"].includes(header))],
+          values[headers.findIndex((header) => ["record_id", "recordid"].includes(header))],
+        ));
         continue;
       }
       const row = Object.fromEntries(headers.map((header, index) => [header, String(values[index] ?? "").trim()]));
@@ -510,6 +534,7 @@ const parseImportedWorkbook = async (source: Buffer) => {
         values.filter((_value, index) => !metadataHeaders.includes(headers[index])),
         rowNumber,
         row.record_date ?? row.recorddate,
+        row.record_id ?? row.recordid,
       ));
     }
   });
@@ -517,6 +542,111 @@ const parseImportedWorkbook = async (source: Buffer) => {
     throw new Error("The workbook does not contain any register or payment rows.");
   }
   return { registerRows: imported, transactions: importedTransactions, bills: importedBills };
+};
+
+const attendanceReferenceFor = (id: string, date: string, registerSlug: string) =>
+  `ATT-${date.replaceAll("-", "")}-${registerSlug.slice(0, 3).toUpperCase()}-${id.slice(0, 8).toUpperCase()}`;
+
+const parseImportedAttendanceReferences = (value: string | null) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string" || !item.trim())) {
+      throw new Error("must be a JSON array of attendance references");
+    }
+    return parsed as string[];
+  } catch (error) {
+    throw new Error(`Payment attendanceReferences ${error instanceof Error ? error.message : "are invalid"}.`);
+  }
+};
+
+const importedPersonName = (row: { data: Record<string, unknown> }) =>
+  String(row.data.labour_name ?? row.data.driver_name ?? row.data.choosen_driver ?? row.data.name ?? "").trim().toLowerCase();
+
+const reconcileLegacyAttendanceReferences = (
+  registerRows: Array<{
+    id: string;
+    recordIdProvided: boolean;
+    registerSlug: string;
+    recordDate: string | null;
+    data: Record<string, unknown>;
+  }>,
+  transactions: Array<{ personName: string; attendanceReferences: string | null }>,
+) => {
+  const referenceOwners = new Map<string, typeof registerRows[number]>();
+  for (const row of registerRows) {
+    const date = row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : "");
+    if (date) referenceOwners.set(attendanceReferenceFor(row.id, date, row.registerSlug), row);
+  }
+
+  for (const transaction of transactions) {
+    const references = parseImportedAttendanceReferences(transaction.attendanceReferences);
+    for (const reference of references) {
+      if (referenceOwners.has(reference)) continue;
+      const match = reference.match(/^ATT-(\d{8})-([A-Z0-9]{3})-([A-Z0-9]{8})$/i);
+      if (!match) throw new Error(`Payment reference "${reference}" is not a valid attendance reference.`);
+      const [, compactDate, registerPrefix, legacyIdPrefix] = match;
+      const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
+      const candidates = registerRows.filter((row) =>
+        !row.recordIdProvided &&
+        (row.recordDate ?? row.data.date) === date &&
+        row.registerSlug.slice(0, 3).toUpperCase() === registerPrefix.toUpperCase() &&
+        importedPersonName(row) === transaction.personName.trim().toLowerCase(),
+      );
+      if (candidates.length !== 1) {
+        throw new Error(
+          `Payment reference "${reference}" could not be matched safely to one imported attendance row. Export a fresh backup with record IDs and try again.`,
+        );
+      }
+      const row = candidates[0];
+      row.id = `${legacyIdPrefix}-${randomUUID()}`;
+      row.recordIdProvided = true;
+      referenceOwners.set(reference, row);
+    }
+  }
+};
+
+const validateImportConsistency = async (imported: {
+  registerRows: Array<{
+    id: string;
+    recordIdProvided: boolean;
+    registerSlug: string;
+    recordDate: string | null;
+    data: Record<string, unknown>;
+  }>;
+  transactions: Array<{ id: string; billKey: string; attendanceReferences: string | null }>;
+  bills: Array<{ billKey: string }>;
+}) => {
+  reconcileLegacyAttendanceReferences(imported.registerRows, imported.transactions);
+  const [existingRecords, existingBills] = await Promise.all([
+    db.select().from(registerRecordsTable),
+    db.select({ billKey: paymentBillsTable.billKey }).from(paymentBillsTable),
+  ]);
+  const attendanceReferences = new Set([
+    ...existingRecords.map((row) => attendanceReferenceFor(
+      row.id,
+      row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : ""),
+      row.registerSlug,
+    )),
+    ...imported.registerRows.map((row) => attendanceReferenceFor(row.id, row.recordDate ?? row.data.date ?? "", row.registerSlug)),
+  ]);
+  const billKeys = new Set([
+    ...existingBills.map((bill) => bill.billKey),
+    ...imported.bills.map((bill) => bill.billKey),
+  ]);
+  const transactionIds = new Set<string>();
+  for (const transaction of imported.transactions) {
+    if (transactionIds.has(transaction.id)) throw new Error(`Payment transaction "${transaction.id}" appears more than once in the import.`);
+    transactionIds.add(transaction.id);
+    if (!billKeys.has(transaction.billKey)) {
+      throw new Error(`Payment transaction "${transaction.id}" refers to a missing payment bill.`);
+    }
+    const references = parseImportedAttendanceReferences(transaction.attendanceReferences);
+    const missing = references.filter((reference) => !attendanceReferences.has(reference));
+    if (missing.length) {
+      throw new Error(`Payment transaction "${transaction.id}" refers to missing attendance reference "${missing[0]}".`);
+    }
+  }
 };
 
 router.use(requireRole("admin"));
