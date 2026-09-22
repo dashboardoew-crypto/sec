@@ -310,10 +310,15 @@ const parseImportedDataRows = (
   const fieldByHeader = new Map<string, FieldDefinition>(
     definition.fields.flatMap((field) => [[normalizeHeader(field.key), field], [normalizeHeader(field.label), field]]),
   );
+  const allowanceFlag = (value: string) => ["yes", "no", "true", "false"].includes(value.toLowerCase());
   const data: Record<string, unknown> = {};
   for (const [header, value] of Object.entries(raw)) {
     if (!value) continue;
-    const field = fieldByHeader.get(header);
+    const field = definition.slug === "driver-attendance" && allowanceFlag(value) && header === "day_allowance"
+      ? definition.fields.find((candidate) => candidate.key === "day_allowance_applicable")
+      : definition.slug === "driver-attendance" && allowanceFlag(value) && header === "night_allowance"
+        ? definition.fields.find((candidate) => candidate.key === "night_allowance_applicable")
+        : fieldByHeader.get(header);
     if (field?.type === "date") {
       data[field.key] = normalizeDateValue(value);
     } else if (field?.type === "number") {
