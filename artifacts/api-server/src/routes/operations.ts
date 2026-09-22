@@ -188,6 +188,13 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
 
   if (register.slug === "driver-attendance") {
     const isYes = (value: unknown) => String(value ?? "").trim().toLowerCase() === "yes";
+    const hasValue = (value: unknown) => value !== undefined && value !== null && value !== "";
+    if (data.day_allowance_applicable === undefined && hasValue(data.day_allowance)) {
+      data.day_allowance_applicable = Number(data.day_allowance) > 0 ? "Yes" : "No";
+    }
+    if (data.night_allowance_applicable === undefined && hasValue(data.night_allowance)) {
+      data.night_allowance_applicable = Number(data.night_allowance) > 0 ? "Yes" : "No";
+    }
     if (!isYes(data.station)) {
       delete data.station_name;
       delete data.station_out_time;
@@ -348,7 +355,7 @@ const numericValue = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
 };
-const yesValue = (value: unknown) => String(value ?? "").trim().toLowerCase() === "yes";
+const personKey = (value: unknown) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 const overtimeRateValue = (value: unknown) => {
   if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return undefined;
   const candidate = typeof value === "number"
@@ -426,13 +433,15 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     wagePerDay: numericValue(chowkLabourSettings.wages_per_day),
     overtimeRate: overtimeRateValue(chowkLabourSettings.overtime_wages_per_hours) ?? 0,
   };
-  const driverAllowances = new Map(driverMasterRows.map((row) => [
-    String(row.data.name ?? "").trim().toLowerCase(),
-    {
+  const driverAllowances = new Map<string, { dayAllowance: number; nightAllowance: number }>();
+  for (const row of driverMasterRows) {
+    const key = personKey(row.data.name);
+    if (!key || driverAllowances.has(key)) continue;
+    driverAllowances.set(key, {
       dayAllowance: numericValue(row.data.day_allowance),
       nightAllowance: numericValue(row.data.night_allowance),
-    },
-  ]));
+    });
+  }
   const summary = new Map<string, {
     name: string; workedDays: number; leftDays: number; overtimeMinutes: number; shortfallMinutes: number;
     wagePerDay: number; overtimeRate: number;
@@ -465,14 +474,10 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const wage = wageDetails.wagePerDay;
     const overtimeRate = wageDetails.overtimeRate;
     const driverAllowance = isDriverAttendance
-      ? driverAllowances.get(name.toLowerCase()) ?? { dayAllowance: 0, nightAllowance: 0 }
+      ? driverAllowances.get(personKey(name)) ?? { dayAllowance: 0, nightAllowance: 0 }
       : { dayAllowance: 0, nightAllowance: 0 };
-    const da = isDriverAttendance && yesValue(data.day_allowance_applicable)
-      ? numericValue(data.day_allowance)
-      : 0;
-    const na = isDriverAttendance && yesValue(data.night_allowance_applicable)
-      ? numericValue(data.night_allowance)
-      : 0;
+    const da = isDriverAttendance ? numericValue(data.day_allowance) : 0;
+    const na = isDriverAttendance ? numericValue(data.night_allowance) : 0;
     const daAmount = da * driverAllowance.dayAllowance;
     const naAmount = na * driverAllowance.nightAllowance;
     const allowanceAmount = isDriverAttendance ? daAmount + naAmount : workedDays * wage;
