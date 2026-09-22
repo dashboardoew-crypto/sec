@@ -1,3 +1,4 @@
 - [API Zod generation](api-zod-generation.md) — parameterized endpoints can create duplicate barrel exports; keep generated API schemas as the public validation surface.
 - [Backup restore identity](backup-restore-identity.md) — payment attendance references depend on stable register record IDs; restore must preserve and validate those links atomically.
 - [Conditional allowance compatibility](conditional-allowance-fields.md) — legacy numeric DA/NA values may lack applicability flags; infer applicability before normalizing hidden fields.
+- [SPL overtime rounding](overtime-rounding.md) — overtime is paid in completed 30-minute blocks; floor the value consistently across displays and bills.

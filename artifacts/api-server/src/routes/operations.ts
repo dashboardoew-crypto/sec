@@ -71,9 +71,12 @@ const totalDaysForMinutes = (minutes: number) => {
 };
 
 const overtimeMinutesFor = (minutes: number) => {
-  if (minutes < 300) return Math.max(minutes, 0);
-  if (minutes < 480) return minutes - 300;
-  return Math.max(minutes - 480, 0);
+  const rawOvertime = minutes < 300
+    ? Math.max(minutes, 0)
+    : minutes < 480
+      ? minutes - 300
+      : Math.max(minutes - 480, 0);
+  return Math.floor(rawOvertime / 30) * 30;
 };
 
 const formatTotalDays = (minutes: number) => String(totalDaysForMinutes(minutes));
