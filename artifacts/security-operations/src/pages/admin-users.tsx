@@ -343,14 +343,14 @@ export default function AdminUsersPage() {
               <p className="mt-3 text-[11px] text-muted-foreground">{backupLastSentAt ? `Last sent ${new Date(backupLastSentAt).toLocaleString('en-IN')}.` : 'No backup has been sent yet.'} Gmail delivery uses the server-side Replit Secrets configuration.</p>
             </form>
              <form onSubmit={(event) => void saveSignatories(event)} className="rounded-xl border border-border bg-muted/20 p-4 lg:col-span-2">
-               <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><UsersRound size={16} /></span><div><h3 className="text-sm font-semibold">Bill signatories</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Choose the three names printed below every driver, Chowk labour, and training bill. The fourth person is always the bill name.</p></div></div>
+                <div className="flex items-start gap-3"><span className="grid size-8 place-items-center rounded-lg bg-background text-primary"><UsersRound size={16} /></span><div><h3 className="text-sm font-semibold">Bill signatories</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Enter the three names printed on every driver, Chowk labour, and training bill. The fourth person is always the bill name.</p></div></div>
                <div className="mt-4 grid gap-3 md:grid-cols-3">
                  {([
                    ['preparedBy', 'Prepared by'],
                    ['checkedBy', 'Checked by'],
                    ['verifiedBy', 'Verified by'],
                  ] as const).map(([key, label]) => (
-                   <label key={key} className="block"><span className="mb-1.5 block text-xs font-semibold">{label}</span><select value={signatories[key]} onChange={(event) => setSignatories({ ...signatories, [key]: event.target.value })} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary"><option value="">Select a user</option>{users.map((item) => <option key={item.id} value={item.displayName}>{item.displayName}</option>)}</select></label>
+                    <label key={key} className="block"><span className="mb-1.5 block text-xs font-semibold">{label}</span><input type="text" value={signatories[key]} onChange={(event) => setSignatories({ ...signatories, [key]: event.target.value })} placeholder={`Enter ${label.toLowerCase()} name`} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary" /></label>
                  ))}
                </div>
                <button disabled={signatoryPending} type="submit" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{signatoryPending ? 'Saving…' : 'Save bill signatories'}</button>
