@@ -120,6 +120,31 @@ const trainingDurationMinutes = (data: Record<string, unknown>) => {
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
 };
 
+const driverAttendanceDate = (value: unknown) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const dayFirst = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  const year = Number(iso?.[1] ?? dayFirst?.[3]);
+  const month = Number(iso?.[2] ?? dayFirst?.[2]);
+  const day = Number(iso?.[3] ?? dayFirst?.[1]);
+  if (![year, month, day].every(Number.isFinite)) return undefined;
+  const timestamp = Date.UTC(year, month - 1, day);
+  const parsed = new Date(timestamp);
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
+    ? timestamp
+    : undefined;
+};
+
+const driverAttendanceTotalDays = (data: Record<string, unknown>) => {
+  if (typeof data.in_time !== "string" || !data.in_time.trim()) return undefined;
+  const attendanceDate = driverAttendanceDate(data.date);
+  if (attendanceDate === undefined) return undefined;
+  const stationInDate = driverAttendanceDate(data.station_in_date);
+  if (stationInDate === undefined) return 1;
+  return Math.max(1, Math.floor((stationInDate - attendanceDate) / 86_400_000));
+};
+
 export const applyDerivedValues = (register: RegisterDefinition, input: Record<string, unknown>) => {
   const data = { ...input };
   const keys = new Set(register.fields.map((field) => field.key));
@@ -171,6 +196,7 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     }
     if (!isYes(data.day_allowance_applicable)) delete data.day_allowance;
     if (!isYes(data.night_allowance_applicable)) delete data.night_allowance;
+    setIfKnown("total_days", driverAttendanceTotalDays(data));
   }
 
   const initialReading = Number(data.initial_reading);

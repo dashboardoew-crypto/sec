@@ -185,6 +185,7 @@ const driverAttendanceFields: FieldDefinition[] = [
   { key: "station_out_time", label: "STATION OUT-TIME", type: "time" },
   { key: "station_in_time", label: "STATION IN-TIME", type: "time" },
   { key: "station_in_date", label: "STATION IN DATE", type: "date" },
+  { key: "total_days", label: "TOTAL DAYS", type: "number", derived: true },
   { key: "sign", label: "SIGN", type: "text" },
   { key: "day_allowance_applicable", label: "DAY ALLOWANCE", type: "select", options: ["Yes", "No"] },
   { key: "day_allowance", label: "DA", type: "number" },

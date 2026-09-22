@@ -364,6 +364,31 @@ const trainingDurationMinutes = (values: Record<string, unknown>) => {
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
 };
 
+const driverAttendanceDate = (value: unknown) => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const dayFirst = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  const year = Number(iso?.[1] ?? dayFirst?.[3]);
+  const month = Number(iso?.[2] ?? dayFirst?.[2]);
+  const day = Number(iso?.[3] ?? dayFirst?.[1]);
+  if (![year, month, day].every(Number.isFinite)) return undefined;
+  const timestamp = Date.UTC(year, month - 1, day);
+  const parsed = new Date(timestamp);
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
+    ? timestamp
+    : undefined;
+};
+
+const driverAttendanceTotalDays = (values: Record<string, unknown>) => {
+  if (typeof values.in_time !== 'string' || !values.in_time.trim()) return undefined;
+  const attendanceDate = driverAttendanceDate(values.date);
+  if (attendanceDate === undefined) return undefined;
+  const stationInDate = driverAttendanceDate(values.station_in_date);
+  if (stationInDate === undefined) return 1;
+  return Math.max(1, Math.floor((stationInDate - attendanceDate) / 86_400_000));
+};
+
 function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
   const initialValues = useMemo(() => ({
     ...(definition.slug === 'driver-attendance' ? normalizeDriverAttendanceValues(initial?.data ?? {}) : (initial?.data ?? {})),
@@ -415,6 +440,11 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
         calculated.total_days = formatTotalDays(totalMinutes);
         calculated.overtime = formatClockDuration(overtimeMinutesFor(totalMinutes));
       }
+    }
+
+    if (definition.slug === 'driver-attendance') {
+      const totalDays = driverAttendanceTotalDays(values);
+      if (totalDays !== undefined) calculated.total_days = totalDays;
     }
 
     if (definition.slug === 'driver-schedule') {
