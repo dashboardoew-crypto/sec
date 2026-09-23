@@ -285,9 +285,21 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${definition.slug}.csv`; a.click(); URL.revokeObjectURL(url); setNotice(`CSV export ready (${payload.records.length} records)`);
   };
-  const onSubmit = (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => {
-    if (editing) update.mutate({ slug: definition.slug, id: editing.id, data }, { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record updated'); } });
-    else create.mutate({ slug: definition.slug, data }, { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record added to the register'); } });
+  const onSubmit = (data: { data: Record<string, unknown> }, editing: RegisterRecord | undefined, onError: (message: string) => void) => {
+    const showMutationError = (error: unknown) => {
+      onError(error instanceof Error ? error.message.replace(/^HTTP \d+ [^:]+:\s*/, '') : 'The record could not be saved. Check the fields and try again.');
+    };
+    if (editing) {
+      update.mutate(
+        { slug: definition.slug, id: editing.id, data },
+        { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record updated'); }, onError: showMutationError },
+      );
+    } else {
+      create.mutate(
+        { slug: definition.slug, data },
+        { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record added to the register'); }, onError: showMutationError },
+      );
+    }
   };
   const onDelete = (record: RegisterRecord) => {
     if (!window.confirm(`Delete this ${definition.title} record? This cannot be undone.`)) return;
@@ -398,7 +410,7 @@ const driverAttendanceTotalDays = (values: Record<string, unknown>) => {
   return Math.max(1, Math.floor((stationInDate - attendanceDate) / 86_400_000));
 };
 
-function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
+function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing: RegisterRecord | undefined, onError: (message: string) => void) => void }) {
   const initialValues = useMemo(() => ({
     ...(definition.slug === 'driver-attendance' ? normalizeDriverAttendanceValues(initial?.data ?? {}) : (initial?.data ?? {})),
   }), [definition.fields, initial]);
@@ -506,7 +518,7 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
       if (!isYes(data.day_allowance_applicable)) delete data.day_allowance;
       if (!isYes(data.night_allowance_applicable)) delete data.night_allowance;
     }
-    onSubmit({ data }, initial);
+    onSubmit({ data }, initial, setError);
   };
   return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4" role="dialog" aria-modal="true"><div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"><div className="sticky top-0 flex items-start justify-between border-b border-border bg-card px-6 py-5"><div><div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">{initial ? 'Edit record' : 'New record'}</div><h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2><p className="mt-2 text-xs text-muted-foreground">Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated from the values you enter.</p></div><button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted" data-testid="button-close-record-dialog"><X size={18} /></button></div><div className="grid gap-4 p-6 sm:grid-cols-2">{orderedFields.map((field) => <FieldInput key={field.key} field={field} value={displayValues[field.key]} labourNames={labourNames} keyNames={keyNames} driverNames={driverNames} securityNames={securityNames} nameOptions={nameOptions} onChange={(v) => setValue(field.key, v)} />)}</div>{error && <div className="mx-6 mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}<div className="flex justify-end gap-3 border-t border-border px-6 py-4"><button onClick={onClose} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted" data-testid="button-cancel-record">Cancel</button><button disabled={pending} onClick={submit} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50" data-testid="button-save-record">{pending ? 'Saving…' : initial ? 'Save changes' : 'Add record'}</button></div></div></div>;
 }
