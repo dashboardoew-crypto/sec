@@ -103,7 +103,6 @@ export const ListRegisterRecordsResponse = zod.object({
   "records": zod.array(zod.object({
   "id": zod.string(),
   "registerSlug": zod.string(),
-  "recordDate": zod.coerce.date().nullish(),
   "data": zod.record(zod.string(), zod.unknown()),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -123,14 +122,12 @@ export const CreateRegisterRecordParams = zod.object({
 })
 
 export const CreateRegisterRecordBody = zod.object({
-  "recordDate": zod.coerce.date().nullish(),
   "data": zod.record(zod.string(), zod.unknown())
 })
 
 export const CreateRegisterRecordResponse = zod.object({
   "id": zod.string(),
   "registerSlug": zod.string(),
-  "recordDate": zod.coerce.date().nullish(),
   "data": zod.record(zod.string(), zod.unknown()),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -150,14 +147,12 @@ export const UpdateRegisterRecordParams = zod.object({
 })
 
 export const UpdateRegisterRecordBody = zod.object({
-  "recordDate": zod.coerce.date().nullish(),
   "data": zod.record(zod.string(), zod.unknown()).optional()
 })
 
 export const UpdateRegisterRecordResponse = zod.object({
   "id": zod.string(),
   "registerSlug": zod.string(),
-  "recordDate": zod.coerce.date().nullish(),
   "data": zod.record(zod.string(), zod.unknown()),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()

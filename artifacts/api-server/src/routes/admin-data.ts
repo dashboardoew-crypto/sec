@@ -343,7 +343,7 @@ const parseImportedDataRows = (
     id: recordId || randomUUID(),
     recordIdProvided: Boolean(recordId),
     registerSlug: definition.slug,
-    recordDate: indiaDateKey(new Date()),
+    recordDate: new Date().toISOString(),
     data: processed,
   };
 };

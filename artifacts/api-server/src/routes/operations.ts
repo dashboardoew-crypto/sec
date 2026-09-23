@@ -286,7 +286,7 @@ const toResponse = (row: typeof registerRecordsTable.$inferSelect, data = row.da
   id: row.id,
   registerSlug: row.registerSlug,
   data: row.recordDate && (data.date === undefined || data.date === "")
-    ? { ...data, date: row.recordDate }
+    ? { ...data, date: calendarDate(row.recordDate) }
     : data,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
@@ -333,7 +333,7 @@ const calendarDate = (value: string | Date | null | undefined) => {
 
 const hrRegisterSlugs = ["driver-attendance", "daily-attendance", "chowk-labour"] as const;
 const dateForRecord = (row: typeof registerRecordsTable.$inferSelect) =>
-  typeof row.data.date === "string" ? calendarDate(row.data.date) : row.recordDate;
+  typeof row.data.date === "string" ? calendarDate(row.data.date) : calendarDate(row.recordDate);
 const parseRegisterRecordsQuery = (query: Request["query"]) => {
   const parseDateQuery = (value: unknown) => {
     if (value === undefined) return undefined;
@@ -1093,7 +1093,8 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   if (!isEntryDate(selectedDate)) {
     return res.status(400).json({ error: "Select a date from today or the previous two days." });
   }
-  const recordDate = dateInIndia(new Date());
+  const createdAt = new Date();
+  const recordDate = createdAt.toISOString();
   const data = applyDerivedValues(
     definition,
     inputDataForRole(req, definition, { ...body.data, date: selectedDate }),
@@ -1117,6 +1118,7 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
     id: randomUUID(),
     registerSlug: slug,
     recordDate,
+    createdAt,
     data,
   }).returning();
   return res.status(201).json(toResponse(row[0], responseDataForRole(req, definition, row[0].data)));

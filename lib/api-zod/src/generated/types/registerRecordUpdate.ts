@@ -8,7 +8,5 @@
 import type { RegisterRecordUpdateData } from './registerRecordUpdateData';
 
 export interface RegisterRecordUpdate {
-  /** @nullable */
-  recordDate?: Date | null;
   data?: RegisterRecordUpdateData;
 }

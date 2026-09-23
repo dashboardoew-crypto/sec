@@ -58,8 +58,6 @@ export type RegisterRecordData = { [key: string]: unknown };
 export interface RegisterRecord {
   id: string;
   registerSlug: string;
-  /** @nullable */
-  recordDate?: string | null;
   data: RegisterRecordData;
   createdAt: string;
   updatedAt: string;
@@ -68,16 +66,12 @@ export interface RegisterRecord {
 export type RegisterRecordInputData = { [key: string]: unknown };
 
 export interface RegisterRecordInput {
-  /** @nullable */
-  recordDate?: string | null;
   data: RegisterRecordInputData;
 }
 
 export type RegisterRecordUpdateData = { [key: string]: unknown };
 
 export interface RegisterRecordUpdate {
-  /** @nullable */
-  recordDate?: string | null;
   data?: RegisterRecordUpdateData;
 }
 

@@ -16,6 +16,7 @@ export * from './fromParameter';
 export * from './getActivityParams';
 export * from './healthStatus';
 export * from './limitParameter';
+export * from './listRegisterRecordsParams';
 export * from './moduleSummary';
 export * from './moduleSummaryModule';
 export * from './nameParameter';

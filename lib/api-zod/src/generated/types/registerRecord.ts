@@ -10,8 +10,6 @@ import type { RegisterRecordData } from './registerRecordData';
 export interface RegisterRecord {
   id: string;
   registerSlug: string;
-  /** @nullable */
-  recordDate?: Date | null;
   data: RegisterRecordData;
   createdAt: Date;
   updatedAt: Date;

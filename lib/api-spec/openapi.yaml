@@ -264,9 +264,6 @@ components:
           type: string
         registerSlug:
           type: string
-        recordDate:
-          type: ["string", "null"]
-          format: date
         data:
           type: object
           additionalProperties: true
@@ -280,18 +277,12 @@ components:
       type: object
       required: [data]
       properties:
-        recordDate:
-          type: ["string", "null"]
-          format: date
         data:
           type: object
           additionalProperties: true
     RegisterRecordUpdate:
       type: object
       properties:
-        recordDate:
-          type: ["string", "null"]
-          format: date
         data:
           type: object
           additionalProperties: true

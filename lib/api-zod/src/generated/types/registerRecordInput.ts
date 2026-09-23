@@ -8,7 +8,5 @@
 import type { RegisterRecordInputData } from './registerRecordInputData';
 
 export interface RegisterRecordInput {
-  /** @nullable */
-  recordDate?: Date | null;
   data: RegisterRecordInputData;
 }
