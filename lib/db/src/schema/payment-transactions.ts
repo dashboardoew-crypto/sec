@@ -11,6 +11,7 @@ export const paymentTransactionsTable = pgTable("payment_transactions", {
   toDate: text("to_date").notNull(),
   sourceScope: text("source_scope").notNull().default("all"),
   amount: doublePrecision("amount").notNull().default(0),
+  roundingAmount: doublePrecision("rounding_amount").notNull().default(0),
   paymentMethod: text("payment_method").notNull().default("Cash"),
   paymentReference: text("payment_reference"),
   paymentNote: text("payment_note"),

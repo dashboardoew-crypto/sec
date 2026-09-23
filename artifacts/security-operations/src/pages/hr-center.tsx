@@ -90,6 +90,7 @@ export default function HrCenterPage() {
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
+  const [roundOffEnabled, setRoundOffEnabled] = useState(false);
   const [billTransactionId, setBillTransactionId] = useState('');
   const [billSignatories, setBillSignatories] = useState<BillSignatories>({
     preparedBy: '',
@@ -176,6 +177,8 @@ export default function HrCenterPage() {
     ),
     [payableDetails, selectedEntryIdSet],
   );
+  const roundOffAmount = roundOffEnabled && selectedPaymentTotal > 0 ? 0.5 : 0;
+  const paymentTotalWithRoundOff = Number((selectedPaymentTotal + roundOffAmount).toFixed(2));
 
   const visibleTransactions = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -219,6 +222,7 @@ export default function HrCenterPage() {
     setSelectedEntryIds([]);
     setPaymentReference('');
     setPaymentNote('');
+    setRoundOffEnabled(false);
   }, [selected?.name]);
 
   const recordPayment = async () => {
@@ -236,6 +240,7 @@ export default function HrCenterPage() {
     setSaving(true);
     setError('');
     setNotice('');
+    const requestedPaymentTotal = paymentTotalWithRoundOff;
     try {
       const savedBill = await savePaymentBill({
         personName: selected.name,
@@ -248,14 +253,15 @@ export default function HrCenterPage() {
         overtimeMinutes: selected.overtimeMinutes,
         overtimeRate: selected.overtimeRate,
         overtimeAmount: selected.overtimeAmount,
-        totalAmount: selected.totalAmount,
+        totalAmount: Number((selected.totalAmount + roundOffAmount).toFixed(2)),
+        roundingAmount: roundOffAmount,
         attendanceRecordIds: selectedIds,
         status: selectedPaymentTotal >= selected.outstandingAmount - 0.005 ? 'paid' : 'partial',
         paymentMethod,
         paymentReference: reference,
         paymentNote: paymentNote.trim(),
       });
-      setNotice(`${selected.name}: ${amount(selectedPaymentTotal)} recorded against ${selectedIds.length} attendance ${selectedIds.length === 1 ? 'entry' : 'entries'}.`);
+       setNotice(`${selected.name}: ${amount(requestedPaymentTotal)} recorded against ${selectedIds.length} attendance ${selectedIds.length === 1 ? 'entry' : 'entries'}.`);
       const loaded = await load();
       const selectedReferences = new Set(
         payableDetails
@@ -264,11 +270,12 @@ export default function HrCenterPage() {
       );
       const savedTransaction = loaded?.transactions.find((transaction) =>
         transaction.personName === selected.name &&
-        Math.abs(transaction.amount - selectedPaymentTotal) < 0.005 &&
+         Math.abs(transaction.amount - requestedPaymentTotal) < 0.005 &&
         transaction.paidAt === savedBill.paidAt &&
         transaction.attendanceReferences.some((reference) => selectedReferences.has(reference)),
       );
       if (savedTransaction) setBillTransactionId(savedTransaction.id);
+       setRoundOffEnabled(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Payment could not be saved');
     } finally {
@@ -417,7 +424,10 @@ export default function HrCenterPage() {
           selectedPerson={selectedPerson}
           setSelectedPerson={setSelectedPerson}
            selectedEntryIds={selectedEntryIds}
-           paymentTotal={selectedPaymentTotal}
+           paymentTotal={paymentTotalWithRoundOff}
+           basePaymentTotal={selectedPaymentTotal}
+           roundOffEnabled={roundOffEnabled}
+           onToggleRoundOff={setRoundOffEnabled}
            onTogglePaymentEntry={(recordId, checked) => setSelectedEntryIds((current) => checked ? Array.from(new Set([...current, recordId])) : current.filter((id) => id !== recordId))}
           paymentMethod={paymentMethod}
           setPaymentMethod={setPaymentMethod}
@@ -480,7 +490,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
   );
 }
 
-function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onOpenBill, onCloseBill, billTransaction, billDetails, billSignatories, loading }: {
+function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, basePaymentTotal, roundOffEnabled, onToggleRoundOff, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onOpenBill, onCloseBill, billTransaction, billDetails, billSignatories, loading }: {
   report: HrReport | null;
   summaries: HrSummary[];
   details: HrReport['details'];
@@ -490,6 +500,9 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   setSelectedPerson: (value: string) => void;
   selectedEntryIds: string[];
   paymentTotal: number;
+  basePaymentTotal: number;
+  roundOffEnabled: boolean;
+  onToggleRoundOff: (enabled: boolean) => void;
   onTogglePaymentEntry: (recordId: string, checked: boolean) => void;
   paymentMethod: string;
   setPaymentMethod: (value: string) => void;
@@ -529,7 +542,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5"><div><button onClick={() => setSelectedPerson('')} className="mb-3 text-xs font-semibold text-primary hover:underline print:hidden">← Back to payment queue</button><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Worker payment statement</div><h2 className="mt-2 font-serif text-3xl font-bold">{selected.name}</h2><p className="mt-1 text-sm text-muted-foreground">{displayDate(report.from)} to {displayDate(report.to)} · {sourceLabel(report.sourceScope)}</p></div><div className="text-right"><StatusBadge status={selected.paymentStatus} /><div className="mt-2 text-xs text-muted-foreground">Amount left</div><div className="font-mono text-2xl font-bold text-amber-700">{amount(selected.outstandingAmount)}</div></div></div>
            <div data-print-screen className="mt-6 grid gap-3 sm:grid-cols-4"><Metric label="Worked days" value={formatDays(selected.workedDays)} /><Metric label="Total payable" value={amount(selected.totalAmount)} /><Metric label="Paid" value={amount(selected.paidAmount)} tone="success" /><Metric label="Balance left" value={amount(selected.outstandingAmount)} tone="warning" /></div>
               <div data-print-screen className="mt-6 divide-y divide-border">{driverOnly ? <BillLine label="DA / NA" detail="Driver day and night allowances" value={amount(selected.wageAmount)} /> : <><BillLine label="Base wages" detail={`${formatDays(selected.workedDays)} days × ${amount(selected.wagePerDay)}`} value={amount(selected.wageAmount)} /><BillLine label="SPL" detail={`${formatMinutes(selected.overtimeMinutes)} at ${amount(selected.overtimeRate)}/hour`} value={amount(selected.overtimeAmount)} /></>}<BillLine label="Exact total payable" detail={driverOnly ? 'Driver allowances' : 'Base wages + SPL, with no rounding adjustment'} value={amount(selected.totalAmount)} /></div>
-            {editable && selected.outstandingAmount > 0 && <div data-payment-form className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-5"><div className="mb-4"><h3 className="font-serif text-lg font-bold">Record a payment</h3><p className="text-xs text-muted-foreground">Select the exact attendance reference this payment covers. The payable total is calculated automatically; no payment amount is entered manually.</p></div><div className="grid gap-4 md:grid-cols-4"><label><span className="mb-1.5 block text-xs font-semibold">Payment total</span><input value={paymentTotal ? amount(paymentTotal) : 'Select a reference'} readOnly className={`${inputClass} bg-muted/50 font-mono font-semibold`} /></label><label><span className="mb-1.5 block text-xs font-semibold">Payment method</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold">Reference / UTR {paymentMethod !== 'Cash' && paymentMethod !== 'Other' ? '(required)' : '(optional)'}</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={paymentMethod === 'Cash' || paymentMethod === 'Other' ? 'Optional' : 'Enter reference'} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Note</span><input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional" className={inputClass} /></label></div><div className="mt-3 text-xs text-muted-foreground">{selectedEntryIds.length ? `Selected attendance reference${selectedEntryIds.length === 1 ? '' : 's'}: ${details.filter((row) => selectedEntryIds.includes(row.id)).map((row) => `${row.referenceNo} (${displayDate(row.displayDate || row.date)})`).join(', ')}` : 'No attendance reference selected. Choose the row for the exact payment date below.'}</div><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={onRecordPayment} disabled={saving || !paymentTotal} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} {saving ? 'Saving…' : 'Record payment'}</button><button onClick={onPrint} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"><Printer size={15} /> Print statement</button></div></div>}
+             {editable && selected.outstandingAmount > 0 && <div data-payment-form className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-5"><div className="mb-4"><h3 className="font-serif text-lg font-bold">Record a payment</h3><p className="text-xs text-muted-foreground">Select the exact attendance reference this payment covers. The attendance amount is calculated automatically, with an optional round off added to the bill.</p></div><div className="grid gap-4 md:grid-cols-5"><label><span className="mb-1.5 block text-xs font-semibold">Payment total</span><input value={paymentTotal ? amount(paymentTotal) : 'Select a reference'} readOnly className={`${inputClass} bg-muted/50 font-mono font-semibold`} /></label><label className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2.5"><input type="checkbox" checked={roundOffEnabled} onChange={(event) => onToggleRoundOff(event.target.checked)} disabled={!basePaymentTotal} className="size-4 accent-[hsl(var(--primary))]" /><span><span className="block text-xs font-semibold">Round off +₹0.50</span><span className="block text-[10px] text-muted-foreground">Bill total adjustment</span></span></label><label><span className="mb-1.5 block text-xs font-semibold">Payment method</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold">Reference / UTR {paymentMethod !== 'Cash' && paymentMethod !== 'Other' ? '(required)' : '(optional)'}</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={paymentMethod === 'Cash' || paymentMethod === 'Other' ? 'Optional' : 'Enter reference'} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Note</span><input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional" className={inputClass} /></label></div><div className="mt-3 text-xs text-muted-foreground">{selectedEntryIds.length ? `Selected attendance reference${selectedEntryIds.length === 1 ? '' : 's'}: ${details.filter((row) => selectedEntryIds.includes(row.id)).map((row) => `${row.referenceNo} (${displayDate(row.displayDate || row.date)})`).join(', ')}` : 'No attendance reference selected. Choose the row for the exact payment date below.'}</div><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={onRecordPayment} disabled={saving || !paymentTotal} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} {saving ? 'Saving…' : 'Record payment'}</button><button onClick={onPrint} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"><Printer size={15} /> Print statement</button></div></div>}
             <div data-print-screen className="mt-7 grid gap-7 lg:grid-cols-[1.35fr_.65fr]">
               <div>
                 <div className="mb-3 flex items-start justify-between gap-3">
@@ -651,6 +664,7 @@ function BillDialog({ transaction, details, billSignatories, onClose }: {
   onClose: () => void;
 }) {
   const billTotal = details.reduce((sum, row) => sum + billAmounts(row, transaction.id).total, 0);
+  const roundingAmount = transaction.roundingAmount ?? 0;
   const driverBill = isDriverBill(details);
   const firstDetail = details[0];
   const workLocation = firstDetail?.workLocation || '—';
@@ -674,7 +688,7 @@ function BillDialog({ transaction, details, billSignatories, onClose }: {
            <div className="hidden overflow-x-auto rounded-lg border border-border sm:block"><BillTable details={details} transactionId={transaction.id} driverBill={driverBill} /></div>
            <div className="space-y-3 sm:hidden">{details.map((row) => { const line = billAmounts(row, transaction.id); return <div key={row.id} className="rounded-lg border border-border bg-background/40 p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold">{displayDate(row.displayDate || row.date)}</div><div className="mt-1 text-[11px] text-muted-foreground">{sourceLabel(row.source)}</div></div><div className="font-mono text-sm font-bold">{amount(line.total)}</div></div><div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs"><div><span className="text-muted-foreground">Days</span><div className="mt-0.5 font-semibold">{formatDays(row.workedDays)}</div></div>{driverBill ? <><div><span className="text-muted-foreground">DA</span><div className="mt-0.5 font-mono">{row.da || '—'}</div></div><div><span className="text-muted-foreground">NA</span><div className="mt-0.5 font-mono">{row.na || '—'}</div></div><div><span className="text-muted-foreground">DA amount</span><div className="mt-0.5 font-mono">{amount(line.daAmount)}</div></div><div><span className="text-muted-foreground">NA amount</span><div className="mt-0.5 font-mono">{amount(line.naAmount)}</div></div></> : <><div><span className="text-muted-foreground">SPL</span><div className="mt-0.5 font-mono">{formatMinutes(line.overtimeMinutes)}</div></div><div><span className="text-muted-foreground">SPL amount</span><div className="mt-0.5 font-mono">{amount(line.overtime)}</div></div></>}</div></div>; })}</div>
         </> : <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No attendance rows are linked to this payment in the selected date range.</div>}
-           <div className="mt-5 flex flex-col gap-4 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between"><div className="text-xs text-muted-foreground">Bill total</div><div className="shrink-0 sm:text-right"><div className="font-mono text-xl font-bold">{amount(transaction.amount)}</div>{details.length && Math.abs(billTotal - transaction.amount) > 0.005 ? <div className="mt-1 text-[10px] text-amber-700">Linked attendance total: {amount(billTotal)}</div> : null}</div></div>
+           <div className="mt-5 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-1 text-xs text-muted-foreground"><div>Bill total</div>{roundingAmount > 0 && <div>Round off <span className="font-mono text-foreground">+{amount(roundingAmount)}</span></div>}<div className="font-semibold text-foreground">Total paid</div></div><div className="shrink-0 space-y-1 sm:text-right"><div className="font-mono text-lg text-muted-foreground">{amount(Math.max(transaction.amount - roundingAmount, 0))}</div>{roundingAmount > 0 && <div className="font-mono text-sm text-primary">+ {amount(roundingAmount)}</div>}<div className="font-mono text-xl font-bold">{amount(transaction.amount)}</div>{details.length && Math.abs(billTotal + roundingAmount - transaction.amount) > 0.005 ? <div className="mt-1 text-[10px] text-amber-700">Linked attendance total: {amount(billTotal)}</div> : null}</div></div>
          <div className="mt-8 grid grid-cols-4 gap-3 text-center text-[10px]"><SignatureCell label="Prepared by" name={billSignatories.preparedBy} nameAboveLine /><SignatureCell label="Checked by" name={billSignatories.checkedBy} nameAboveLine /><SignatureCell label="Verified by" name={billSignatories.verifiedBy} nameAboveLine /><SignatureCell name={transaction.personName} /></div>
          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end"><button onClick={() => downloadBill(transaction, details, billSignatories)} className="flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"><Download size={14} /> Download bill</button><button onClick={() => printBill(transaction, details, billSignatories)} className="flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"><Printer size={14} /> Print bill</button></div>
       </div>
@@ -742,7 +756,9 @@ function buildBillHtml(transaction: PaymentTransaction, details: HrReport['detai
     `<div class="signature signature-name-above"><span>${escapeHtml(billSignatories.verifiedBy || '')}</span><div class="signature-line"></div><strong>Verified by</strong></div>`,
     `<div class="signature"><div class="signature-line"></div><span>${escapeHtml(transaction.personName || '')}</span></div>`,
   ].join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(transaction.billNumber)}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:32px}h1{margin:0 0 4px;font-size:22px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:12px;margin-top:18px}table{border-collapse:collapse;width:100%;margin-top:24px;font-size:12px}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f1f1f1;text-transform:uppercase;font-size:10px}td:nth-child(n+3){text-align:right}.summary{margin-top:20px;margin-left:auto;width:260px}.summary div{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:7px 0;font-size:13px}.summary strong{font-size:16px}.signatures{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:64px;text-align:center;font-size:10px}.signature{display:flex;flex-direction:column;gap:4px;min-height:30px}.signature-name-above{justify-content:flex-end}.signature-line{border-top:1px solid #111;margin:0 0 2px}.signature-name-above span{font-size:12px;font-weight:700}.signature strong{font-weight:400}</style></head><body><h1>Payment bill</h1><div class="meta"><div><strong>Name:</strong> ${escapeHtml(transaction.personName)}</div><div><strong>Work location:</strong> ${escapeHtml(workLocation)}</div><div><strong>Supervisor:</strong> ${escapeHtml(supervisor)}</div><div><strong>Bill:</strong> ${escapeHtml(transaction.billNumber)}</div><div><strong>Attendance period:</strong> ${escapeHtml(displayDate(transaction.fromDate))} to ${escapeHtml(displayDate(transaction.toDate))}</div><div><strong>Payment date:</strong> ${escapeHtml(displayDate(transaction.paidAt.slice(0, 10)))}</div></div><table><thead><tr>${headers}</tr></thead><tbody>${rows || `<tr><td colspan="${driverBill ? 8 : 7}">No linked attendance rows.</td></tr>`}</tbody></table><div class="summary"><div><span>Bill total</span><strong>${escapeHtml(amount(transaction.amount))}</strong></div></div><div class="signatures">${signatures}</div></body></html>`;
+  const roundingAmount = transaction.roundingAmount ?? 0;
+  const billTotal = transaction.amount - roundingAmount;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(transaction.billNumber)}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:32px}h1{margin:0 0 4px;font-size:22px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:12px;margin-top:18px}table{border-collapse:collapse;width:100%;margin-top:24px;font-size:12px}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f1f1f1;text-transform:uppercase;font-size:10px}td:nth-child(n+3){text-align:right}.summary{margin-top:20px;margin-left:auto;width:260px}.summary div{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:7px 0;font-size:13px}.summary strong{font-size:16px}.signatures{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:64px;text-align:center;font-size:10px}.signature{display:flex;flex-direction:column;gap:4px;min-height:30px}.signature-name-above{justify-content:flex-end}.signature-line{border-top:1px solid #111;margin:0 0 2px}.signature-name-above span{font-size:12px;font-weight:700}.signature strong{font-weight:400}</style></head><body><h1>Payment bill</h1><div class="meta"><div><strong>Name:</strong> ${escapeHtml(transaction.personName)}</div><div><strong>Work location:</strong> ${escapeHtml(workLocation)}</div><div><strong>Supervisor:</strong> ${escapeHtml(supervisor)}</div><div><strong>Bill:</strong> ${escapeHtml(transaction.billNumber)}</div><div><strong>Attendance period:</strong> ${escapeHtml(displayDate(transaction.fromDate))} to ${escapeHtml(displayDate(transaction.toDate))}</div><div><strong>Payment date:</strong> ${escapeHtml(displayDate(transaction.paidAt.slice(0, 10)))}</div></div><table><thead><tr>${headers}</tr></thead><tbody>${rows || `<tr><td colspan="${driverBill ? 8 : 7}">No linked attendance rows.</td></tr>`}</tbody></table><div class="summary"><div><span>Bill total</span><strong>${escapeHtml(amount(billTotal))}</strong></div>${roundingAmount > 0 ? `<div><span>Round off</span><strong>+${escapeHtml(amount(roundingAmount))}</strong></div>` : ''}<div><span>Total paid</span><strong>${escapeHtml(amount(transaction.amount))}</strong></div></div><div class="signatures">${signatures}</div></body></html>`;
 }
 
 function downloadBill(transaction: PaymentTransaction, details: HrReport['details'], billSignatories: BillSignatories) {

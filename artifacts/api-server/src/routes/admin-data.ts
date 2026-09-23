@@ -172,6 +172,7 @@ const workbookForAllRegisters = async () => {
     { header: "toDate", key: "toDate", width: 14 },
     { header: "sourceScope", key: "sourceScope", width: 22 },
     { header: "amount", key: "amount", width: 14 },
+     { header: "roundingAmount", key: "roundingAmount", width: 18 },
     { header: "paymentMethod", key: "paymentMethod", width: 18 },
     { header: "paymentReference", key: "paymentReference", width: 24 },
     { header: "paymentNote", key: "paymentNote", width: 28 },
@@ -186,7 +187,7 @@ const workbookForAllRegisters = async () => {
     paidAt: transaction.paidAt.toISOString(),
     createdAt: transaction.createdAt.toISOString(),
   }));
-  paymentHistory.autoFilter = { from: "A1", to: "O1" };
+  paymentHistory.autoFilter = { from: "A1", to: "P1" };
 
   const paymentBills = workbook.addWorksheet("Payment Bills");
   paymentBills.columns = [
@@ -444,6 +445,7 @@ const parseImportedPaymentTransactions = (worksheet: ExcelJS.Worksheet) => {
     toDate: paymentDate(worksheetCell(headers, values, "to_date"), "toDate", rowNumber),
     sourceScope: optionalPaymentText(worksheetCell(headers, values, "source_scope")) ?? "all",
     amount: paymentNumber(worksheetCell(headers, values, "amount"), "amount", rowNumber),
+    roundingAmount: paymentNumber(worksheetCell(headers, values, "rounding_amount"), "roundingAmount", rowNumber),
     paymentMethod: optionalPaymentText(worksheetCell(headers, values, "payment_method")) ?? "Cash",
     paymentReference: optionalPaymentText(worksheetCell(headers, values, "payment_reference")),
     paymentNote: optionalPaymentText(worksheetCell(headers, values, "payment_note")),

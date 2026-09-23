@@ -968,6 +968,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const paymentMethod = paymentMethods.includes(body.paymentMethod as typeof paymentMethods[number])
     ? body.paymentMethod as typeof paymentMethods[number]
     : "Cash";
+  const roundingAmount = Number(body.roundingAmount ?? 0);
   const paymentReference = typeof body.paymentReference === "string" ? body.paymentReference.trim() : "";
   const paymentNote = typeof body.paymentNote === "string" ? body.paymentNote.trim() : "";
   if (
@@ -980,6 +981,8 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
     attendanceRecordIds.length > 500 ||
     paymentReference.length > 160 ||
     paymentNote.length > 500 ||
+    !Number.isFinite(roundingAmount) ||
+    ![0, 0.5].includes(Number(roundingAmount.toFixed(2))) ||
     (["Bank transfer", "UPI", "Cheque"].includes(paymentMethod) && !paymentReference)
   ) {
     return res.status(400).json({ error: "Invalid bill details" });
@@ -997,18 +1000,20 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   if (selectedDetails.some((detail) => detail["paymentIncluded"] === false || numericValue(detail["outstandingAmount"]) <= 0)) {
     return res.status(400).json({ error: "Only included attendance entries with an unpaid balance can be paid" });
   }
-  const paymentAmount = Number(selectedDetails.reduce((sum, detail) => sum + numericValue(detail["outstandingAmount"]), 0).toFixed(2));
-  if (!paymentAmount) return res.status(400).json({ error: "The selected attendance entries have no amount left to pay" });
-  if (paymentAmount > summary.outstandingAmount + 0.005) {
+  const attendancePaymentAmount = Number(selectedDetails.reduce((sum, detail) => sum + numericValue(detail["outstandingAmount"]), 0).toFixed(2));
+  if (!attendancePaymentAmount) return res.status(400).json({ error: "The selected attendance entries have no amount left to pay" });
+  if (attendancePaymentAmount > summary.outstandingAmount + 0.005) {
     return res.status(400).json({ error: `Payment cannot exceed the outstanding amount of ${summary.outstandingAmount.toFixed(2)}` });
   }
+  const paymentAmount = Number((attendancePaymentAmount + roundingAmount).toFixed(2));
 
   const billKey = billKeyFor(personName, fromDate, toDate, sourceScope);
   const result = await db.transaction(async (tx) => {
     const existing = await tx.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
     const current = existing[0];
-    const totalAmount = summary.totalAmount;
-    const nextPaidAmount = Math.min(summary.paidAmount + paymentAmount, totalAmount);
+    const totalRoundingAmount = Number((numericValue(current?.roundingAmount) + roundingAmount).toFixed(2));
+    const totalAmount = Number((summary.totalAmount + totalRoundingAmount).toFixed(2));
+    const nextPaidAmount = Math.min(numericValue(current?.paidAmount) + paymentAmount, totalAmount);
     const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
     const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
     const transactionBillNumber = `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
@@ -1024,6 +1029,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
       overtimeMinutes: Math.round(summary.overtimeMinutes),
       overtimeRate: summary.overtimeRate,
       overtimeAmount: summary.overtimeAmount,
+      roundingAmount: totalRoundingAmount,
       totalAmount,
       paidAmount: nextPaidAmount,
       status: nextStatus,
@@ -1048,6 +1054,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
       toDate,
       sourceScope,
       amount: paymentAmount,
+      roundingAmount,
       paymentMethod,
       paymentReference: paymentReference || null,
       paymentNote: paymentNote || null,

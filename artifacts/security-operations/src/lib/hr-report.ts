@@ -40,6 +40,7 @@ export type HrDetail = {
   baseAmount: number;
   overtimeAmount: number;
   totalAmount: number;
+  roundingAmount: number;
   paidAmount: number;
   outstandingAmount: number;
   paymentDates: string[];
@@ -98,6 +99,7 @@ export type PaymentTransaction = {
   toDate: string;
   sourceScope: string;
   amount: number;
+  roundingAmount: number;
   paymentMethod: string;
   paymentReference: string | null;
   paymentNote: string | null;
@@ -166,6 +168,7 @@ export async function savePaymentBill(input: {
   overtimeRate: number;
   overtimeAmount: number;
   totalAmount: number;
+  roundingAmount: number;
   attendanceRecordIds: string[];
   status: 'paid' | 'partial' | 'unpaid';
   paymentMethod?: string;
