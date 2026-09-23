@@ -331,12 +331,11 @@ const formatTotalDays = (minutes: number) => {
 };
 
 const overtimeMinutesFor = (minutes: number) => {
-  const rawOvertime = minutes < 300
+  return minutes < 300
     ? Math.max(minutes, 0)
     : minutes < 480
       ? minutes - 300
       : Math.max(minutes - 480, 0);
-  return Math.floor(rawOvertime / 30) * 30;
 };
 
 const trainingDurationMinutes = (values: Record<string, unknown>) => {
