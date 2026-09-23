@@ -20,6 +20,14 @@ const indiaDateKey = (value: Date) => {
   const get = (type: string) => parts.find((part) => part.type === type)?.value;
   return `${get('year')}-${get('month')}-${get('day')}`;
 };
+const entryDateBounds = () => {
+  const today = indiaDateKey(new Date());
+  const todayStart = new Date(`${today}T00:00:00Z`);
+  return {
+    min: new Date(todayStart.getTime() - 2 * 86_400_000).toISOString().slice(0, 10),
+    max: today,
+  };
+};
 
 const editWindowForRole = (role?: string) => {
   if (role === 'admin') return null;
@@ -203,7 +211,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const records = recordsQuery.data?.records ?? [];
   const sortedRecords = useMemo(() => {
     if (sortOrder === 'none') return records;
-    const dateValue = (record: RegisterRecord) => String(record.recordDate ?? record.data.date ?? record.createdAt ?? '');
+    const dateValue = (record: RegisterRecord) => String(record.data.date ?? record.createdAt ?? '');
     return [...records].sort((a, b) => {
       const comparison = dateValue(a).localeCompare(dateValue(b));
       return sortOrder === 'asc' ? comparison : -comparison;
@@ -268,12 +276,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     const response = await fetch(`/api/registers/${definition.slug}/records/export?${query.toString()}`, { credentials: 'include' });
     if (!response.ok) { setNotice('CSV export could not be generated'); return; }
     const payload = await response.json() as { records: RegisterRecord[] };
-    const cols = ['Register', 'registerSlug', 'recordDate', ...visibleFields.map((f) => f.key)];
+    const cols = ['Register', 'registerSlug', ...visibleFields.map((f) => f.key)];
     const rows = payload.records.map((r) => cols.map((c) => JSON.stringify(
       c === 'Register' ? definition.title
         : c === 'registerSlug' ? definition.slug
-          : c === 'recordDate' ? r.recordDate ?? ''
-            : String(r.data[c] ?? ''),
+          : String(r.data[c] ?? ''),
     )).join(','));
     const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${definition.slug}.csv`; a.click(); URL.revokeObjectURL(url); setNotice(`CSV export ready (${payload.records.length} records)`);
@@ -394,9 +401,6 @@ const driverAttendanceTotalDays = (values: Record<string, unknown>) => {
 function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing?: RegisterRecord) => void }) {
   const initialValues = useMemo(() => ({
     ...(definition.slug === 'driver-attendance' ? normalizeDriverAttendanceValues(initial?.data ?? {}) : (initial?.data ?? {})),
-    ...(!initial?.data?.date && definition.fields.some((field) => field.key === 'date')
-      ? { date: initial?.recordDate ?? indiaDateKey(new Date()) }
-      : {}),
   }), [definition.fields, initial]);
   const [values, setValues] = useState<Record<string, unknown>>(initialValues);
   const [error, setError] = useState('');
@@ -525,5 +529,6 @@ function FieldInput({ field, value, labourNames, keyNames, driverNames, security
   const currentValue = String(value ?? '');
   const selectOptions = currentValue && !options.includes(currentValue) ? [currentValue, ...options] : options;
   const rendersSelect = field.type === 'select' || field.key === 'labour_name';
-  return <label className={field.type === 'textarea' ? 'sm:col-span-2' : ''}><span className="mb-1.5 block text-xs font-semibold">{field.label}{field.required && <span className="ml-1 text-destructive">*</span>}{field.derived && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Auto-filled</span>}</span>{field.type === 'textarea' ? <textarea {...common} className={inputClass} readOnly={field.derived} rows={3} data-testid={`input-field-${field.key}`} /> : rendersSelect ? <select {...common} className={inputClass} disabled={field.derived} data-testid={`input-field-${field.key}`}><option value="">Select…</option>{selectOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === 'checkbox' ? <input type="checkbox" checked={Boolean(value)} disabled={field.derived} onChange={(e) => onChange(e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" data-testid={`input-field-${field.key}`} /> : <input {...common} className={inputClass} readOnly={field.derived} type={field.type} data-testid={`input-field-${field.key}`} />}</label>;
+  const dateBounds = field.key === 'date' ? entryDateBounds() : undefined;
+  return <label className={field.type === 'textarea' ? 'sm:col-span-2' : ''}><span className="mb-1.5 block text-xs font-semibold">{field.label}{field.required && <span className="ml-1 text-destructive">*</span>}{field.derived && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Auto-filled</span>}</span>{field.type === 'textarea' ? <textarea {...common} className={inputClass} readOnly={field.derived} rows={3} data-testid={`input-field-${field.key}`} /> : rendersSelect ? <select {...common} className={inputClass} disabled={field.derived} data-testid={`input-field-${field.key}`}><option value="">Select…</option>{selectOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === 'checkbox' ? <input type="checkbox" checked={Boolean(value)} disabled={field.derived} onChange={(e) => onChange(e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" data-testid={`input-field-${field.key}`} /> : <input {...common} {...dateBounds} className={inputClass} readOnly={field.derived} type={field.type} data-testid={`input-field-${field.key}`} />}</label>;
 }

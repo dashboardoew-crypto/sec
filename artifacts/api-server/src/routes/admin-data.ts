@@ -141,7 +141,6 @@ const workbookForAllRegisters = async () => {
       { header: "recordId", key: "recordId", width: 38 },
       { header: "Register", key: "Register", width: 24 },
       { header: "registerSlug", key: "registerSlug", width: 24 },
-      { header: "recordDate", key: "recordDate", width: 14 },
       ...definition.fields.map((field) => ({ header: field.label, key: field.key, width: Math.min(Math.max(field.label.length + 4, 14), 28) })),
     ];
     worksheet.columns = columns;
@@ -153,7 +152,6 @@ const workbookForAllRegisters = async () => {
         recordId: row.id,
         Register: definition.title,
         registerSlug: definition.slug,
-        recordDate: displayDate(row.recordDate ?? row.data.date ?? indiaDateKey(new Date())),
         ...Object.fromEntries(definition.fields.map((field) => [
           field.key,
           field.type === "date" ? displayDate(row.data[field.key] ?? row.recordDate) : row.data[field.key] ?? "",
@@ -335,17 +333,17 @@ const parseImportedDataRows = (
   const importedDate = normalizeDateValue(recordDateOverride);
   if ((data.date === undefined || data.date === "") && importedDate) data.date = importedDate;
   if (data.date === undefined || data.date === "") data.date = indiaDateKey(new Date());
-  const recordDate = typeof data.date === "string" ? normalizeDateValue(data.date) as string : indiaDateKey(new Date());
-  data.date = recordDate;
+  const selectedDate = typeof data.date === "string" ? normalizeDateValue(data.date) as string : indiaDateKey(new Date());
+  data.date = selectedDate;
   const processed = applyDerivedValues(definition, data);
-  const missing = validateRequiredFields(definition, recordDate, processed);
+  const missing = validateRequiredFields(definition, selectedDate, processed);
   if (missing.length) throw new Error(`Row ${rowIndex} (${definition.title}): missing ${missing.map((field) => field.label).join(", ")}.`);
   const recordId = typeof recordIdOverride === "string" ? recordIdOverride.trim() : "";
   return {
     id: recordId || randomUUID(),
     recordIdProvided: Boolean(recordId),
     registerSlug: definition.slug,
-    recordDate,
+    recordDate: indiaDateKey(new Date()),
     data: processed,
   };
 };
@@ -588,7 +586,7 @@ const reconcileLegacyAttendanceReferences = (
 ) => {
   const referenceOwners = new Map<string, typeof registerRows[number]>();
   for (const row of registerRows) {
-    const date = row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : "");
+    const date = typeof row.data.date === "string" ? row.data.date : row.recordDate ?? "";
     if (date) referenceOwners.set(attendanceReferenceFor(row.id, date, row.registerSlug), row);
   }
 
@@ -602,7 +600,7 @@ const reconcileLegacyAttendanceReferences = (
       const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
       const candidates = registerRows.filter((row) =>
         !row.recordIdProvided &&
-        (row.recordDate ?? row.data.date) === date &&
+        (typeof row.data.date === "string" ? row.data.date : row.recordDate) === date &&
         row.registerSlug.slice(0, 3).toUpperCase() === registerPrefix.toUpperCase() &&
         importedPersonName(row) === transaction.personName.trim().toLowerCase(),
       );
@@ -638,12 +636,12 @@ const validateImportConsistency = async (imported: {
   const attendanceReferences = new Set([
     ...existingRecords.map((row) => attendanceReferenceFor(
       row.id,
-      row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : ""),
+      typeof row.data.date === "string" ? row.data.date : row.recordDate ?? "",
       row.registerSlug,
     )),
     ...imported.registerRows.map((row) => attendanceReferenceFor(
       row.id,
-      row.recordDate ?? (typeof row.data.date === "string" ? row.data.date : ""),
+      typeof row.data.date === "string" ? row.data.date : row.recordDate ?? "",
       row.registerSlug,
     )),
   ]);
@@ -706,7 +704,7 @@ router.post("/admin/data/backup/send-now", async (_req: Request, res: Response) 
 
 router.get("/admin/data/import-template", (_req: Request, res: Response) => {
   const importFields = Array.from(new Map(REGISTER_DEFINITIONS.flatMap((definition) => definition.fields).map((field) => [field.key, field])).values());
-  const headers = ["Register", "registerSlug", "recordDate", ...importFields.map((field) => field.key)];
+  const headers = ["Register", "registerSlug", ...importFields.map((field) => field.key)];
   const example = {
     name_of_visitor: "Example visitor",
     location_of_visitor: "Office",
@@ -715,7 +713,7 @@ router.get("/admin/data/import-template", (_req: Request, res: Response) => {
     whom_to_meet: "Admin",
     in_time: "09:00",
   } as Record<string, string>;
-  const sample = ["Visitor Record Register", "visitor-record", "2026-09-15", ...importFields.map((field) => example[field.key] ?? "")];
+  const sample = ["Visitor Record Register", "visitor-record", ...importFields.map((field) => example[field.key] ?? "")];
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="register-import-template.csv"');
   return res.send([headers, sample].map((row) => row.map(escapeCsvValue).join(",")).join("\n"));

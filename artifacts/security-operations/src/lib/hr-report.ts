@@ -80,6 +80,7 @@ export type PaymentBill = {
   overtimeMinutes: number;
   overtimeRate: number;
   overtimeAmount: number;
+  roundingAmount: number;
   totalAmount: number;
   paidAmount: number;
   status: 'paid' | 'partial' | 'unpaid';

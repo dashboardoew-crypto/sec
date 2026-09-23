@@ -285,8 +285,7 @@ const inputDataForRole = (req: Request, definition: RegisterDefinition, data: Re
 const toResponse = (row: typeof registerRecordsTable.$inferSelect, data = row.data) => ({
   id: row.id,
   registerSlug: row.registerSlug,
-  recordDate: row.recordDate,
-  data: row.recordDate && (data.date === undefined || data.date === null || data.date === "")
+  data: row.recordDate && (data.date === undefined || data.date === "")
     ? { ...data, date: row.recordDate }
     : data,
   createdAt: row.createdAt.toISOString(),
@@ -333,7 +332,8 @@ const calendarDate = (value: string | Date | null | undefined) => {
 };
 
 const hrRegisterSlugs = ["driver-attendance", "daily-attendance", "chowk-labour"] as const;
-const dateForRecord = (row: typeof registerRecordsTable.$inferSelect) => row.recordDate ?? (typeof row.data.date === "string" ? calendarDate(row.data.date) : null);
+const dateForRecord = (row: typeof registerRecordsTable.$inferSelect) =>
+  typeof row.data.date === "string" ? calendarDate(row.data.date) : row.recordDate;
 const parseRegisterRecordsQuery = (query: Request["query"]) => {
   const parseDateQuery = (value: unknown) => {
     if (value === undefined) return undefined;
@@ -360,6 +360,10 @@ const personNameForRecord = (slug: string, data: Record<string, unknown>) =>
 const numericValue = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+};
+const roundOffToRupee = (value: number) => {
+  const currencyValue = Number(value.toFixed(2));
+  return currencyValue > 0 ? Number((Math.ceil(currencyValue) - currencyValue).toFixed(2)) : 0;
 };
 const personKey = (value: unknown) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 const overtimeRateValue = (value: unknown) => {
@@ -705,6 +709,16 @@ const editWindowForRole = (role: string | undefined, definition?: RegisterDefini
   return undefined;
 };
 
+const isEntryDate = (value: string | null) => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return false;
+  const today = dateInIndia(new Date());
+  const todayStart = new Date(`${today}T00:00:00.000Z`);
+  const earliest = new Date(todayStart.getTime() - 2 * 86_400_000).toISOString().slice(0, 10);
+  return value >= earliest && value <= today;
+};
+
 const canEditRecord = (createdAt: Date, role: string | undefined, definition?: RegisterDefinition) => {
   const windowDays = editWindowForRole(role, definition);
   if (windowDays === null) return true;
@@ -968,7 +982,6 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   const paymentMethod = paymentMethods.includes(body.paymentMethod as typeof paymentMethods[number])
     ? body.paymentMethod as typeof paymentMethods[number]
     : "Cash";
-  const roundingAmount = Number(body.roundingAmount ?? 0);
   const paymentReference = typeof body.paymentReference === "string" ? body.paymentReference.trim() : "";
   const paymentNote = typeof body.paymentNote === "string" ? body.paymentNote.trim() : "";
   if (
@@ -981,8 +994,6 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
     attendanceRecordIds.length > 500 ||
     paymentReference.length > 160 ||
     paymentNote.length > 500 ||
-    !Number.isFinite(roundingAmount) ||
-    ![0, 0.5].includes(Number(roundingAmount.toFixed(2))) ||
     (["Bank transfer", "UPI", "Cheque"].includes(paymentMethod) && !paymentReference)
   ) {
     return res.status(400).json({ error: "Invalid bill details" });
@@ -1005,6 +1016,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
   if (attendancePaymentAmount > summary.outstandingAmount + 0.005) {
     return res.status(400).json({ error: `Payment cannot exceed the outstanding amount of ${summary.outstandingAmount.toFixed(2)}` });
   }
+  const roundingAmount = roundOffToRupee(attendancePaymentAmount);
   const paymentAmount = Number((attendancePaymentAmount + roundingAmount).toFixed(2));
 
   const billKey = billKeyFor(personName, fromDate, toDate, sourceScope);
@@ -1077,10 +1089,14 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
-  const recordDate = calendarDate(body.data.date as string | undefined) ?? dateInIndia(new Date());
+  const selectedDate = calendarDate(body.data.date as string | undefined);
+  if (!isEntryDate(selectedDate)) {
+    return res.status(400).json({ error: "Select a date from today or the previous two days." });
+  }
+  const recordDate = dateInIndia(new Date());
   const data = applyDerivedValues(
     definition,
-    inputDataForRole(req, definition, { ...body.data, date: recordDate }),
+    inputDataForRole(req, definition, { ...body.data, date: selectedDate }),
   );
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
@@ -1126,19 +1142,22 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
         : `This record can no longer be edited. ${req.user?.role === "manager" ? "Managers" : "Security staff"} can edit records for ${editWindowDays} days after entry.`,
     });
   }
-  const recordDate = body.data?.date === undefined
-    ? existing[0].recordDate
-      ?? calendarDate(typeof existing[0].data.date === "string" ? existing[0].data.date : undefined)
-      ?? dateInIndia(new Date())
-    : calendarDate(body.data.date as string | undefined) ?? dateInIndia(new Date());
+  const existingDate = calendarDate(typeof existing[0].data.date === "string" ? existing[0].data.date : undefined)
+    ?? existing[0].recordDate
+    ?? dateInIndia(new Date());
+  const selectedDate = body.data?.date === undefined
+    ? existingDate
+    : calendarDate(body.data.date as string | undefined);
+  if (!selectedDate || (body.data?.date !== undefined && selectedDate !== existingDate && !isEntryDate(selectedDate))) {
+    return res.status(400).json({ error: "Select a date from today or the previous two days." });
+  }
   const data = applyDerivedValues(
     definition,
-    inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: recordDate }),
+    inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: selectedDate }),
   );
-  const missing = validateRequiredFields(definition, recordDate, data);
+  const missing = validateRequiredFields(definition, selectedDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
   const row = await db.update(registerRecordsTable).set({
-    recordDate,
     data,
     updatedAt: new Date(),
   }).where(eq(registerRecordsTable.id, id)).returning();
