@@ -293,21 +293,38 @@ export default function HrCenterPage() {
   };
 
   const exportLedger = () => {
-    const rows = [
-      ['Attendance reference', 'Date', 'Person', 'Register', 'Days', 'DA', 'NA', 'DA amount', 'NA amount', 'Total amount'],
-      ...details.map((row) => [
-        row.referenceNo,
-        row.displayDate || row.date,
-        row.name,
-        sourceLabel(row.source),
-        formatDays(row.workedDays),
-        row.da ? row.da.toFixed(2) : '',
-        row.na ? row.na.toFixed(2) : '',
-        row.daAmount.toFixed(2),
-        row.naAmount.toFixed(2),
-        row.totalAmount.toFixed(2),
-      ]),
-    ];
+    const driverOnly = details.length > 0 && details.every((row) => row.source === 'driver-attendance');
+    const rows = driverOnly
+      ? [
+        ['Attendance reference', 'Date', 'Person', 'Register', 'Days', 'DA', 'NA', 'DA amount', 'NA amount', 'Total amount'],
+        ...details.map((row) => [
+          row.referenceNo,
+          row.displayDate || row.date,
+          row.name,
+          sourceLabel(row.source),
+          formatDays(row.workedDays),
+          row.da ? row.da.toFixed(2) : '',
+          row.na ? row.na.toFixed(2) : '',
+          row.daAmount.toFixed(2),
+          row.naAmount.toFixed(2),
+          row.totalAmount.toFixed(2),
+        ]),
+      ]
+      : [
+        ['Attendance reference', 'Date', 'Person', 'Register', 'Days', 'Hours', 'Overtime', 'Base amount', 'Overtime amount', 'Total amount'],
+        ...details.map((row) => [
+          row.referenceNo,
+          row.displayDate || row.date,
+          row.name,
+          sourceLabel(row.source),
+          formatDays(row.workedDays),
+          formatMinutes(row.minutes),
+          formatMinutes(row.overtimeMinutes),
+          row.baseAmount.toFixed(2),
+          row.overtimeAmount.toFixed(2),
+          row.totalAmount.toFixed(2),
+        ]),
+      ];
     downloadCsv(rows, `hr-ledger-${from}-to-${to}.csv`);
   };
 
@@ -492,6 +509,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   loading: boolean;
 }) {
   const unpaid = summaries.filter((row) => row.outstandingAmount > 0);
+  const driverOnly = details.length > 0 && details.every((row) => row.source === 'driver-attendance');
   return (
     <>
       <div className={`mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 ${selected ? 'print:hidden' : ''}`}>
@@ -510,7 +528,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
         <section data-print-statement className="mb-6 rounded-xl border-2 border-foreground/15 bg-card p-6 shadow-sm md:p-8 print:mb-0 print:border-0 print:p-0 print:shadow-none">
            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5"><div><button onClick={() => setSelectedPerson('')} className="mb-3 text-xs font-semibold text-primary hover:underline print:hidden">← Back to payment queue</button><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Worker payment statement</div><h2 className="mt-2 font-serif text-3xl font-bold">{selected.name}</h2><p className="mt-1 text-sm text-muted-foreground">{displayDate(report.from)} to {displayDate(report.to)} · {sourceLabel(report.sourceScope)}</p></div><div className="text-right"><StatusBadge status={selected.paymentStatus} /><div className="mt-2 text-xs text-muted-foreground">Amount left</div><div className="font-mono text-2xl font-bold text-amber-700">{amount(selected.outstandingAmount)}</div></div></div>
            <div data-print-screen className="mt-6 grid gap-3 sm:grid-cols-4"><Metric label="Worked days" value={formatDays(selected.workedDays)} /><Metric label="Total payable" value={amount(selected.totalAmount)} /><Metric label="Paid" value={amount(selected.paidAmount)} tone="success" /><Metric label="Balance left" value={amount(selected.outstandingAmount)} tone="warning" /></div>
-             <div data-print-screen className="mt-6 divide-y divide-border"><BillLine label="Base wages" detail={`${formatDays(selected.workedDays)} days × ${amount(selected.wagePerDay)}`} value={amount(selected.wageAmount)} /><BillLine label="SPL" detail={`${formatMinutes(selected.overtimeMinutes)} at ${amount(selected.overtimeRate)}/hour`} value={amount(selected.overtimeAmount)} /><BillLine label="Exact total payable" detail="Base wages + SPL, with no rounding adjustment" value={amount(selected.totalAmount)} /></div>
+              <div data-print-screen className="mt-6 divide-y divide-border">{driverOnly ? <BillLine label="DA / NA" detail="Driver day and night allowances" value={amount(selected.wageAmount)} /> : <><BillLine label="Base wages" detail={`${formatDays(selected.workedDays)} days × ${amount(selected.wagePerDay)}`} value={amount(selected.wageAmount)} /><BillLine label="SPL" detail={`${formatMinutes(selected.overtimeMinutes)} at ${amount(selected.overtimeRate)}/hour`} value={amount(selected.overtimeAmount)} /></>}<BillLine label="Exact total payable" detail={driverOnly ? 'Driver allowances' : 'Base wages + SPL, with no rounding adjustment'} value={amount(selected.totalAmount)} /></div>
             {editable && selected.outstandingAmount > 0 && <div data-payment-form className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-5"><div className="mb-4"><h3 className="font-serif text-lg font-bold">Record a payment</h3><p className="text-xs text-muted-foreground">Select the exact attendance reference this payment covers. The payable total is calculated automatically; no payment amount is entered manually.</p></div><div className="grid gap-4 md:grid-cols-4"><label><span className="mb-1.5 block text-xs font-semibold">Payment total</span><input value={paymentTotal ? amount(paymentTotal) : 'Select a reference'} readOnly className={`${inputClass} bg-muted/50 font-mono font-semibold`} /></label><label><span className="mb-1.5 block text-xs font-semibold">Payment method</span><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold">Reference / UTR {paymentMethod !== 'Cash' && paymentMethod !== 'Other' ? '(required)' : '(optional)'}</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={paymentMethod === 'Cash' || paymentMethod === 'Other' ? 'Optional' : 'Enter reference'} className={inputClass} /></label><label><span className="mb-1.5 block text-xs font-semibold">Note</span><input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional" className={inputClass} /></label></div><div className="mt-3 text-xs text-muted-foreground">{selectedEntryIds.length ? `Selected attendance reference${selectedEntryIds.length === 1 ? '' : 's'}: ${details.filter((row) => selectedEntryIds.includes(row.id)).map((row) => `${row.referenceNo} (${displayDate(row.displayDate || row.date)})`).join(', ')}` : 'No attendance reference selected. Choose the row for the exact payment date below.'}</div><div className="mt-4 flex flex-wrap items-center gap-3"><button onClick={onRecordPayment} disabled={saving || !paymentTotal} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} {saving ? 'Saving…' : 'Record payment'}</button><button onClick={onPrint} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"><Printer size={15} /> Print statement</button></div></div>}
             <div data-print-screen className="mt-7 grid gap-7 lg:grid-cols-[1.35fr_.65fr]">
               <div>
@@ -797,9 +815,22 @@ function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry }: {
   onTogglePaymentEntry: (recordId: string, checked: boolean) => void;
 }) {
   const visibleDetails = details.filter((row) => row.paymentStatus !== 'paid');
+  const hasDriverDetails = visibleDetails.some((row) => row.source === 'driver-attendance');
+  const hasOvertimeDetails = visibleDetails.some((row) => row.source !== 'driver-attendance');
+  const headers = [
+    'Pay',
+    'Attendance reference',
+    'Date',
+    'Register',
+    'Days',
+    ...(hasDriverDetails ? ['DA', 'NA', 'DA amount', 'NA amount'] : []),
+    ...(hasOvertimeDetails ? ['Hours', 'SPL', 'Wage amount', 'SPL amount'] : []),
+    'Total amount',
+    'Status',
+  ];
   return <>
-           <div className="hidden overflow-x-auto rounded-lg border border-border sm:block"><table className="w-full min-w-[1120px] text-left text-xs"><thead className="border-b border-border"><tr>{['Pay', 'Attendance reference', 'Date', 'Register', 'Days', 'DA', 'NA', 'DA amount', 'NA amount', 'Total amount', 'Status'].map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; return <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="text-muted-foreground">—</span>}</td><td className="px-2 py-2 font-mono text-[10px]">{row.referenceNo}</td><td className="px-2 py-2">{displayDate(row.displayDate || row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td><td className="px-2 py-2 font-mono">{row.da || '—'}</td><td className="px-2 py-2 font-mono">{row.na || '—'}</td><td className="px-2 py-2 font-mono">{amount(row.daAmount)}</td><td className="px-2 py-2 font-mono">{amount(row.naAmount)}</td><td className="px-2 py-2 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td></tr>; })}</tbody></table></div>
-            <div className="space-y-3 sm:hidden">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; return <div key={row.id} className={`rounded-lg border border-border p-3 ${row.paymentIncluded ? 'bg-card' : 'bg-muted/30'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 shrink-0 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="size-4 shrink-0 text-center text-muted-foreground">—</span>}<span className="truncate font-mono text-[10px] font-semibold">{row.referenceNo}</span></div><div className="mt-1 pl-6 text-xs text-muted-foreground">{displayDate(row.displayDate || row.date)} · {sourceLabel(row.source)}</div></div><div className="shrink-0 text-right"><div className="font-mono text-sm font-bold">{amount(row.outstandingAmount)}</div><StatusBadge status={row.paymentStatus} /></div></div><div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs"><div><span className="text-muted-foreground">Days</span><div className="mt-0.5">{formatDays(row.workedDays)}</div></div><div><span className="text-muted-foreground">DA</span><div className="mt-0.5 font-mono">{row.da || '—'}</div></div><div><span className="text-muted-foreground">NA</span><div className="mt-0.5 font-mono">{row.na || '—'}</div></div><div><span className="text-muted-foreground">DA amount</span><div className="mt-0.5 font-mono">{amount(row.daAmount)}</div></div><div><span className="text-muted-foreground">NA amount</span><div className="mt-0.5 font-mono">{amount(row.naAmount)}</div></div><div><span className="text-muted-foreground">Total amount</span><div className="mt-0.5 font-mono font-semibold">{amount(row.totalAmount)}</div></div></div></div>; })}</div>
+           <div className="hidden overflow-x-auto rounded-lg border border-border sm:block"><table className="w-full min-w-[1120px] text-left text-xs"><thead className="border-b border-border"><tr>{headers.map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; const driver = row.source === 'driver-attendance'; return <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="text-muted-foreground">—</span>}</td><td className="px-2 py-2 font-mono text-[10px]">{row.referenceNo}</td><td className="px-2 py-2">{displayDate(row.displayDate || row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td>{hasDriverDetails && <>{driver ? <><td className="px-2 py-2 font-mono">{row.da || '—'}</td><td className="px-2 py-2 font-mono">{row.na || '—'}</td><td className="px-2 py-2 font-mono">{amount(row.daAmount)}</td><td className="px-2 py-2 font-mono">{amount(row.naAmount)}</td></> : <><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td></>}</>}{hasOvertimeDetails && <>{driver ? <><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td></> : <><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono">{amount(row.overtimeAmount)}</td></>}</>}{<td className="px-2 py-2 font-mono font-semibold">{amount(row.totalAmount)}</td>}<td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td></tr>; })}</tbody></table></div>
+             <div className="space-y-3 sm:hidden">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; const driver = row.source === 'driver-attendance'; return <div key={row.id} className={`rounded-lg border border-border p-3 ${row.paymentIncluded ? 'bg-card' : 'bg-muted/30'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 shrink-0 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="size-4 shrink-0 text-center text-muted-foreground">—</span>}<span className="truncate font-mono text-[10px] font-semibold">{row.referenceNo}</span></div><div className="mt-1 pl-6 text-xs text-muted-foreground">{displayDate(row.displayDate || row.date)} · {sourceLabel(row.source)}</div></div><div className="shrink-0 text-right"><div className="font-mono text-sm font-bold">{amount(row.outstandingAmount)}</div><StatusBadge status={row.paymentStatus} /></div></div><div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs"><div><span className="text-muted-foreground">Days</span><div className="mt-0.5">{formatDays(row.workedDays)}</div></div>{driver ? <><div><span className="text-muted-foreground">DA</span><div className="mt-0.5 font-mono">{row.da || '—'}</div></div><div><span className="text-muted-foreground">NA</span><div className="mt-0.5 font-mono">{row.na || '—'}</div></div><div><span className="text-muted-foreground">DA amount</span><div className="mt-0.5 font-mono">{amount(row.daAmount)}</div></div><div><span className="text-muted-foreground">NA amount</span><div className="mt-0.5 font-mono">{amount(row.naAmount)}</div></div></> : <><div><span className="text-muted-foreground">Hours</span><div className="mt-0.5 font-mono">{formatMinutes(row.minutes)}</div></div><div><span className="text-muted-foreground">SPL</span><div className="mt-0.5 font-mono">{formatMinutes(row.overtimeMinutes)}</div></div><div><span className="text-muted-foreground">Wage amount</span><div className="mt-0.5 font-mono">{amount(row.baseAmount)}</div></div><div><span className="text-muted-foreground">SPL amount</span><div className="mt-0.5 font-mono">{amount(row.overtimeAmount)}</div></div></>}<div><span className="text-muted-foreground">Total amount</span><div className="mt-0.5 font-mono font-semibold">{amount(row.totalAmount)}</div></div></div></div>; })}</div>
     {!visibleDetails.length && <div className="border-t border-border p-6 text-center text-sm text-muted-foreground">All attendance in this period has been paid and moved to payment history.</div>}
   </>;
 }
