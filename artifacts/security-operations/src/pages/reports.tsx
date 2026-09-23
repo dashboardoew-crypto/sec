@@ -37,6 +37,15 @@ const reportOptions: Array<{ source: ReportSource; label: string; description: s
 const inputClass = 'w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
 const amount = (value: number) => `₹${value.toFixed(2)}`;
 const reportLabel = (source: string) => reportOptions.find((option) => option.source === source)?.label ?? source;
+const downloadCsv = (filename: string, rows: string[][]) => {
+  const csv = rows.map((row) => row.map((cell) => JSON.stringify(cell)).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+};
 
 export default function ReportsPage() {
   const [source, setSource] = useState<ReportSource>('driver-attendance');
@@ -80,7 +89,20 @@ export default function ReportsPage() {
   }, [person, report]);
 
   const reportOption = reportOptions.find((option) => option.source === source)!;
-  const exportReport = () => {
+  const summaryRows = useMemo(() => people.map((summary) => {
+    const personDetails = details.filter((detail) => detail.name === summary.name);
+    return {
+      summary,
+      entries: personDetails.length,
+      da: personDetails.reduce((total, detail) => total + detail.da, 0),
+      na: personDetails.reduce((total, detail) => total + detail.na, 0),
+      daAmount: personDetails.reduce((total, detail) => total + detail.daAmount, 0),
+      naAmount: personDetails.reduce((total, detail) => total + detail.naAmount, 0),
+      minutes: personDetails.reduce((total, detail) => total + detail.minutes, 0),
+    };
+  }), [details, people]);
+
+  const exportDetails = () => {
     const rows = source === 'driver-attendance'
       ? [
         ['Attendance reference', 'Date', 'Person', 'Register', 'Days', 'DA', 'NA', 'DA amount', 'NA amount', 'Total amount'],
@@ -112,13 +134,38 @@ export default function ReportsPage() {
           detail.totalAmount.toFixed(2),
         ]),
       ];
-    const csv = rows.map((row) => row.map((cell) => JSON.stringify(cell)).join(',')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${source}-report-${from}-to-${to}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`${source}-all-details-${from}-to-${to}.csv`, rows);
+  };
+
+  const exportSummary = () => {
+    const rows = source === 'driver-attendance'
+      ? [
+        ['Person', 'Days', 'DA', 'NA', 'DA amount', 'NA amount', 'Total amount', 'Entries'],
+        ...summaryRows.map(({ summary, entries, da, na, daAmount, naAmount }) => [
+          summary.name,
+          formatDays(summary.workedDays),
+          String(da || ''),
+          String(na || ''),
+          daAmount.toFixed(2),
+          naAmount.toFixed(2),
+          summary.totalAmount.toFixed(2),
+          String(entries),
+        ]),
+      ]
+      : [
+        ['Person', 'Days', 'Hours', 'Overtime', 'Base amount', 'Overtime amount', 'Total amount', 'Entries'],
+        ...summaryRows.map(({ summary, entries, minutes }) => [
+          summary.name,
+          formatDays(summary.workedDays),
+          formatMinutes(minutes),
+          formatMinutes(summary.overtimeMinutes),
+          summary.baseAmount.toFixed(2),
+          summary.overtimeAmount.toFixed(2),
+          summary.totalAmount.toFixed(2),
+          String(entries),
+        ]),
+      ];
+    downloadCsv(`${source}-summary-by-person-${from}-to-${to}.csv`, rows);
   };
 
   return (
@@ -138,8 +185,11 @@ export default function ReportsPage() {
             <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">
               <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
             </button>
-            <button onClick={exportReport} disabled={loading || !details.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">
-              <Download size={15} /> Export report
+            <button onClick={exportDetails} disabled={loading || !details.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+              <Download size={15} /> All report details
+            </button>
+            <button onClick={exportSummary} disabled={loading || !summaryRows.length} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
+              <Download size={15} /> Summary by person
             </button>
           </div>
         )}
@@ -208,13 +258,7 @@ export default function ReportsPage() {
               ).map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {people.map((summary) => {
-                const personDetails = details.filter((detail) => detail.name === summary.name);
-                const da = personDetails.reduce((total, detail) => total + detail.da, 0);
-                const na = personDetails.reduce((total, detail) => total + detail.na, 0);
-                const daAmount = personDetails.reduce((total, detail) => total + detail.daAmount, 0);
-                const naAmount = personDetails.reduce((total, detail) => total + detail.naAmount, 0);
-                const minutes = personDetails.reduce((total, detail) => total + detail.minutes, 0);
+              {summaryRows.map(({ summary, entries, da, na, daAmount, naAmount, minutes }) => {
                 return (
                   <tr key={summary.name} className="hover:bg-muted/30">
                     <td className="px-4 py-3 font-semibold">{summary.name}</td>
@@ -231,7 +275,7 @@ export default function ReportsPage() {
                       <td className="px-4 py-3 font-mono">{amount(summary.overtimeAmount)}</td>
                     </>}
                     <td className="px-4 py-3 font-mono font-bold">{amount(summary.totalAmount)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{personDetails.length}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{entries}</td>
                   </tr>
                 );
               })}
