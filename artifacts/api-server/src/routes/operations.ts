@@ -575,15 +575,10 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
         return targetedReferences.some((reference) => references.has(reference));
       })
       .reduce((sum, transaction) => sum + numericValue(transaction.amount), 0);
-    const paidAmount = Math.min(
-      Math.max(
-        transactionPaidAmount > 0
-          ? transactionPaidAmount
-          : 0,
-        0,
-      ),
-       Math.max(payableAmount, 0),
-    );
+    // The cash amount can be higher than the payable amount by the round-off.
+    // Keep that extra money visible in "Paid", while outstanding is still
+    // calculated against the attendance/payable total.
+    const paidAmount = Math.max(transactionPaidAmount, 0);
     return {
         ...item,
         wageAmount: item.baseAmount,
@@ -630,6 +625,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       : bill && numericValue(bill.paidAmount) > 0
         ? [{
           amount: numericValue(bill.paidAmount),
+          roundingAmount: numericValue(bill.roundingAmount),
           fromDate: from,
           toDate: to,
           paidAt: bill.paidAt ?? new Date(),
@@ -638,7 +634,12 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
         }]
         : [];
     for (const payment of paymentEvents) {
-      let remaining = Math.max(numericValue(payment.amount), 0);
+      // Round-off is extra cash and must never be allocated to another
+      // attendance row. Only the attendance amount reduces the payable.
+      const paymentRoundingAmount = "roundingAmount" in payment
+        ? numericValue(payment.roundingAmount)
+        : 0;
+      let remaining = Math.max(numericValue(payment.amount) - paymentRoundingAmount, 0);
       if (!remaining) continue;
       const targetedReferences = "attendanceReferences" in payment
         ? parseAttendanceReferences(payment.attendanceReferences)
@@ -1024,8 +1025,10 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
     const existing = await tx.select().from(paymentBillsTable).where(eq(paymentBillsTable.billKey, billKey)).limit(1);
     const current = existing[0];
     const totalRoundingAmount = Number((numericValue(current?.roundingAmount) + roundingAmount).toFixed(2));
-    const totalAmount = Number((summary.totalAmount + totalRoundingAmount).toFixed(2));
-    const nextPaidAmount = Math.min(numericValue(current?.paidAmount) + paymentAmount, totalAmount);
+    // totalAmount is the worker's payable amount. The round-off is stored
+    // separately and paidAmount records the actual cash handed over.
+    const totalAmount = Number(summary.totalAmount.toFixed(2));
+    const nextPaidAmount = Number((numericValue(current?.paidAmount) + paymentAmount).toFixed(2));
     const nextStatus = paymentStatusFor(nextPaidAmount, totalAmount);
     const billNumber = current?.billNumber ?? `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
     const transactionBillNumber = `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;

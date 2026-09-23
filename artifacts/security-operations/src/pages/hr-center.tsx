@@ -255,7 +255,7 @@ export default function HrCenterPage() {
         overtimeMinutes: selected.overtimeMinutes,
         overtimeRate: selected.overtimeRate,
         overtimeAmount: selected.overtimeAmount,
-        totalAmount: Number((selected.totalAmount + roundOffAmount).toFixed(2)),
+        totalAmount: Number(selected.totalAmount.toFixed(2)),
         roundingAmount: roundOffAmount,
         attendanceRecordIds: selectedIds,
         status: selectedPaymentTotal >= selected.outstandingAmount - 0.005 ? 'paid' : 'partial',
