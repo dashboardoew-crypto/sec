@@ -574,11 +574,17 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
         const references = new Set(personDetails.map((detail) => String(detail["referenceNo"] ?? "")));
         return targetedReferences.some((reference) => references.has(reference));
       })
-      .reduce((sum, transaction) => sum + numericValue(transaction.amount), 0);
-    // The cash amount can be higher than the payable amount by the round-off.
-    // Keep that extra money visible in "Paid", while outstanding is still
-    // calculated against the attendance/payable total.
-    const paidAmount = Math.max(transactionPaidAmount, 0);
+      // Only the attendance amount reduces payable. Round-off is extra cash
+      // and must not reduce the person's remaining payable balance.
+      .reduce(
+        (sum, transaction) =>
+          sum + Math.max(numericValue(transaction.amount) - numericValue(transaction.roundingAmount), 0),
+        0,
+      );
+    const paidAmount = Math.min(
+      Math.max(transactionPaidAmount, 0),
+      Math.max(payableAmount, 0),
+    );
     return {
         ...item,
         wageAmount: item.baseAmount,
