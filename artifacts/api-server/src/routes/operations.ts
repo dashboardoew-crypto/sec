@@ -70,12 +70,16 @@ const totalDaysForMinutes = (minutes: number) => {
   return 1;
 };
 
-const overtimeMinutesFor = (minutes: number) => {
-  return minutes < 300
+const overtimeMinutesFor = (minutes: number, roundToHalfHour = false) => {
+  const overtimeMinutes = minutes < 300
     ? Math.max(minutes, 0)
     : minutes < 480
       ? minutes - 300
       : Math.max(minutes - 480, 0);
+
+  return roundToHalfHour
+    ? Math.floor(Math.max(overtimeMinutes, 0) / 30) * 30
+    : overtimeMinutes;
 };
 
 const formatTotalDays = (minutes: number) => String(totalDaysForMinutes(minutes));
@@ -184,7 +188,7 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     if (totalMinutes !== undefined) {
       setIfKnown("total_hours", formatClockDuration(totalMinutes));
       setIfKnown("total_days", formatTotalDays(totalMinutes));
-      setIfKnown("overtime", formatClockDuration(overtimeMinutesFor(totalMinutes)));
+      setIfKnown("overtime", formatClockDuration(overtimeMinutesFor(totalMinutes, true)));
     }
   }
 
@@ -481,7 +485,10 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const workedDays = isDriverAttendance
       ? Math.max(1, numericValue(data.total_days) || 1)
       : totalDaysForMinutes(minutes);
-    const overtimeMinutes = overtimeMinutesFor(minutes);
+    const overtimeMinutes = overtimeMinutesFor(
+      minutes,
+      row.registerSlug === "daily-attendance" || row.registerSlug === "chowk-labour",
+    );
     const shortfallMinutes = Math.max(480 - minutes, 0);
     const wageDetails = row.registerSlug === "chowk-labour"
       ? chowkLabourWageDetails
