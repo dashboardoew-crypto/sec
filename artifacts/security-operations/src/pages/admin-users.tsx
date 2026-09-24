@@ -212,8 +212,8 @@ export default function AdminUsersPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? 'The workbook could not be imported.');
-       const paymentMessage = payload.payments || payload.bills
-         ? ` ${payload.payments ?? 0} payment records and ${payload.bills ?? 0} payment bills preserved.`
+        const paymentMessage = payload.payments || payload.bills || payload.attendanceExclusions
+          ? ` ${payload.payments ?? 0} payment records, ${payload.bills ?? 0} payment bills, and ${payload.attendanceExclusions ?? 0} attendance exclusions preserved.`
          : '';
        setNotice(`${payload.imported} records imported across ${payload.registers} registers.${paymentMessage}`);
     } catch (error) {

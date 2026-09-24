@@ -126,10 +126,11 @@ const styleWorkbookSheet = (worksheet: ExcelJS.Worksheet) => {
 };
 
 const workbookForAllRegisters = async () => {
-  const [rows, transactions, bills] = await Promise.all([
+  const [rows, transactions, bills, attendanceExclusions] = await Promise.all([
     db.select().from(registerRecordsTable).orderBy(registerRecordsTable.registerSlug),
     db.select().from(paymentTransactionsTable).orderBy(desc(paymentTransactionsTable.paidAt)),
     db.select().from(paymentBillsTable).orderBy(desc(paymentBillsTable.updatedAt)),
+    db.select().from(paymentAttendanceExclusionsTable).orderBy(desc(paymentAttendanceExclusionsTable.excludedAt)),
   ]);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Security Operations Management";
@@ -222,6 +223,21 @@ const workbookForAllRegisters = async () => {
     updatedAt: bill.updatedAt.toISOString(),
   }));
   paymentBills.autoFilter = { from: "A1", to: "X1" };
+
+  const paymentAttendanceExclusions = workbook.addWorksheet("Payment Attendance Exclusions");
+  paymentAttendanceExclusions.columns = [
+    { header: "id", key: "id", width: 38 },
+    { header: "recordId", key: "recordId", width: 38 },
+    { header: "billKey", key: "billKey", width: 54 },
+    { header: "excludedBy", key: "excludedBy", width: 24 },
+    { header: "excludedAt", key: "excludedAt", width: 24 },
+  ];
+  styleWorkbookSheet(paymentAttendanceExclusions);
+  attendanceExclusions.forEach((exclusion) => paymentAttendanceExclusions.addRow({
+    ...exclusion,
+    excludedAt: exclusion.excludedAt.toISOString(),
+  }));
+  paymentAttendanceExclusions.autoFilter = { from: "A1", to: "E1" };
 
   return workbook.xlsx.writeBuffer();
 };
@@ -484,6 +500,17 @@ const parseImportedPaymentBills = (worksheet: ExcelJS.Worksheet) => {
   }));
 };
 
+const parseImportedAttendanceExclusions = (worksheet: ExcelJS.Worksheet) => {
+  const { headers, rows } = worksheetRows(worksheet);
+  return rows.map(({ rowNumber, values }) => ({
+    id: requiredPaymentText(worksheetCell(headers, values, "id"), "id", rowNumber),
+    recordId: requiredPaymentText(worksheetCell(headers, values, "record_id"), "recordId", rowNumber),
+    billKey: requiredPaymentText(worksheetCell(headers, values, "bill_key"), "billKey", rowNumber),
+    excludedBy: optionalPaymentText(worksheetCell(headers, values, "excluded_by")),
+    excludedAt: paymentTimestamp(worksheetCell(headers, values, "excluded_at"), "excludedAt", rowNumber) ?? new Date(),
+  }));
+};
+
 const parseImportedWorkbook = async (source: Buffer) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(source as any);
@@ -496,6 +523,7 @@ const parseImportedWorkbook = async (source: Buffer) => {
   }> = [];
   const importedTransactions: ReturnType<typeof parseImportedPaymentTransactions> = [];
   const importedBills: ReturnType<typeof parseImportedPaymentBills> = [];
+  const importedAttendanceExclusions: ReturnType<typeof parseImportedAttendanceExclusions> = [];
   workbook.worksheets.forEach((worksheet) => {
     const normalizedSheetName = normalizeHeader(worksheet.name);
     if (normalizedSheetName === "payment_history") {
@@ -504,6 +532,10 @@ const parseImportedWorkbook = async (source: Buffer) => {
     }
     if (normalizedSheetName === "payment_bills") {
       importedBills.push(...parseImportedPaymentBills(worksheet));
+      return;
+    }
+    if (normalizedSheetName === "payment_attendance_exclusions") {
+      importedAttendanceExclusions.push(...parseImportedAttendanceExclusions(worksheet));
       return;
     }
     const headerValues = (worksheet.getRow(1).values as unknown[]).slice(1);
@@ -549,10 +581,15 @@ const parseImportedWorkbook = async (source: Buffer) => {
       ));
     }
   });
-  if (!imported.length && !importedTransactions.length && !importedBills.length) {
+  if (!imported.length && !importedTransactions.length && !importedBills.length && !importedAttendanceExclusions.length) {
     throw new Error("The workbook does not contain any register or payment rows.");
   }
-  return { registerRows: imported, transactions: importedTransactions, bills: importedBills };
+  return {
+    registerRows: imported,
+    transactions: importedTransactions,
+    bills: importedBills,
+    attendanceExclusions: importedAttendanceExclusions,
+  };
 };
 
 const attendanceReferenceFor = (id: string, date: string, registerSlug: string) =>
@@ -627,6 +664,7 @@ const validateImportConsistency = async (imported: {
   }>;
   transactions: Array<{ id: string; billKey: string; personName: string; attendanceReferences: string | null }>;
   bills: Array<{ billKey: string }>;
+  attendanceExclusions: Array<{ id: string; recordId: string; billKey: string }>;
 }) => {
   reconcileLegacyAttendanceReferences(imported.registerRows, imported.transactions);
   const [existingRecords, existingBills] = await Promise.all([
@@ -660,6 +698,30 @@ const validateImportConsistency = async (imported: {
     const missing = references.filter((reference) => !attendanceReferences.has(reference));
     if (missing.length) {
       throw new Error(`Payment transaction "${transaction.id}" refers to missing attendance reference "${missing[0]}".`);
+    }
+  }
+
+  const recordIds = new Set([
+    ...existingRecords.map((row) => row.id),
+    ...imported.registerRows.map((row) => row.id),
+  ]);
+  const exclusionIds = new Set<string>();
+  const exclusionKeys = new Set<string>();
+  for (const exclusion of imported.attendanceExclusions) {
+    if (exclusionIds.has(exclusion.id)) {
+      throw new Error(`Attendance exclusion "${exclusion.id}" appears more than once in the import.`);
+    }
+    exclusionIds.add(exclusion.id);
+    const exclusionKey = `${exclusion.recordId}:${exclusion.billKey}`;
+    if (exclusionKeys.has(exclusionKey)) {
+      throw new Error(`Attendance exclusion for record "${exclusion.recordId}" and bill "${exclusion.billKey}" appears more than once in the import.`);
+    }
+    exclusionKeys.add(exclusionKey);
+    if (!recordIds.has(exclusion.recordId)) {
+      throw new Error(`Attendance exclusion "${exclusion.id}" refers to a missing register record.`);
+    }
+    if (!billKeys.has(exclusion.billKey)) {
+      throw new Error(`Attendance exclusion "${exclusion.id}" refers to a missing payment bill.`);
     }
   }
 };
@@ -736,6 +798,7 @@ router.post("/admin/data/import", raw({
         registerRows: parseImportedCsvRows(workbookBuffer.toString("utf8")),
         transactions: [],
         bills: [],
+        attendanceExclusions: [],
       };
     await validateImportConsistency(imported);
     await db.transaction(async (tx) => {
@@ -750,12 +813,16 @@ router.post("/admin/data/import", raw({
       if (imported.transactions.length) {
         await tx.insert(paymentTransactionsTable).values(imported.transactions).onConflictDoNothing();
       }
+      if (imported.attendanceExclusions.length) {
+        await tx.insert(paymentAttendanceExclusionsTable).values(imported.attendanceExclusions).onConflictDoNothing();
+      }
     });
     return res.status(201).json({
       imported: imported.registerRows.length,
       registers: Array.from(new Set(imported.registerRows.map((row) => row.registerSlug))).length,
       payments: imported.transactions.length,
       bills: imported.bills.length,
+      attendanceExclusions: imported.attendanceExclusions.length,
     });
   } catch (error) {
     return res.status(400).json({ error: error instanceof Error ? error.message : "The CSV could not be imported." });

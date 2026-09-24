@@ -7,4 +7,4 @@ Payment transaction attendance references are derived from register record IDs, 
 
 **Why:** A truncate followed by an import previously recreated register rows with new IDs while restoring old payment references, producing payment history entries with no matching attendance date or row.
 
-**How to apply:** Include register IDs in workbook exports and preserve them on import. Validate every imported payment bill key and attendance reference before the transaction commits; for legacy backups without IDs, only reconcile references when the match is unambiguous.
+**How to apply:** Include register IDs, payment bill keys, and attendance exclusions in workbook exports and preserve them on import. Validate every imported payment bill key, attendance reference, and exclusion link before the transaction commits; for legacy backups without IDs, only reconcile references when the match is unambiguous.
