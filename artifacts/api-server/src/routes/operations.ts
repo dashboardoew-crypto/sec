@@ -15,14 +15,12 @@ import {
 import {
   REGISTER_DEFINITIONS,
   getRegister,
-  sampleRecords,
   type RegisterDefinition,
 } from "../data/registers";
 import { canAccessModule, canCreateRegisterRecord, requireAuth, requireRole } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
 router.use(requireAuth);
-let seedPromise: Promise<void> | undefined;
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
@@ -291,29 +289,6 @@ const toResponse = (row: typeof registerRecordsTable.$inferSelect, data = row.da
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
 });
-
-const seedIfEmpty = async () => {
-  if (!seedPromise) {
-    seedPromise = (async () => {
-      const existing = await db.select({ id: registerRecordsTable.id }).from(registerRecordsTable).limit(1);
-      if (existing.length) return;
-      for (const sample of sampleRecords) {
-        const definition = getRegister(sample.registerSlug);
-        if (!definition) continue;
-        await db.insert(registerRecordsTable).values({
-          id: randomUUID(),
-          registerSlug: sample.registerSlug,
-          recordDate: sample.recordDate,
-          data: applyDerivedValues(definition, sample.data),
-        });
-      }
-    })().catch((error) => {
-      seedPromise = undefined;
-      throw error;
-    });
-  }
-  await seedPromise;
-};
 
 const recordSummary = (definition: RegisterDefinition, data: Record<string, unknown>) => {
   const preferred = ["name", "name_of_visitor", "labour_name", "driver_name", "party_name"];
@@ -737,7 +712,6 @@ const canEditRecord = (createdAt: Date, role: string | undefined, definition?: R
 };
 
 router.get("/dashboard", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   const allRows = await db.select().from(registerRecordsTable);
   const rows = allRows.filter((row) => {
     const definition = getRegister(row.registerSlug);
@@ -767,7 +741,6 @@ router.get("/dashboard", async (req: Request, res: Response) => {
 });
 
 router.get("/activity", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   const query = GetActivityQueryParams.parse(req.query);
   const allRows = await db.select().from(registerRecordsTable).orderBy(desc(registerRecordsTable.updatedAt));
   const rows = allRows
@@ -789,7 +762,6 @@ router.get("/activity", async (req: Request, res: Response) => {
 });
 
 router.get("/registers", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   const counts = await db.select({ registerSlug: registerRecordsTable.registerSlug }).from(registerRecordsTable);
   const definitions = REGISTER_DEFINITIONS.filter((definition) => canAccessDefinition(req, definition));
   return res.json(definitions.map((definition) => ({
@@ -799,7 +771,6 @@ router.get("/registers", async (req: Request, res: Response) => {
 });
 
 router.get("/registers/:slug/records", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   const { slug } = ListRegisterRecordsParams.parse(req.params);
   const query = parseRegisterRecordsQuery(req.query);
   const definition = getRegister(slug);
@@ -821,7 +792,6 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
 });
 
 router.get("/registers/:slug/records/export", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   const { slug } = ListRegisterRecordsParams.parse(req.params);
   const query = parseRegisterRecordsQuery(req.query);
   const definition = getRegister(slug);
@@ -1089,7 +1059,6 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   if (!canCreateRegisterRecord(req.user?.role)) {
     return res.status(403).json({ error: "This role cannot add register records" });
   }
@@ -1134,7 +1103,6 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
 });
 
 router.patch("/registers/:slug/records/:id", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   const { slug, id } = UpdateRegisterRecordParams.parse(req.params);
   const body = UpdateRegisterRecordBody.parse(req.body);
   const definition = getRegister(slug);
@@ -1176,7 +1144,6 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
 });
 
 router.delete("/registers/:slug/records/:id", async (req: Request, res: Response) => {
-  await seedIfEmpty();
   const { slug, id } = DeleteRegisterRecordParams.parse(req.params);
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });

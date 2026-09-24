@@ -264,14 +264,3 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
  }));
 
 export const getRegister = (slug: string) => REGISTER_DEFINITIONS.find((item) => item.slug === slug);
-
-export const sampleRecords: Array<{ registerSlug: string; recordDate: string; data: Record<string, unknown> }> = [
-  { registerSlug: "mango-tree-meter", recordDate: "2026-08-21", data: { date: "2026-08-21", on_time: "08:42", off_time: "12:37", office_initial: 570739, office_final: 571115, kothi_initial: 21290086, kothi_final: 21317326 } },
-  { registerSlug: "clinic-gate-meter", recordDate: "2026-08-14", data: { date: "2026-08-14", on_time: "08:48", off_time: "11:15", office_initial: 439119, office_final: 439355, kothi_initial: 23924354, kothi_final: 23964678 } },
-  { registerSlug: "key-movement", recordDate: "2026-07-31", data: { location: "Workshop", key_out_time: "06:18", key_return: "08:05" } },
-  { registerSlug: "daily-attendance", recordDate: "2026-08-01", data: { labour_name: "ASHWANI KUMAR", date: "2026-08-01", morning_in: "08:00", morning_out: "13:00", evening_in: "14:00", evening_out: "19:05" } },
-  { registerSlug: "driver-schedule", recordDate: "2026-07-27", data: { choosen_driver: "JASPAL", date: "2026-07-27", schedule_time: "09:00", car_name: "Hyrdere, Cng", location: "Company" } },
-  { registerSlug: "official-gate-pass", recordDate: "2026-09-11", data: { date: "2026-09-11", name: "Subhash Rai", department: "Office", out_time: "11:37", in_time: "12:20", station: "Kumar Mall", signature: "Security" } },
-  { registerSlug: "visitor-record", recordDate: "2026-09-10", data: { date: "2026-09-10", name_of_visitor: "Hari Shankar", location_of_visitor: "cont. YNR", mobile_no: "9896360744", purpose: "official", whom_to_meet: "Sanjeev sir", in_time: "09:30", out_time: "10:15", sign_of_security: "security" } },
-  { registerSlug: "unit-2-gate-pass", recordDate: "2026-09-14", data: { date: "2026-09-14", name: "Yash", department: "IT", out_time_from_unit_1: "03:45", in_time_in_unit_2: "04:00", out_time_from_unit_2: "04:30", in_time_in_unit_1: "05:00", security_sign: "Y" } },
-];

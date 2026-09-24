@@ -5,11 +5,10 @@ import {
   CheckCircle2,
   Clock3,
   Download,
-  FileSpreadsheet,
   LayoutDashboard,
-  ListChecks,
   Loader2,
   Printer,
+  ReceiptText,
   RefreshCw,
   Search,
   WalletCards,
@@ -33,7 +32,7 @@ import {
   type PaymentTransaction,
 } from '@/lib/hr-report';
 
-type View = 'overview' | 'payments' | 'ledger';
+type View = 'overview' | 'payments' | 'transactions';
 type StatusFilter = 'all' | 'unpaid' | 'partial' | 'paid' | 'excluded';
 
 const inputClass = 'w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
@@ -95,11 +94,18 @@ export default function HrCenterPage() {
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
   const [billTransactionId, setBillTransactionId] = useState('');
+  const [billDetailsOverride, setBillDetailsOverride] = useState<HrReport['details'] | null>(null);
+  const [transactionHistory, setTransactionHistory] = useState<PaymentTransaction[]>([]);
+  const [transactionLoading, setTransactionLoading] = useState(false);
+  const [transactionPaidOn, setTransactionPaidOn] = useState(today);
+  const [transactionSource, setTransactionSource] = useState('all');
+  const [transactionQuery, setTransactionQuery] = useState('');
   const [billSignatories, setBillSignatories] = useState<BillSignatories>({
     preparedBy: '',
     checkedBy: '',
     verifiedBy: '',
   });
+  const transactionRequestId = useRef(0);
   const requestId = useRef(0);
   const editable = canEditPayments(user?.role);
 
@@ -138,6 +144,28 @@ export default function HrCenterPage() {
     void load();
     void fetchBillSignatories().then(setBillSignatories).catch(() => undefined);
   }, []);
+
+  const refreshTransactionHistory = async (
+    nextPaidOn = transactionPaidOn,
+    nextSource = transactionSource,
+  ) => {
+    const currentRequest = ++transactionRequestId.current;
+    setTransactionLoading(true);
+    try {
+      const nextTransactions = await fetchPaymentTransactions('', '', nextSource, '', nextPaidOn);
+      if (currentRequest === transactionRequestId.current) setTransactionHistory(nextTransactions);
+    } catch (reason) {
+      if (currentRequest === transactionRequestId.current) {
+        setError(reason instanceof Error ? reason.message : 'Payment transactions could not be loaded');
+      }
+    } finally {
+      if (currentRequest === transactionRequestId.current) setTransactionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (view === 'transactions') void refreshTransactionHistory();
+  }, [view]);
 
   const summaries = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -194,16 +222,35 @@ export default function HrCenterPage() {
       !selectedPerson || transaction.personName === selectedPerson),
     [selectedPerson, visibleTransactions],
   );
-  const billDetails = useMemo(
+  const selectedPersonBillDetails = useMemo(
     () => (report?.details ?? []).filter((row) =>
       row.name === selectedPerson &&
       row.paymentAllocations.some((allocation) => allocation.transactionId === billTransactionId)),
     [billTransactionId, report, selectedPerson],
   );
   const selectedBillTransaction = useMemo(
-    () => transactions.find((transaction) => transaction.id === billTransactionId) ?? null,
-    [billTransactionId, transactions],
+    () => transactionHistory.find((transaction) => transaction.id === billTransactionId)
+      ?? transactions.find((transaction) => transaction.id === billTransactionId)
+      ?? null,
+    [billTransactionId, transactionHistory, transactions],
   );
+  const billDetails = billDetailsOverride ?? selectedPersonBillDetails;
+  const filteredTransactionHistory = useMemo(() => {
+    const query = transactionQuery.trim().toLowerCase();
+    if (!query) return transactionHistory;
+    return transactionHistory.filter((transaction) => [
+      transaction.personName,
+      transaction.billNumber,
+      transaction.paymentReference ?? '',
+      transaction.paymentMethod,
+      transaction.paymentNote ?? '',
+      transaction.paidBy ?? '',
+      sourceLabel(transaction.sourceScope),
+      displayDate(transaction.fromDate),
+      displayDate(transaction.toDate),
+      displayDate(transaction.paidAt.slice(0, 10)),
+    ].join(' ').toLowerCase().includes(query));
+  }, [transactionHistory, transactionQuery]);
 
   const totals = useMemo(() => {
     const summaryTotals = { payable: 0, paid: 0, outstanding: 0, openPeople: 0, paidPeople: 0 };
@@ -265,6 +312,7 @@ export default function HrCenterPage() {
       });
        setNotice(`${selected.name}: ${amount(requestedPaymentTotal)} recorded against ${selectedIds.length} attendance ${selectedIds.length === 1 ? 'entry' : 'entries'}.`);
       const loaded = await load();
+      if (view === 'transactions') void refreshTransactionHistory();
       const selectedReferences = new Set(
         payableDetails
           .filter((row) => selectedEntryIdSet.has(row.id))
@@ -300,40 +348,39 @@ export default function HrCenterPage() {
     downloadCsv(rows, `hr-summary-${from}-to-${to}.csv`);
   };
 
-  const exportLedger = () => {
-    const driverOnly = details.length > 0 && details.every((row) => row.source === 'driver-attendance');
-    const rows = driverOnly
-      ? [
-        ['Attendance reference', 'Date', 'Person', 'Register', 'Days', 'DA', 'NA', 'DA amount', 'NA amount', 'Total amount'],
-        ...details.map((row) => [
-          row.referenceNo,
-          row.displayDate || row.date,
-          row.name,
-          sourceLabel(row.source),
-          formatDays(row.workedDays),
-          row.da ? row.da.toFixed(2) : '',
-          row.na ? row.na.toFixed(2) : '',
-          row.daAmount.toFixed(2),
-          row.naAmount.toFixed(2),
-          row.totalAmount.toFixed(2),
-        ]),
-      ]
-      : [
-        ['Attendance reference', 'Date', 'Person', 'Register', 'Days', 'Hours', 'Overtime', 'Base amount', 'Overtime amount', 'Total amount'],
-        ...details.map((row) => [
-          row.referenceNo,
-          row.displayDate || row.date,
-          row.name,
-          sourceLabel(row.source),
-          formatDays(row.workedDays),
-          formatMinutes(row.minutes),
-          formatMinutes(row.overtimeMinutes),
-          row.baseAmount.toFixed(2),
-          row.overtimeAmount.toFixed(2),
-          row.totalAmount.toFixed(2),
-        ]),
-      ];
-    downloadCsv(rows, `hr-ledger-${from}-to-${to}.csv`);
+  const exportTransactions = () => {
+    const rows = [
+      ['Payment date', 'Person', 'Register', 'Bill number', 'Paid period', 'Amount', 'Method', 'Reference', 'Paid by'],
+      ...filteredTransactionHistory.map((transaction) => [
+        displayDate(transaction.paidAt.slice(0, 10)),
+        transaction.personName,
+        sourceLabel(transaction.sourceScope),
+        transaction.billNumber,
+        `${displayDate(transaction.fromDate)} to ${displayDate(transaction.toDate)}`,
+        transaction.amount.toFixed(2),
+        transaction.paymentMethod,
+        transaction.paymentReference ?? '',
+        transaction.paidBy ?? '',
+      ]),
+    ];
+    downloadCsv(rows, `payment-transactions-${transactionPaidOn || 'all-dates'}.csv`);
+  };
+
+  const openBill = async (transactionId: string) => {
+    const transaction = transactionHistory.find((item) => item.id === transactionId)
+      ?? transactions.find((item) => item.id === transactionId);
+    if (!transaction) return;
+    setError('');
+    setBillDetailsOverride(null);
+    try {
+      const billReport = await fetchHrReport(transaction.fromDate, transaction.toDate, transaction.sourceScope);
+      setBillDetailsOverride(billReport.details.filter((row) =>
+        row.paymentAllocations.some((allocation) => allocation.transactionId === transaction.id),
+      ));
+      setBillTransactionId(transaction.id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The payment bill could not be opened');
+    }
   };
 
   return (
@@ -348,14 +395,14 @@ export default function HrCenterPage() {
       <PageIntro
         eyebrow="Human resources"
         title="People, payroll and payments"
-        description="One workspace for attendance-based payroll, payment recording and the complete payment ledger."
+        description="One workspace for attendance-based payroll, payment recording and searchable payment history."
         action={(
           <div className="flex flex-wrap gap-2 print:hidden">
-            <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">
-              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+            <button onClick={() => view === 'transactions' ? void refreshTransactionHistory() : void load()} disabled={view === 'transactions' ? transactionLoading : loading} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+              <RefreshCw size={15} className={(view === 'transactions' ? transactionLoading : loading) ? 'animate-spin' : ''} /> Refresh
             </button>
-            <button onClick={view === 'ledger' ? exportLedger : exportCsv} disabled={loading || (view === 'ledger' ? !details.length : !summaries.length)} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">
-              <Download size={15} /> Export {view === 'ledger' ? 'ledger' : 'summary'}
+            <button onClick={view === 'transactions' ? exportTransactions : exportCsv} disabled={view === 'transactions' ? transactionLoading || !filteredTransactionHistory.length : loading || !summaries.length} className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+              <Download size={15} /> Export {view === 'transactions' ? 'transactions' : 'summary'}
             </button>
           </div>
         )}
@@ -402,7 +449,7 @@ export default function HrCenterPage() {
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3 print:hidden" aria-label="HR sections">
         <TabButton active={view === 'overview'} icon={LayoutDashboard} onClick={() => setView('overview')}>Overview</TabButton>
         <TabButton active={view === 'payments'} icon={WalletCards} onClick={() => setView('payments')}>Payment queue <Count>{totals.openPeople}</Count></TabButton>
-        <TabButton active={view === 'ledger'} icon={ListChecks} onClick={() => setView('ledger')}>Daily ledger</TabButton>
+        <TabButton active={view === 'transactions'} icon={ReceiptText} onClick={() => setView('transactions')}>Payment transactions</TabButton>
       </nav>
 
       {view === 'overview' && (
@@ -438,15 +485,34 @@ export default function HrCenterPage() {
           editable={editable}
           onRecordPayment={() => void recordPayment()}
           onPrint={() => window.print()}
-           onOpenBill={setBillTransactionId}
-           onCloseBill={() => setBillTransactionId('')}
+            onOpenBill={(transactionId) => void openBill(transactionId)}
+            onCloseBill={() => { setBillTransactionId(''); setBillDetailsOverride(null); }}
            billTransaction={selectedBillTransaction}
            billDetails={billDetails}
             billSignatories={billSignatories}
           loading={loading}
         />
       )}
-      {view === 'ledger' && <LedgerView details={details} transactions={visibleTransactions} loading={loading} />}
+      {view === 'transactions' && (
+        <PaymentTransactionsView
+          transactions={filteredTransactionHistory}
+          loading={transactionLoading}
+          query={transactionQuery}
+          onQueryChange={setTransactionQuery}
+          paidOn={transactionPaidOn}
+          onPaidOnChange={setTransactionPaidOn}
+          source={transactionSource}
+          onSourceChange={(nextSource) => { setTransactionSource(nextSource); void refreshTransactionHistory(transactionPaidOn, nextSource); }}
+          onApply={() => void refreshTransactionHistory()}
+          onToday={() => { const nextDate = today(); setTransactionPaidOn(nextDate); void refreshTransactionHistory(nextDate); }}
+          onAllDates={() => { setTransactionPaidOn(''); void refreshTransactionHistory('', transactionSource); }}
+          onOpenBill={(transactionId) => void openBill(transactionId)}
+          billTransaction={selectedBillTransaction}
+          billDetails={billDetails}
+          billSignatories={billSignatories}
+          onCloseBill={() => { setBillTransactionId(''); setBillDetailsOverride(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -590,66 +656,96 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   );
 }
 
-function LedgerView({ details, transactions, loading }: { details: HrReport['details']; transactions: PaymentTransaction[]; loading: boolean }) {
-  const [attendanceQuery, setAttendanceQuery] = useState('');
-  const [attendanceSearch, setAttendanceSearch] = useState('');
-  const [transactionQuery, setTransactionQuery] = useState('');
-  const [transactionSearch, setTransactionSearch] = useState('');
-  const normalizedAttendanceSearch = attendanceSearch.trim().toLowerCase();
-  const normalizedTransactionSearch = transactionSearch.trim().toLowerCase();
-  const filteredDetails = details.filter((row) => {
-    if (!normalizedAttendanceSearch) return true;
-    return [
-      row.displayDate || row.date,
-      displayDate(row.displayDate || row.date),
-      row.name,
-      sourceLabel(row.source),
-      row.paymentStatus,
-      amount(row.totalAmount),
-    ].join(' ').toLowerCase().includes(normalizedAttendanceSearch);
-  });
-  const filteredTransactions = transactions.filter((transaction) => {
-    if (!normalizedTransactionSearch) return true;
-    return [
-      transaction.paidAt,
-      displayDate(transaction.paidAt.slice(0, 10)),
-      transaction.personName,
-      displayDate(transaction.fromDate),
-      displayDate(transaction.toDate),
-      sourceLabel(transaction.sourceScope),
-      transaction.paymentMethod,
-      transaction.paymentReference ?? '',
-      transaction.billNumber,
-    ].join(' ').toLowerCase().includes(normalizedTransactionSearch);
-  });
+function PaymentTransactionsView({ transactions, loading, query, onQueryChange, paidOn, onPaidOnChange, source, onSourceChange, onApply, onToday, onAllDates, onOpenBill, billTransaction, billDetails, billSignatories, onCloseBill }: {
+  transactions: PaymentTransaction[];
+  loading: boolean;
+  query: string;
+  onQueryChange: (value: string) => void;
+  paidOn: string;
+  onPaidOnChange: (value: string) => void;
+  source: string;
+  onSourceChange: (value: string) => void;
+  onApply: () => void;
+  onToday: () => void;
+  onAllDates: () => void;
+  onOpenBill: (transactionId: string) => void;
+  billTransaction: PaymentTransaction | null;
+  billDetails: HrReport['details'];
+  billSignatories: BillSignatories;
+  onCloseBill: () => void;
+}) {
   return (
     <>
+      <section className="mb-5 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><ReceiptText size={20} /></div>
+            <div>
+              <h2 className="font-serif text-xl font-bold">Payment transactions</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Search every completed payment, open its bill, or print a payment history receipt.</p>
+            </div>
+          </div>
+          <div className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">{transactions.length} result{transactions.length === 1 ? '' : 's'}</div>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+          <label>
+            <span className="mb-1.5 block text-xs font-semibold">Search payments</span>
+            <span className="relative block">
+              <Search size={15} className="pointer-events-none absolute left-3 top-3 text-muted-foreground" />
+              <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Person, bill, UTR, method, or payer" className={`${inputClass} pl-9`} aria-label="Search payment transactions" />
+            </span>
+          </label>
+          <label>
+            <span className="mb-1.5 block text-xs font-semibold">Paid on</span>
+            <input type="date" value={paidOn} onChange={(event) => onPaidOnChange(event.target.value)} className={inputClass} aria-label="Filter payments by date" />
+          </label>
+          <label>
+            <span className="mb-1.5 block text-xs font-semibold">Register</span>
+            <select value={source} onChange={(event) => onSourceChange(event.target.value)} className={inputClass}>
+              <option value="all">All registers</option>
+              <option value="driver-attendance">Driver Attendance</option>
+              <option value="daily-attendance">Training Register</option>
+              <option value="chowk-labour">Chowk Labour</option>
+            </select>
+          </label>
+          <button onClick={onApply} disabled={loading} className="flex h-[42px] items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+            {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Apply
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button onClick={onToday} disabled={loading} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${paidOn ? 'bg-primary text-primary-foreground' : 'border border-border hover:bg-muted'}`}>Today</button>
+          <button onClick={onAllDates} disabled={loading} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${!paidOn ? 'bg-primary text-primary-foreground' : 'border border-border hover:bg-muted'}`}>All dates</button>
+          <span className="text-[11px] text-muted-foreground">Search updates as you type. Date and register filters load from the payment history.</span>
+        </div>
+      </section>
+
       <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-          <div className="flex items-center gap-3"><ListChecks size={19} className="text-primary" /><div><h2 className="font-serif text-lg font-bold">Attendance payment ledger</h2><p className="text-xs text-muted-foreground">Every attendance entry with its due, paid and remaining amount.</p></div></div>
-          <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); setAttendanceSearch(attendanceQuery); }}>
-            <div className="relative min-w-0 flex-1 sm:w-64"><Search size={14} className="pointer-events-none absolute left-3 top-3 text-muted-foreground" /><input value={attendanceQuery} onChange={(event) => setAttendanceQuery(event.target.value)} placeholder="Search attendance" className={`${inputClass} pl-8`} aria-label="Search attendance payment ledger" /></div>
-            <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground"><Search size={14} /> Search</button>
-          </form>
-        </div>
-        <div className="max-h-[32rem] overflow-auto">
-           <table className="w-full min-w-[1280px] text-left text-sm"><thead className="sticky top-0 z-10 border-b border-border bg-muted/95"><tr>{['Attendance reference', 'Date', 'Person', 'Register', 'Days', 'DA', 'NA', 'DA amount', 'NA amount', 'Total amount', 'Status'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{filteredDetails.map((row) => { const driverAttendance = row.source === 'driver-attendance'; return <tr key={row.id} className="hover:bg-muted/30"><td className="px-4 py-3 font-mono text-xs">{row.referenceNo}</td><td className="px-4 py-3">{displayDate(row.displayDate || row.date)}</td><td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3">{sourceLabel(row.source)}</td><td className="px-4 py-3">{formatDays(row.workedDays)}</td><td className="px-4 py-3 font-mono">{driverAttendance && row.da ? row.da : '—'}</td><td className="px-4 py-3 font-mono">{driverAttendance && row.na ? row.na : '—'}</td><td className="px-4 py-3 font-mono">{amount(driverAttendance ? row.daAmount : 0)}</td><td className="px-4 py-3 font-mono">{amount(driverAttendance ? row.naAmount : 0)}</td><td className="px-4 py-3 font-mono font-semibold">{amount(row.totalAmount)}</td><td className="px-4 py-3"><StatusBadge status={row.paymentStatus} /></td></tr>; })}</tbody></table>
-          {!loading && !filteredDetails.length && <EmptyTable text={attendanceSearch ? 'No attendance rows match this search.' : 'No attendance rows match this period and filter.'} />}
+        <div className="max-h-[34rem] overflow-auto">
+          <table className="w-full min-w-[1180px] text-left text-sm">
+            <thead className="sticky top-0 z-10 border-b border-border bg-muted/95">
+              <tr>{['Paid on', 'Person', 'Bill number', 'Paid period', 'Register', 'Amount', 'Method', 'Reference / UTR', 'Paid by', 'Action'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {transactions.map((transaction) => (
+                <tr key={transaction.id} className="hover:bg-muted/30">
+                  <td className="whitespace-nowrap px-4 py-3">{displayDate(transaction.paidAt.slice(0, 10))}</td>
+                  <td className="px-4 py-3 font-semibold">{transaction.personName}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{transaction.billNumber}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td>
+                  <td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td>
+                  <td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td>
+                  <td className="px-4 py-3">{transaction.paymentMethod}</td>
+                  <td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td>
+                  <td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td>
+                  <td className="px-4 py-3"><button onClick={() => onOpenBill(transaction.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10"><ReceiptText size={14} /> Open bill</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && !transactions.length && <EmptyTable text={query ? 'No payment transactions match this search.' : paidOn ? 'No payments were recorded on this date.' : 'No payment transactions have been recorded yet.'} />}
         </div>
       </section>
-      <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-          <div><h2 className="font-serif text-lg font-bold">Payment transactions</h2><p className="text-xs text-muted-foreground">Payments recorded inside the selected period.</p></div>
-          <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); setTransactionSearch(transactionQuery); }}>
-            <div className="relative min-w-0 flex-1 sm:w-64"><Search size={14} className="pointer-events-none absolute left-3 top-3 text-muted-foreground" /><input value={transactionQuery} onChange={(event) => setTransactionQuery(event.target.value)} placeholder="Search transactions" className={`${inputClass} pl-8`} aria-label="Search payment transactions" /></div>
-            <button type="submit" className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground"><Search size={14} /> Search</button>
-          </form>
-        </div>
-        <div className="max-h-[28rem] overflow-auto">
-          <table className="w-full min-w-[1000px] text-left text-sm"><thead className="sticky top-0 z-10 border-b border-border bg-muted/95"><tr>{['Paid on', 'Person', 'Paid period', 'Register', 'Amount', 'Method', 'Reference', 'Paid by'].map((label) => <th key={label} className="px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{filteredTransactions.map((transaction) => <tr key={transaction.id} className="hover:bg-muted/30"><td className="px-4 py-3">{displayDate(transaction.paidAt.slice(0, 10))}</td><td className="px-4 py-3 font-semibold">{transaction.personName}</td><td className="px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td><td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td><td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td><td className="px-4 py-3">{transaction.paymentMethod}</td><td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td><td className="px-4 py-3 text-xs">{transaction.paidBy || '—'}</td></tr>)}</tbody></table>
-          {!loading && !filteredTransactions.length && <EmptyTable text={transactionSearch ? 'No payment transactions match this search.' : 'No payment transactions match this period and filter.'} />}
-        </div>
-      </section>
+      {billTransaction && <BillDialog transaction={billTransaction} details={billDetails} billSignatories={billSignatories} onClose={onCloseBill} />}
     </>
   );
 }
