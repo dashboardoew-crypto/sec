@@ -480,11 +480,12 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
       const kothiInitial = Number(values.kothi_initial);
       const kothiFinal = Number(values.kothi_final);
       const water = Number.isFinite(kothiInitial) && Number.isFinite(kothiFinal) ? kothiFinal - kothiInitial : undefined;
-      const offMinutes = minutes !== undefined && onMinutes !== undefined ? Math.round(onMinutes + minutes) : undefined;
-      if (minutes !== undefined) calculated.minutes_consumed = Number(minutes.toFixed(2));
+      const roundedMinutes = minutes !== undefined ? Math.round(minutes) : undefined;
+      const offMinutes = roundedMinutes !== undefined && onMinutes !== undefined ? onMinutes + roundedMinutes : undefined;
+      if (roundedMinutes !== undefined) calculated.minutes_consumed = roundedMinutes;
       if (offMinutes !== undefined) calculated.off_time = `${String(Math.floor((((offMinutes % 1440) + 1440) % 1440) / 60)).padStart(2, '0')}:${String(((offMinutes % 60) + 60) % 60).padStart(2, '0')}`;
       if (water !== undefined) calculated.total_water_consumed = Math.round(water);
-      if (water !== undefined && minutes) calculated.per_minute_water_consumed = Math.round(water / minutes);
+      if (water !== undefined && roundedMinutes) calculated.per_minute_water_consumed = Math.round(water / roundedMinutes);
     }
 
     if (definition.slug === 'outgoing-vehicles' || definition.slug === 'outgoing-vehicle-log') {

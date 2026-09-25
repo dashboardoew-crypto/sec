@@ -165,9 +165,10 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
         ? (officeFinal - officeInitial) / 1.6
         : undefined;
     if (minutesConsumed !== undefined && Number.isFinite(minutesConsumed)) {
-      setIfKnown("minutes_consumed", Number(minutesConsumed.toFixed(2)));
+      const roundedMinutesConsumed = Math.round(minutesConsumed);
+      setIfKnown("minutes_consumed", roundedMinutesConsumed);
       const onTime = minutesFromTime(data.on_time);
-      if (onTime !== undefined) setIfKnown("off_time", timeFromMinutes(onTime + minutesConsumed));
+      if (onTime !== undefined) setIfKnown("off_time", timeFromMinutes(onTime + roundedMinutesConsumed));
     }
 
     const kothiInitial = Number(data.kothi_initial);
@@ -175,7 +176,9 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     if (Number.isFinite(kothiInitial) && Number.isFinite(kothiFinal)) {
       const water = kothiFinal - kothiInitial;
       setIfKnown("total_water_consumed", Math.round(water));
-      if (minutesConsumed) setIfKnown("per_minute_water_consumed", Math.round(water / minutesConsumed));
+      if (minutesConsumed !== undefined && Number.isFinite(minutesConsumed) && Math.round(minutesConsumed) !== 0) {
+        setIfKnown("per_minute_water_consumed", Math.round(water / Math.round(minutesConsumed)));
+      }
     }
   }
 
