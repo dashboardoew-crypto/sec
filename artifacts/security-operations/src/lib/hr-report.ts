@@ -15,7 +15,7 @@ export type HrSummary = {
   sources: Record<string, { days: number; overtimeMinutes: number; amount: number }>;
   paidAmount: number;
   outstandingAmount: number;
-  paymentStatus: 'paid' | 'partial' | 'unpaid';
+  paymentStatus: 'paid' | 'partial' | 'unpaid' | 'excluded';
   billNumber: string | null;
   paidAt: string | null;
 };
@@ -105,6 +105,7 @@ export type PaymentTransaction = {
   paymentReference: string | null;
   paymentNote: string | null;
   attendanceReferences: string[];
+  registers: string[];
   paidAt: string;
   paidBy: string | null;
 };
@@ -204,3 +205,8 @@ export const today = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
 export const monthStart = () => `${today().slice(0, 8)}01`;
+export const sixMonthsAgo = () => {
+  const date = new Date();
+  date.setMonth(date.getMonth() - 6);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};

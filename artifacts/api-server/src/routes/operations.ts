@@ -272,11 +272,31 @@ const responseDataForRole = (req: Request, definition: RegisterDefinition, data:
   return calculatedData;
 };
 
-const inputDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
+const isNameField = (key: string) => key !== "station_name" && (key === "name" || key === "labour_name" || key.includes("name"));
+
+const inputDataForRole = (
+  req: Request,
+  definition: RegisterDefinition,
+  data: Record<string, unknown>,
+  preservedData?: Record<string, unknown>,
+) => {
   if (req.user?.role === "security" && ["daily-attendance", "chowk-labour"].includes(definition.slug)) {
     const sanitized = { ...data };
     delete sanitized.payment_status;
     delete sanitized.overtime_payment_status;
+    if (preservedData) {
+      for (const field of definition.fields) {
+        if (isNameField(field.key) && preservedData[field.key] !== undefined) sanitized[field.key] = preservedData[field.key];
+      }
+    }
+    return sanitized;
+  }
+
+  if (preservedData && ["manager", "security"].includes(req.user?.role ?? "")) {
+    const sanitized = { ...data };
+    for (const field of definition.fields) {
+      if (isNameField(field.key) && preservedData[field.key] !== undefined) sanitized[field.key] = preservedData[field.key];
+    }
     return sanitized;
   }
 
@@ -363,6 +383,13 @@ const billKeyFor = (name: string, from: string, to: string, source: string) =>
   `${name.trim().toLowerCase()}|${from}|${to}|${source}`;
 const attendanceReferenceFor = (id: string, date: string, registerSlug: string) =>
   `ATT-${date.replaceAll("-", "")}-${registerSlug.slice(0, 3).toUpperCase()}-${id.slice(0, 8).toUpperCase()}`;
+const registerSlugForAttendanceReference = (reference: string) => {
+  const prefix = reference.split("-")[2];
+  return prefix === "DRI" ? "driver-attendance"
+    : prefix === "DAI" ? "daily-attendance"
+      : prefix === "CHO" ? "chowk-labour"
+        : undefined;
+};
 const parseAttendanceReferences = (value: string | null | undefined) => {
   if (!value) return [];
   try {
@@ -571,7 +598,14 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       leftDays: Math.max(expectedDays - dates.size, 0),
       paidAmount,
       outstandingAmount: Math.max(payableAmount - paidAmount, 0),
-      paymentStatus: paymentStatusFor(paidAmount, payableAmount),
+      paymentStatus: (() => {
+        const personDetails = details.filter((detail) =>
+          String(detail["name"] ?? "").trim().toLowerCase() === item.name.trim().toLowerCase(),
+        );
+        return personDetails.length > 0 && personDetails.every((detail) => detail["paymentIncluded"] === false)
+          ? "excluded"
+          : paymentStatusFor(paidAmount, payableAmount);
+      })(),
       billNumber: bill?.billNumber ?? null,
       paidAt: bill?.paidAt?.toISOString() ?? null,
     };
@@ -687,6 +721,7 @@ const dateInIndia = (value: Date) => {
 };
 
 const editWindowForRole = (role: string | undefined, definition?: RegisterDefinition) => {
+  if (role === "hr") return null;
   if (definition?.module === "master" && (role === "admin" || role === "manager" || role === "hr")) return null;
   if (role === "admin") return null;
   if (role === "manager") return 7;
@@ -928,6 +963,13 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
     return res.status(403).json({ error: "Only HR, managers, and admins can view payment transactions" });
   }
   const rows = await db.select().from(paymentTransactionsTable).orderBy(desc(paymentTransactionsTable.paidAt));
+  const attendanceRows = await db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs]));
+  const registerByAttendanceReference = new Map<string, string>();
+  for (const row of attendanceRows) {
+    const date = dateForRecord(row);
+    if (!date) continue;
+    registerByAttendanceReference.set(attendanceReferenceFor(row.id, date, row.registerSlug), row.registerSlug);
+  }
   const from = typeof req.query.from === "string" ? req.query.from : "";
   const to = typeof req.query.to === "string" ? req.query.to : "";
   const source = typeof req.query.source === "string" ? req.query.source : "all";
@@ -942,6 +984,11 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
   ).map((transaction) => ({
     ...transaction,
     attendanceReferences: parseAttendanceReferences(transaction.attendanceReferences),
+    registers: Array.from(new Set(
+      parseAttendanceReferences(transaction.attendanceReferences)
+        .map((reference) => registerByAttendanceReference.get(reference) ?? registerSlugForAttendanceReference(reference))
+        .filter((slug): slug is string => Boolean(slug)),
+    )),
   })));
 });
 
@@ -1135,7 +1182,7 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   }
   const data = applyDerivedValues(
     definition,
-    inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: selectedDate }),
+    inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: selectedDate }, existing[0].data),
   );
   const missing = validateRequiredFields(definition, selectedDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });

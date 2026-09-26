@@ -23,8 +23,8 @@ import {
   fetchPaymentTransactions,
   formatDays,
   formatMinutes,
-  monthStart,
   savePaymentBill,
+  sixMonthsAgo,
   today,
   type HrReport,
   type BillSignatories,
@@ -49,6 +49,10 @@ const sourceLabel = (source: string) => source === 'daily-attendance'
     : source === 'chowk-labour'
       ? 'Chowk Labour'
       : 'All registers';
+const transactionRegisterLabel = (transaction: PaymentTransaction) =>
+  transaction.registers?.length
+    ? transaction.registers.map(sourceLabel).join(', ')
+    : sourceLabel(transaction.sourceScope);
 const paymentAttendanceSummary = (transaction: PaymentTransaction, details: HrReport['details']) => {
   const references = new Set(transaction.attendanceReferences);
   const linkedRows = details.filter((row) => references.has(row.referenceNo));
@@ -77,8 +81,8 @@ const statusClass = (status: string) => status === 'paid'
 export default function HrCenterPage() {
   const { user } = useAuth();
   const [view, setView] = useState<View>('overview');
-  const [from, setFrom] = useState(monthStart);
-  const [to, setTo] = useState(today);
+  const [from] = useState(sixMonthsAgo);
+  const [to] = useState(today);
   const [source, setSource] = useState('all');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -171,7 +175,9 @@ export default function HrCenterPage() {
     const query = search.trim().toLowerCase();
     return (report?.summaries ?? [])
       .filter((row) => (!query || row.name.toLowerCase().includes(query)) &&
-        (statusFilter === 'all' || row.paymentStatus === statusFilter))
+        (statusFilter === 'all' ||
+          row.paymentStatus === statusFilter ||
+          (statusFilter === 'excluded' && (report?.details ?? []).some((detail) => detail.name === row.name && detail.paymentStatus === 'excluded'))))
       .sort((a, b) => b.outstandingAmount - a.outstandingAmount || a.name.localeCompare(b.name));
   }, [report, search, statusFilter]);
 
@@ -245,7 +251,7 @@ export default function HrCenterPage() {
       transaction.paymentMethod,
       transaction.paymentNote ?? '',
       transaction.paidBy ?? '',
-      sourceLabel(transaction.sourceScope),
+      transactionRegisterLabel(transaction),
       displayDate(transaction.fromDate),
       displayDate(transaction.toDate),
       displayDate(transaction.paidAt.slice(0, 10)),
@@ -354,7 +360,7 @@ export default function HrCenterPage() {
       ...filteredTransactionHistory.map((transaction) => [
         displayDate(transaction.paidAt.slice(0, 10)),
         transaction.personName,
-        sourceLabel(transaction.sourceScope),
+        transactionRegisterLabel(transaction),
         transaction.billNumber,
         `${displayDate(transaction.fromDate)} to ${displayDate(transaction.toDate)}`,
         transaction.amount.toFixed(2),
@@ -409,9 +415,7 @@ export default function HrCenterPage() {
       />
 
       <section className="mb-5 rounded-xl border border-border bg-card p-5 shadow-sm print:hidden">
-        <div className="grid gap-4 md:grid-cols-[1fr_1fr_1.1fr_1.1fr_1fr_auto] md:items-end">
-          <DateField label="From date" value={from} onChange={setFrom} />
-          <DateField label="To date" value={to} onChange={setTo} />
+        <div className="grid gap-4 md:grid-cols-[1.1fr_1.1fr_1fr_auto] md:items-end">
           <label>
             <span className="mb-1.5 block text-xs font-semibold">Register</span>
             <select value={source} onChange={(event) => { setSource(event.target.value); setSelectedPerson(''); }} className={inputClass}>
@@ -438,7 +442,10 @@ export default function HrCenterPage() {
               <option value="excluded">Excluded attendance</option>
             </select>
           </label>
-          <button onClick={() => void load(from, to, source, search)} disabled={loading || !from || !to || from > to} className="flex h-[42px] items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+          <div className="flex h-[42px] items-center rounded-lg border border-border bg-muted/30 px-3 text-xs text-muted-foreground">
+            Showing the last 6 months
+          </div>
+          <button onClick={() => void load(from, to, source, search)} disabled={loading} className="flex h-[42px] items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50">
             {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Apply
           </button>
         </div>
@@ -612,7 +619,7 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
                     <div><h3 className="font-serif text-lg font-bold">Attendance for this payment</h3><p className="text-xs text-muted-foreground">Each row has one reference number. Select only the row(s) that this payment is for; rows are never selected automatically.</p></div>
                   <span className="print:hidden text-xs text-muted-foreground">{details.filter((row) => row.paymentIncluded && row.paymentStatus !== 'paid').length} open · {details.filter((row) => !row.paymentIncluded).length} excluded</span>
                 </div>
-                  <DetailTable details={details} selectedEntryIds={selectedEntryIds} onTogglePaymentEntry={onTogglePaymentEntry} />
+                  <DetailTable details={details} selectedEntryIds={selectedEntryIds} onTogglePaymentEntry={onTogglePaymentEntry} canEditRecords={editable} />
               </div>
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-serif text-lg font-bold">Payment history</h3><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{transactions.length} reference{transactions.length === 1 ? '' : 's'}</span></div>
@@ -732,7 +739,7 @@ function PaymentTransactionsView({ transactions, loading, query, onQueryChange, 
                   <td className="px-4 py-3 font-semibold">{transaction.personName}</td>
                   <td className="px-4 py-3 font-mono text-xs">{transaction.billNumber}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs">{displayDate(transaction.fromDate)} – {displayDate(transaction.toDate)}</td>
-                  <td className="px-4 py-3">{sourceLabel(transaction.sourceScope)}</td>
+                  <td className="px-4 py-3">{transactionRegisterLabel(transaction)}</td>
                   <td className="px-4 py-3 font-mono font-bold text-emerald-700">{amount(transaction.amount)}</td>
                   <td className="px-4 py-3">{transaction.paymentMethod}</td>
                   <td className="px-4 py-3 text-xs">{transaction.paymentReference || '—'}</td>
@@ -880,10 +887,6 @@ function printBill(transaction: PaymentTransaction, details: HrReport['details']
   window.setTimeout(print, 500);
 }
 
-function DateField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label><span className="mb-1.5 block text-xs font-semibold">{label}</span><input type="date" value={value} onChange={(event) => onChange(event.target.value)} className={inputClass} /></label>;
-}
-
 function TabButton({ active, icon: Icon, onClick, children }: { active: boolean; icon: typeof LayoutDashboard; onClick: () => void; children: React.ReactNode }) {
   return <button onClick={onClick} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${active ? 'bg-primary text-primary-foreground' : 'border border-border bg-card hover:bg-muted'}`}><Icon size={15} />{children}</button>;
 }
@@ -905,7 +908,7 @@ function WorkflowStep({ number, title, text }: { number: string; title: string; 
 }
 
 function StatusBadge({ status }: { status: string }) {
-  return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusClass(status)}`}>{status === 'paid' ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}{statusLabel(status)}</span>;
+  return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusClass(status)}`}>{status === 'paid' ? <CheckCircle2 size={12} /> : status === 'excluded' ? <AlertTriangle size={12} /> : <Clock3 size={12} />}{statusLabel(status)}</span>;
 }
 
 function BillLine({ label, detail, value }: { label: string; detail: string; value: string }) {
@@ -918,10 +921,11 @@ function SignatureCell({ label, name, nameAboveLine = false }: { label?: string;
     : <div className="flex min-h-12 flex-col justify-end gap-1"><div className="border-t border-black pt-1 font-normal">{name || ' '}</div></div>;
 }
 
-function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry }: {
+function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry, canEditRecords }: {
   details: HrReport['details'];
   selectedEntryIds: string[];
   onTogglePaymentEntry: (recordId: string, checked: boolean) => void;
+  canEditRecords: boolean;
 }) {
   const visibleDetails = details.filter((row) => row.paymentStatus !== 'paid');
   const hasDriverDetails = visibleDetails.some((row) => row.source === 'driver-attendance');
@@ -936,10 +940,11 @@ function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry }: {
     ...(hasOvertimeDetails ? ['Hours', 'SPL', 'Wage amount', 'SPL amount'] : []),
     'Total amount',
     'Status',
+    ...(canEditRecords ? ['Action'] : []),
   ];
   return <>
-           <div className="hidden overflow-x-auto rounded-lg border border-border sm:block"><table className="w-full min-w-[1120px] text-left text-xs"><thead className="border-b border-border"><tr>{headers.map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; const driver = row.source === 'driver-attendance'; return <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="text-muted-foreground">—</span>}</td><td className="px-2 py-2 font-mono text-[10px]">{row.referenceNo}</td><td className="px-2 py-2">{displayDate(row.displayDate || row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td>{hasDriverDetails && <>{driver ? <><td className="px-2 py-2 font-mono">{row.da || '—'}</td><td className="px-2 py-2 font-mono">{row.na || '—'}</td><td className="px-2 py-2 font-mono">{amount(row.daAmount)}</td><td className="px-2 py-2 font-mono">{amount(row.naAmount)}</td></> : <><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td></>}</>}{hasOvertimeDetails && <>{driver ? <><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td></> : <><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono">{amount(row.overtimeAmount)}</td></>}</>}{<td className="px-2 py-2 font-mono font-semibold">{amount(row.totalAmount)}</td>}<td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td></tr>; })}</tbody></table></div>
-             <div className="space-y-3 sm:hidden">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; const driver = row.source === 'driver-attendance'; return <div key={row.id} className={`rounded-lg border border-border p-3 ${row.paymentIncluded ? 'bg-card' : 'bg-muted/30'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 shrink-0 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="size-4 shrink-0 text-center text-muted-foreground">—</span>}<span className="truncate font-mono text-[10px] font-semibold">{row.referenceNo}</span></div><div className="mt-1 pl-6 text-xs text-muted-foreground">{displayDate(row.displayDate || row.date)} · {sourceLabel(row.source)}</div></div><div className="shrink-0 text-right"><div className="font-mono text-sm font-bold">{amount(row.outstandingAmount)}</div><StatusBadge status={row.paymentStatus} /></div></div><div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs"><div><span className="text-muted-foreground">Days</span><div className="mt-0.5">{formatDays(row.workedDays)}</div></div>{driver ? <><div><span className="text-muted-foreground">DA</span><div className="mt-0.5 font-mono">{row.da || '—'}</div></div><div><span className="text-muted-foreground">NA</span><div className="mt-0.5 font-mono">{row.na || '—'}</div></div><div><span className="text-muted-foreground">DA amount</span><div className="mt-0.5 font-mono">{amount(row.daAmount)}</div></div><div><span className="text-muted-foreground">NA amount</span><div className="mt-0.5 font-mono">{amount(row.naAmount)}</div></div></> : <><div><span className="text-muted-foreground">Hours</span><div className="mt-0.5 font-mono">{formatMinutes(row.minutes)}</div></div><div><span className="text-muted-foreground">SPL</span><div className="mt-0.5 font-mono">{formatMinutes(row.overtimeMinutes)}</div></div><div><span className="text-muted-foreground">Wage amount</span><div className="mt-0.5 font-mono">{amount(row.baseAmount)}</div></div><div><span className="text-muted-foreground">SPL amount</span><div className="mt-0.5 font-mono">{amount(row.overtimeAmount)}</div></div></>}<div><span className="text-muted-foreground">Total amount</span><div className="mt-0.5 font-mono font-semibold">{amount(row.totalAmount)}</div></div></div></div>; })}</div>
+           <div className="hidden overflow-x-auto rounded-lg border border-border sm:block"><table className="w-full min-w-[1120px] text-left text-xs"><thead className="border-b border-border"><tr>{headers.map((label) => <th key={label} className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y divide-border">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; const driver = row.source === 'driver-attendance'; return <tr key={row.id} className={row.paymentIncluded ? '' : 'bg-slate-50/70'}><td className="px-2 py-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="text-muted-foreground">—</span>}</td><td className="px-2 py-2 font-mono text-[10px]">{row.referenceNo}</td><td className="px-2 py-2">{displayDate(row.displayDate || row.date)}</td><td className="px-2 py-2">{sourceLabel(row.source)}</td><td className="px-2 py-2">{formatDays(row.workedDays)}</td>{hasDriverDetails && <>{driver ? <><td className="px-2 py-2 font-mono">{row.da || '—'}</td><td className="px-2 py-2 font-mono">{row.na || '—'}</td><td className="px-2 py-2 font-mono">{amount(row.daAmount)}</td><td className="px-2 py-2 font-mono">{amount(row.naAmount)}</td></> : <><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td></>}</>}{hasOvertimeDetails && <>{driver ? <><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td><td className="px-2 py-2 text-muted-foreground">—</td></> : <><td className="px-2 py-2 font-mono">{formatMinutes(row.minutes)}</td><td className="px-2 py-2 font-mono text-primary">{formatMinutes(row.overtimeMinutes)}</td><td className="px-2 py-2 font-mono">{amount(row.baseAmount)}</td><td className="px-2 py-2 font-mono">{amount(row.overtimeAmount)}</td></>}</>}{<td className="px-2 py-2 font-mono font-semibold">{amount(row.totalAmount)}</td>}<td className="px-2 py-2"><StatusBadge status={row.paymentStatus} /></td>{canEditRecords && <td className="px-2 py-2"><Link href={`/registers/${row.source}?edit=${encodeURIComponent(row.id)}`} className="font-semibold text-primary hover:underline">Edit</Link></td>}</tr>; })}</tbody></table></div>
+             <div className="space-y-3 sm:hidden">{visibleDetails.map((row) => { const selectable = row.paymentIncluded && row.outstandingAmount > 0; const driver = row.source === 'driver-attendance'; return <div key={row.id} className={`rounded-lg border border-border p-3 ${row.paymentIncluded ? 'bg-card' : 'bg-muted/30'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2">{selectable ? <input type="checkbox" checked={selectedEntryIds.includes(row.id)} onChange={(event) => onTogglePaymentEntry(row.id, event.target.checked)} className="size-4 shrink-0 accent-[hsl(var(--primary))]" aria-label={`Select attendance ${row.referenceNo}`} /> : <span className="size-4 shrink-0 text-center text-muted-foreground">—</span>}<span className="truncate font-mono text-[10px] font-semibold">{row.referenceNo}</span></div><div className="mt-1 pl-6 text-xs text-muted-foreground">{displayDate(row.displayDate || row.date)} · {sourceLabel(row.source)}</div></div><div className="shrink-0 text-right"><div className="font-mono text-sm font-bold">{amount(row.outstandingAmount)}</div><StatusBadge status={row.paymentStatus} /></div></div><div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs"><div><span className="text-muted-foreground">Days</span><div className="mt-0.5">{formatDays(row.workedDays)}</div></div>{driver ? <><div><span className="text-muted-foreground">DA</span><div className="mt-0.5 font-mono">{row.da || '—'}</div></div><div><span className="text-muted-foreground">NA</span><div className="mt-0.5 font-mono">{row.na || '—'}</div></div><div><span className="text-muted-foreground">DA amount</span><div className="mt-0.5 font-mono">{amount(row.daAmount)}</div></div><div><span className="text-muted-foreground">NA amount</span><div className="mt-0.5 font-mono">{amount(row.naAmount)}</div></div></> : <><div><span className="text-muted-foreground">Hours</span><div className="mt-0.5 font-mono">{formatMinutes(row.minutes)}</div></div><div><span className="text-muted-foreground">SPL</span><div className="mt-0.5 font-mono">{formatMinutes(row.overtimeMinutes)}</div></div><div><span className="text-muted-foreground">Wage amount</span><div className="mt-0.5 font-mono">{amount(row.baseAmount)}</div></div><div><span className="text-muted-foreground">SPL amount</span><div className="mt-0.5 font-mono">{amount(row.overtimeAmount)}</div></div></>}<div><span className="text-muted-foreground">Total amount</span><div className="mt-0.5 font-mono font-semibold">{amount(row.totalAmount)}</div></div></div>{canEditRecords && <Link href={`/registers/${row.source}?edit=${encodeURIComponent(row.id)}`} className="mt-3 block border-t border-border pt-3 text-xs font-semibold text-primary hover:underline">Edit attendance</Link>}</div>; })}</div>
     {!visibleDetails.length && <div className="border-t border-border p-6 text-center text-sm text-muted-foreground">All attendance in this period has been paid and moved to payment history.</div>}
   </>;
 }
