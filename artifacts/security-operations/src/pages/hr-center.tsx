@@ -19,15 +19,18 @@ import { canEditPayments, useAuth } from '@/lib/auth';
 import {
   displayDate,
   fetchBillSignatories,
+  fetchDriverWages,
   fetchHrReport,
   fetchPaymentTransactions,
   formatDays,
   formatMinutes,
   savePaymentBill,
+  saveDriverDayPayment,
   sixMonthsAgo,
   today,
   type HrReport,
   type BillSignatories,
+  type DriverWageOption,
   type HrSummary,
   type PaymentTransaction,
 } from '@/lib/hr-report';
@@ -54,6 +57,9 @@ const transactionRegisterLabel = (transaction: PaymentTransaction) =>
     ? transaction.registers.map(sourceLabel).join(', ')
     : sourceLabel(transaction.sourceScope);
 const paymentAttendanceSummary = (transaction: PaymentTransaction, details: HrReport['details']) => {
+  if (transaction.driverDays && transaction.wagePerDay) {
+    return `${formatDays(transaction.driverDays)} days × ${amount(transaction.wagePerDay)} wage/day`;
+  }
   const references = new Set(transaction.attendanceReferences);
   const linkedRows = details.filter((row) => references.has(row.referenceNo));
   const dates = Array.from(new Set(linkedRows.map((row) => row.date))).sort();
@@ -97,6 +103,12 @@ export default function HrCenterPage() {
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
+  const [driverWages, setDriverWages] = useState<DriverWageOption[]>([]);
+  const [driverPaymentName, setDriverPaymentName] = useState('');
+  const [driverPaymentDays, setDriverPaymentDays] = useState('');
+  const [driverPaymentMethod, setDriverPaymentMethod] = useState('Cash');
+  const [driverPaymentReference, setDriverPaymentReference] = useState('');
+  const [driverPaymentNote, setDriverPaymentNote] = useState('');
   const [billTransactionId, setBillTransactionId] = useState('');
   const [billDetailsOverride, setBillDetailsOverride] = useState<HrReport['details'] | null>(null);
   const [transactionHistory, setTransactionHistory] = useState<PaymentTransaction[]>([]);
@@ -147,6 +159,9 @@ export default function HrCenterPage() {
   useEffect(() => {
     void load();
     void fetchBillSignatories().then(setBillSignatories).catch(() => undefined);
+    void fetchDriverWages().then(setDriverWages).catch((reason) => {
+      setError(reason instanceof Error ? reason.message : 'Driver wage records could not be loaded');
+    });
   }, []);
 
   const refreshTransactionHistory = async (
@@ -338,6 +353,41 @@ export default function HrCenterPage() {
     }
   };
 
+  const recordDriverDayPayment = async () => {
+    const days = Number(driverPaymentDays);
+    const driver = driverWages.find((option) => option.name === driverPaymentName);
+    if (!driver || !Number.isInteger(days) || days < 1 || days > 366) {
+      setError('Select a driver and enter a whole number of days from 1 to 366.');
+      return;
+    }
+    if (['Bank transfer', 'UPI', 'Cheque'].includes(driverPaymentMethod) && !driverPaymentReference.trim()) {
+      setError(`${driverPaymentMethod} payments need a reference or UTR number.`);
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const savedTransaction = await saveDriverDayPayment({
+        driverName: driver.name,
+        days,
+        paymentMethod: driverPaymentMethod,
+        paymentReference: driverPaymentReference.trim(),
+        paymentNote: driverPaymentNote.trim(),
+      });
+      await load();
+      if (view === 'transactions') void refreshTransactionHistory();
+      setDriverPaymentDays('');
+      setDriverPaymentReference('');
+      setDriverPaymentNote('');
+      setNotice(`${driver.name}: ${days} day${days === 1 ? '' : 's'} paid at ${amount(driver.wagePerDay)} per day. Payment ${savedTransaction.billNumber} was added to payment history.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Driver day payment could not be saved');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const exportCsv = () => {
     const rows = [
       ['Name', 'Worked days', 'Overtime', 'Total payable', 'Paid', 'Outstanding', 'Status'],
@@ -497,6 +547,18 @@ export default function HrCenterPage() {
            billTransaction={selectedBillTransaction}
            billDetails={billDetails}
             billSignatories={billSignatories}
+          driverWages={driverWages}
+          driverPaymentName={driverPaymentName}
+          setDriverPaymentName={setDriverPaymentName}
+          driverPaymentDays={driverPaymentDays}
+          setDriverPaymentDays={setDriverPaymentDays}
+          driverPaymentMethod={driverPaymentMethod}
+          setDriverPaymentMethod={setDriverPaymentMethod}
+          driverPaymentReference={driverPaymentReference}
+          setDriverPaymentReference={setDriverPaymentReference}
+          driverPaymentNote={driverPaymentNote}
+          setDriverPaymentNote={setDriverPaymentNote}
+          onRecordDriverPayment={() => void recordDriverDayPayment()}
           loading={loading}
         />
       )}
@@ -562,7 +624,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
   );
 }
 
-function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, roundOffAmount, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onOpenBill, onCloseBill, billTransaction, billDetails, billSignatories, loading }: {
+function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, roundOffAmount, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onOpenBill, onCloseBill, billTransaction, billDetails, billSignatories, driverWages, driverPaymentName, setDriverPaymentName, driverPaymentDays, setDriverPaymentDays, driverPaymentMethod, setDriverPaymentMethod, driverPaymentReference, setDriverPaymentReference, driverPaymentNote, setDriverPaymentNote, onRecordDriverPayment, loading }: {
   report: HrReport | null;
   summaries: HrSummary[];
   details: HrReport['details'];
@@ -589,10 +651,28 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
   billTransaction: PaymentTransaction | null;
   billDetails: HrReport['details'];
   billSignatories: BillSignatories;
+  driverWages: DriverWageOption[];
+  driverPaymentName: string;
+  setDriverPaymentName: (value: string) => void;
+  driverPaymentDays: string;
+  setDriverPaymentDays: (value: string) => void;
+  driverPaymentMethod: string;
+  setDriverPaymentMethod: (value: string) => void;
+  driverPaymentReference: string;
+  setDriverPaymentReference: (value: string) => void;
+  driverPaymentNote: string;
+  setDriverPaymentNote: (value: string) => void;
+  onRecordDriverPayment: () => void;
   loading: boolean;
 }) {
   const unpaid = summaries.filter((row) => row.outstandingAmount > 0);
   const driverOnly = details.length > 0 && details.every((row) => row.source === 'driver-attendance');
+  const selectedDriverWage = driverWages.find((driver) => driver.name === driverPaymentName)?.wagePerDay ?? 0;
+  const selectedDriverDays = Number(driverPaymentDays);
+  const selectedDriverAmount = selectedDriverWage > 0 && Number.isInteger(selectedDriverDays) && selectedDriverDays > 0
+    ? selectedDriverDays * selectedDriverWage
+    : 0;
+  const selectedDriverRoundOff = roundOffToRupee(selectedDriverAmount);
   return (
     <>
       <div className={`mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 ${selected ? 'print:hidden' : ''}`}>
@@ -602,6 +682,52 @@ function PaymentsView({ report, summaries, details, transactions, selected, sele
         <Metric label="Paid" value={amount(summaries.reduce((sum, row) => sum + row.paidAmount, 0))} tone="success" />
         <Metric label="Outstanding" value={amount(unpaid.reduce((sum, row) => sum + row.outstandingAmount, 0))} tone="warning" />
       </div>
+      {!selected && editable && (
+        <section className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-5 shadow-sm print:hidden">
+          <div className="mb-4">
+            <h2 className="font-serif text-lg font-bold">Driver attendance day payment</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Create a new wage-only payment entry for a driver. The amount uses only the driver master wage and the number of days entered; DA, NA, overtime, and attendance rows are not included.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-[1.5fr_.75fr_1fr_1fr_1fr]">
+            <label>
+              <span className="mb-1.5 block text-xs font-semibold">Driver</span>
+              <select value={driverPaymentName} onChange={(event) => setDriverPaymentName(event.target.value)} className={inputClass}>
+                <option value="">Select driver…</option>
+                {driverWages.map((driver) => <option key={driver.name} value={driver.name}>{driver.name} · {amount(driver.wagePerDay)}/day</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="mb-1.5 block text-xs font-semibold">No. of days</span>
+              <input type="number" min={1} max={366} step={1} value={driverPaymentDays} onChange={(event) => setDriverPaymentDays(event.target.value)} placeholder="e.g. 5" className={inputClass} />
+            </label>
+            <label>
+              <span className="mb-1.5 block text-xs font-semibold">Wage amount</span>
+              <input value={selectedDriverAmount ? amount(selectedDriverAmount) : 'Select driver and days'} readOnly className={`${inputClass} bg-muted/50 font-mono font-semibold`} />
+            </label>
+            <label>
+              <span className="mb-1.5 block text-xs font-semibold">Payment method</span>
+              <select value={driverPaymentMethod} onChange={(event) => setDriverPaymentMethod(event.target.value)} className={inputClass}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select>
+            </label>
+            <label>
+              <span className="mb-1.5 block text-xs font-semibold">Reference / UTR {driverPaymentMethod !== 'Cash' && driverPaymentMethod !== 'Other' ? '(required)' : '(optional)'}</span>
+              <input value={driverPaymentReference} onChange={(event) => setDriverPaymentReference(event.target.value)} placeholder={driverPaymentMethod === 'Cash' || driverPaymentMethod === 'Other' ? 'Optional' : 'Enter reference'} className={inputClass} />
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              {selectedDriverAmount
+                ? `${formatDays(selectedDriverDays)} days × ${amount(selectedDriverWage)} wage/day = ${amount(selectedDriverAmount)}${selectedDriverRoundOff ? ` · +${amount(selectedDriverRoundOff)} round off` : ''}`
+                : 'Choose a driver and enter the number of days.'}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <input value={driverPaymentNote} onChange={(event) => setDriverPaymentNote(event.target.value)} placeholder="Optional note" className={`${inputClass} w-48`} />
+              <button onClick={onRecordDriverPayment} disabled={saving || !selectedDriverAmount} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+                {saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />} {saving ? 'Saving…' : 'Record driver payment'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
       {!selected && (
         <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm print:hidden">
           <div className="border-b border-border px-5 py-4"><h2 className="font-serif text-lg font-bold">Payment queue</h2><p className="text-xs text-muted-foreground">{unpaid.length} person(s) have an amount left to pay.</p></div>
@@ -784,7 +910,10 @@ function BillDialog({ transaction, details, billSignatories, onClose }: {
           <div><strong>Attendance period:</strong> {displayDate(transaction.fromDate)} to {displayDate(transaction.toDate)}</div>
           <div><strong>Payment date:</strong> {displayDate(transaction.paidAt.slice(0, 10))}</div>
         </div>
-        {details.length ? <>
+        {transaction.driverDays && transaction.wagePerDay ? <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
+          <div className="font-semibold">Driver wage payment</div>
+          <div className="mt-1 text-xs text-muted-foreground">{formatDays(transaction.driverDays)} days × {amount(transaction.wagePerDay)} wages per day. This payment is based only on the driver wage.</div>
+        </div> : details.length ? <>
            <div className="hidden overflow-x-auto rounded-lg border border-border sm:block"><BillTable details={details} transactionId={transaction.id} driverBill={driverBill} /></div>
            <div className="space-y-3 sm:hidden">{details.map((row) => { const line = billAmounts(row, transaction.id); return <div key={row.id} className="rounded-lg border border-border bg-background/40 p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold">{displayDate(row.displayDate || row.date)}</div><div className="mt-1 text-[11px] text-muted-foreground">{sourceLabel(row.source)}</div></div><div className="font-mono text-sm font-bold">{amount(line.total)}</div></div><div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs"><div><span className="text-muted-foreground">Days</span><div className="mt-0.5 font-semibold">{formatDays(row.workedDays)}</div></div>{driverBill ? <><div><span className="text-muted-foreground">DA</span><div className="mt-0.5 font-mono">{row.da || '—'}</div></div><div><span className="text-muted-foreground">NA</span><div className="mt-0.5 font-mono">{row.na || '—'}</div></div><div><span className="text-muted-foreground">DA amount</span><div className="mt-0.5 font-mono">{amount(line.daAmount)}</div></div><div><span className="text-muted-foreground">NA amount</span><div className="mt-0.5 font-mono">{amount(line.naAmount)}</div></div></> : <><div><span className="text-muted-foreground">SPL</span><div className="mt-0.5 font-mono">{formatMinutes(line.overtimeMinutes)}</div></div><div><span className="text-muted-foreground">SPL amount</span><div className="mt-0.5 font-mono">{amount(line.overtime)}</div></div></>}</div></div>; })}</div>
         </> : <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No attendance rows are linked to this payment in the selected date range.</div>}

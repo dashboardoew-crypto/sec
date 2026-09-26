@@ -416,6 +416,21 @@ const uniqueTransactionBillNumbers = <T extends { billNumber: string; id: string
     return { ...row, billNumber };
   });
 };
+
+const driverWageOptions = async () => {
+  const rows = await db.select().from(registerRecordsTable)
+    .where(eq(registerRecordsTable.registerSlug, "driver-master"))
+    .orderBy(desc(registerRecordsTable.updatedAt));
+  const seen = new Set<string>();
+  return rows.flatMap((row) => {
+    const name = String(row.data.name ?? "").trim();
+    const key = name.toLowerCase();
+    const wagePerDay = numericValue(row.data.wages_per_day);
+    if (!name || seen.has(key) || wagePerDay <= 0) return [];
+    seen.add(key);
+    return [{ name, wagePerDay }];
+  });
+};
 const paymentStatusFor = (paidAmount: number, totalAmount: number) =>
   paidAmount >= totalAmount && totalAmount > 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
 const sourceMatches = (paymentSource: string, reportSource: string) =>
@@ -863,6 +878,13 @@ router.get("/hr/report", async (req: Request, res: Response) => {
   return res.json(await hrReport(from, to, source));
 });
 
+router.get("/hr/driver-wages", async (req: Request, res: Response) => {
+  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR and admins can view driver wage options" });
+  }
+  return res.json(await driverWageOptions());
+});
+
 router.post("/hr/attendance-inclusion", async (req: Request, res: Response) => {
   if (!["admin", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR and admins can change payment attendance inclusion" });
@@ -964,6 +986,8 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
   }
   const rows = await db.select().from(paymentTransactionsTable).orderBy(desc(paymentTransactionsTable.paidAt));
   const attendanceRows = await db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs]));
+  const bills = await db.select().from(paymentBillsTable);
+  const billsByKey = new Map(bills.map((bill) => [bill.billKey, bill]));
   const registerByAttendanceReference = new Map<string, string>();
   for (const row of attendanceRows) {
     const date = dateForRecord(row);
@@ -981,15 +1005,26 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
     sourceMatches(transaction.sourceScope, source) &&
     (!paidOn || dateInIndia(transaction.paidAt) === paidOn) &&
     (!name || transaction.personName.toLowerCase().includes(name)),
-  ).map((transaction) => ({
-    ...transaction,
-    attendanceReferences: parseAttendanceReferences(transaction.attendanceReferences),
-    registers: Array.from(new Set(
-      parseAttendanceReferences(transaction.attendanceReferences)
+  ).map((transaction) => {
+    const attendanceReferences = parseAttendanceReferences(transaction.attendanceReferences);
+    const registers = Array.from(new Set(
+      attendanceReferences
         .map((reference) => registerByAttendanceReference.get(reference) ?? registerSlugForAttendanceReference(reference))
         .filter((slug): slug is string => Boolean(slug)),
-    )),
-  })));
+    ));
+    const bill = billsByKey.get(transaction.billKey);
+    return {
+      ...transaction,
+      attendanceReferences,
+      registers,
+      driverDays: transaction.sourceScope === "driver-attendance" && !attendanceReferences.length
+        ? numericValue(bill?.totalDays)
+        : undefined,
+      wagePerDay: transaction.sourceScope === "driver-attendance" && !attendanceReferences.length
+        ? numericValue(bill?.wagePerDay)
+        : undefined,
+    };
+  }));
 });
 
 router.post("/payments/bills", async (req: Request, res: Response) => {
@@ -1106,6 +1141,96 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
     return { bill, created: !current };
   });
   return res.status(result.created ? 201 : 200).json(result.bill);
+});
+
+router.post("/payments/driver-days", async (req: Request, res: Response) => {
+  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR and admins can record driver day payments" });
+  }
+  const body = req.body as Record<string, unknown>;
+  const driverName = typeof body.driverName === "string" ? body.driverName.trim() : "";
+  const days = typeof body.days === "number" ? body.days : Number(body.days);
+  const paymentMethod = paymentMethods.includes(body.paymentMethod as typeof paymentMethods[number])
+    ? body.paymentMethod as typeof paymentMethods[number]
+    : "Cash";
+  const paymentReference = typeof body.paymentReference === "string" ? body.paymentReference.trim() : "";
+  const paymentNote = typeof body.paymentNote === "string" ? body.paymentNote.trim() : "";
+  if (
+    !driverName ||
+    !Number.isInteger(days) ||
+    days < 1 ||
+    days > 366 ||
+    paymentReference.length > 160 ||
+    paymentNote.length > 500 ||
+    (["Bank transfer", "UPI", "Cheque"].includes(paymentMethod) && !paymentReference)
+  ) {
+    return res.status(400).json({ error: "Select a driver, enter 1 to 366 days, and provide a payment reference when required" });
+  }
+  const drivers = await driverWageOptions();
+  const driver = drivers.find((option) => option.name.toLowerCase() === driverName.toLowerCase());
+  if (!driver) return res.status(404).json({ error: "Driver wage record not found" });
+  const wageAmount = Number((days * driver.wagePerDay).toFixed(2));
+  const roundingAmount = roundOffToRupee(wageAmount);
+  const paymentAmount = Number((wageAmount + roundingAmount).toFixed(2));
+  const paidDate = dateInIndia(new Date());
+  const billKey = `driver-days|${driver.name.toLowerCase()}|${paidDate}|${randomUUID()}`;
+  const billNumber = `PAY-${Date.now()}-${randomUUID().slice(0, 4).toUpperCase()}`;
+  const paidAt = new Date();
+  const note = [`Driver day payment: ${days} day${days === 1 ? "" : "s"} × ₹${driver.wagePerDay.toFixed(2)} wage/day`, paymentNote].filter(Boolean).join(" · ");
+  const result = await db.transaction(async (tx) => {
+    const bill = (await tx.insert(paymentBillsTable).values({
+      id: randomUUID(),
+      billNumber,
+      billKey,
+      personName: driver.name,
+      fromDate: paidDate,
+      toDate: paidDate,
+      sourceScope: "driver-attendance",
+      totalDays: days,
+      wagePerDay: driver.wagePerDay,
+      wageAmount,
+      overtimeMinutes: 0,
+      overtimeRate: 0,
+      overtimeAmount: 0,
+      roundingAmount,
+      totalAmount: wageAmount,
+      paidAmount: paymentAmount,
+      status: "paid",
+      paymentMethod,
+      paymentReference: paymentReference || null,
+      paymentNote: note || null,
+      paidAt,
+      paidBy: req.user?.displayName ?? req.user?.email ?? null,
+      updatedAt: paidAt,
+    }).returning())[0];
+    const transaction = (await tx.insert(paymentTransactionsTable).values({
+      id: randomUUID(),
+      billKey,
+      billNumber,
+      personName: driver.name,
+      fromDate: paidDate,
+      toDate: paidDate,
+      sourceScope: "driver-attendance",
+      amount: paymentAmount,
+      roundingAmount,
+      paymentMethod,
+      paymentReference: paymentReference || null,
+      paymentNote: note || null,
+      attendanceReferences: JSON.stringify([]),
+      paidAt,
+      paidBy: req.user?.displayName ?? req.user?.email ?? null,
+    }).returning())[0];
+    return { bill, transaction };
+  });
+  return res.status(201).json({
+    ...result.transaction,
+    amount: paymentAmount,
+    roundingAmount,
+    attendanceReferences: [],
+    registers: ["driver-attendance"],
+    driverDays: days,
+    wagePerDay: driver.wagePerDay,
+  });
 });
 
 router.post("/registers/:slug/records", async (req: Request, res: Response) => {

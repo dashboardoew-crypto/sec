@@ -105,9 +105,16 @@ export type PaymentTransaction = {
   paymentReference: string | null;
   paymentNote: string | null;
   attendanceReferences: string[];
+  driverDays?: number;
+  wagePerDay?: number;
   registers: string[];
   paidAt: string;
   paidBy: string | null;
+};
+
+export type DriverWageOption = {
+  name: string;
+  wagePerDay: number;
 };
 
 export async function fetchHrReport(from: string, to: string, source = 'all'): Promise<HrReport> {
@@ -131,6 +138,31 @@ export async function fetchPaymentTransactions(from = '', to = '', source = 'all
   const payload = await response.json().catch(() => []);
   if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Payment transaction history could not be loaded');
   return payload as PaymentTransaction[];
+}
+
+export async function fetchDriverWages(): Promise<DriverWageOption[]> {
+  const response = await fetch('/api/hr/driver-wages', { credentials: 'include' });
+  const payload = await response.json().catch(() => []);
+  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Driver wage records could not be loaded');
+  return payload as DriverWageOption[];
+}
+
+export async function saveDriverDayPayment(input: {
+  driverName: string;
+  days: number;
+  paymentMethod?: string;
+  paymentReference?: string;
+  paymentNote?: string;
+}): Promise<PaymentTransaction> {
+  const response = await fetch('/api/payments/driver-days', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Driver day payment could not be saved');
+  return payload as PaymentTransaction;
 }
 
 export async function fetchBillSignatories(): Promise<BillSignatories> {
