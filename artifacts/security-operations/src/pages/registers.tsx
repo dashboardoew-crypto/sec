@@ -167,10 +167,12 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [location, setLocation] = useLocation();
+  const editParams = useMemo(() => new URLSearchParams(location.split('?')[1] ?? ''), [location]);
+  const editRecordId = editParams.get('edit');
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState(() => editParams.get('from') ?? '');
+  const [to, setTo] = useState(() => editParams.get('to') ?? '');
   const [showFilters, setShowFilters] = useState(false);
   const [sortOrder, setSortOrder] = useState<'none' | 'asc' | 'desc'>('none');
   const [dialog, setDialog] = useState<'create' | RegisterRecord | null>(null);
@@ -214,7 +216,6 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const update = useUpdateRegisterRecord();
   const remove = useDeleteRegisterRecord();
   const records = recordsQuery.data?.records ?? [];
-  const editRecordId = useMemo(() => new URLSearchParams(location.split('?')[1] ?? '').get('edit'), [location]);
   const sortedRecords = useMemo(() => {
     if (sortOrder === 'none') return records;
     const dateValue = (record: RegisterRecord) => String(record.data.date ?? record.createdAt ?? '');
