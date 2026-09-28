@@ -450,6 +450,15 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     db.select().from(paymentTransactionsTable),
     db.select().from(paymentAttendanceExclusionsTable),
   ]);
+  const availableDates = rows
+    .filter((row) => sourceScope === "all" || row.registerSlug === sourceScope)
+    .map(dateForRecord)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  // An empty range means “all dates”. Resolve it to the available attendance
+  // period so existing bill and payment matching continues to use real dates.
+  from = from || availableDates[0] || to || dateInIndia(new Date());
+  to = to || availableDates.at(-1) || from;
   const excludedKeys = new Set(exclusions.map((item) => `${item.billKey}|${item.recordId}`));
   const billMap = new Map(bills.map((bill) => [bill.billKey, bill]));
   const wages = new Map(labourRows.map((row) => [
@@ -869,7 +878,9 @@ router.get("/hr/report", async (req: Request, res: Response) => {
   const from = typeof req.query.from === "string" ? req.query.from : "";
   const to = typeof req.query.to === "string" ? req.query.to : "";
   const source = typeof req.query.source === "string" ? req.query.source : "all";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+  if ((from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) ||
+      (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) ||
+      (from && to && from > to)) {
     return res.status(400).json({ error: "Choose a valid report date range" });
   }
   if (!paymentSourceSlugs.includes(source as typeof paymentSourceSlugs[number])) {
