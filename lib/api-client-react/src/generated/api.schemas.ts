@@ -55,12 +55,21 @@ export interface RegisterDefinition {
 
 export type RegisterRecordData = { [key: string]: unknown };
 
+export type RegisterRecordPaymentStatus = typeof RegisterRecordPaymentStatus[keyof typeof RegisterRecordPaymentStatus];
+
+
+export const RegisterRecordPaymentStatus = {
+  paid: 'paid',
+  unpaid: 'unpaid',
+} as const;
+
 export interface RegisterRecord {
   id: string;
   registerSlug: string;
   data: RegisterRecordData;
   createdAt: string;
   updatedAt: string;
+  paymentStatus?: RegisterRecordPaymentStatus;
 }
 
 export type RegisterRecordInputData = { [key: string]: unknown };

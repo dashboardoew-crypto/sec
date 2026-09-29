@@ -273,6 +273,9 @@ components:
         updatedAt:
           type: string
           format: date-time
+        paymentStatus:
+          type: string
+          enum: [paid, unpaid]
     RegisterRecordInput:
       type: object
       required: [data]

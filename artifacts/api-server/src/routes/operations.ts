@@ -303,7 +303,12 @@ const inputDataForRole = (
   return data;
 };
 
-const toResponse = (row: typeof registerRecordsTable.$inferSelect, data = row.data) => ({
+type RegisterPaymentStatus = "paid" | "unpaid";
+const toResponse = (
+  row: typeof registerRecordsTable.$inferSelect,
+  data = row.data,
+  paymentStatus?: RegisterPaymentStatus,
+) => ({
   id: row.id,
   registerSlug: row.registerSlug,
   data: row.recordDate && (data.date === undefined || data.date === "")
@@ -311,6 +316,7 @@ const toResponse = (row: typeof registerRecordsTable.$inferSelect, data = row.da
     : data,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
+  ...(paymentStatus ? { paymentStatus } : {}),
 });
 
 const recordSummary = (definition: RegisterDefinition, data: Record<string, unknown>) => {
@@ -398,6 +404,20 @@ const parseAttendanceReferences = (value: string | null | undefined) => {
   } catch {
     return [];
   }
+};
+const paidAttendanceReferences = async () => {
+  const transactions = await db
+    .select({ attendanceReferences: paymentTransactionsTable.attendanceReferences })
+    .from(paymentTransactionsTable);
+  return new Set(transactions.flatMap((transaction) => parseAttendanceReferences(transaction.attendanceReferences)));
+};
+const paymentStatusForRegisterRecord = (
+  row: typeof registerRecordsTable.$inferSelect,
+  references: Set<string>,
+): RegisterPaymentStatus | undefined => {
+  if (!hrRegisterSlugs.includes(row.registerSlug as typeof hrRegisterSlugs[number])) return undefined;
+  const date = dateForRecord(row);
+  return date && references.has(attendanceReferenceFor(row.id, date, row.registerSlug)) ? "paid" : "unpaid";
 };
 const uniqueTransactionBillNumbers = <T extends { billNumber: string; id: string }>(rows: T[]) => {
   const used = new Set<string>();
@@ -847,8 +867,15 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
     .some(([, value]) => String(value ?? "").toLowerCase().includes(name)));
   if (query.from) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! >= calendarDate(query.from)!);
   if (query.to) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! <= calendarDate(query.to)!);
+  const paidReferences = hrRegisterSlugs.includes(slug as typeof hrRegisterSlugs[number])
+    ? await paidAttendanceReferences()
+    : new Set<string>();
   return res.json({
-    records: rows.slice(0, query.limit ?? 100).map((row) => toResponse(row, responseDataForRole(req, definition, row.data))),
+    records: rows.slice(0, query.limit ?? 100).map((row) => toResponse(
+      row,
+      responseDataForRole(req, definition, row.data),
+      paymentStatusForRegisterRecord(row, paidReferences),
+    )),
     total: rows.length,
   });
 });
@@ -1296,6 +1323,9 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
   const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
+  if (paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
+    return res.status(409).json({ error: "Payment done: this attendance record cannot be edited or deleted." });
+  }
   const editWindowDays = editWindowForRole(req.user?.role, definition);
   if (editWindowDays === undefined) {
     return res.status(403).json({ error: "This role cannot edit records" });
@@ -1344,6 +1374,9 @@ router.delete("/registers/:slug/records/:id", async (req: Request, res: Response
     .where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug)))
     .limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
+  if (paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
+    return res.status(409).json({ error: "Payment done: this attendance record cannot be edited or deleted." });
+  }
   if (!canEditRecord(existing[0].createdAt, req.user?.role, definition)) {
     return res.status(403).json({
       error: "Managers can delete records only within 7 days of entry. Admins can delete records at any time.",

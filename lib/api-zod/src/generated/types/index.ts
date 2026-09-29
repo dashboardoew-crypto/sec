@@ -28,6 +28,7 @@ export * from './registerRecordData';
 export * from './registerRecordInput';
 export * from './registerRecordInputData';
 export * from './registerRecordPage';
+export * from './registerRecordPaymentStatus';
 export * from './registerRecordUpdate';
 export * from './registerRecordUpdateData';
 export * from './searchParameter';

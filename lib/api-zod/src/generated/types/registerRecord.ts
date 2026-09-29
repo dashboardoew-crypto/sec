@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { RegisterRecordData } from './registerRecordData';
+import type { RegisterRecordPaymentStatus } from './registerRecordPaymentStatus';
 
 export interface RegisterRecord {
   id: string;
@@ -13,4 +14,5 @@ export interface RegisterRecord {
   data: RegisterRecordData;
   createdAt: Date;
   updatedAt: Date;
+  paymentStatus?: RegisterRecordPaymentStatus;
 }

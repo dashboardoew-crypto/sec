@@ -105,7 +105,8 @@ export const ListRegisterRecordsResponse = zod.object({
   "registerSlug": zod.string(),
   "data": zod.record(zod.string(), zod.unknown()),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "paymentStatus": zod.enum(['paid', 'unpaid']).optional()
 })),
   "total": zod.number().int()
 })
@@ -130,7 +131,8 @@ export const CreateRegisterRecordResponse = zod.object({
   "registerSlug": zod.string(),
   "data": zod.record(zod.string(), zod.unknown()),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "paymentStatus": zod.enum(['paid', 'unpaid']).optional()
 })
 
 
@@ -155,7 +157,8 @@ export const UpdateRegisterRecordResponse = zod.object({
   "registerSlug": zod.string(),
   "data": zod.record(zod.string(), zod.unknown()),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "paymentStatus": zod.enum(['paid', 'unpaid']).optional()
 })
 
 
