@@ -78,6 +78,10 @@ const normalizeDriverAttendanceValues = (data: Record<string, unknown>) => {
   if (values.night_allowance !== undefined && values.night_allowance !== null && values.night_allowance !== '' && values.night_allowance_applicable === undefined) {
     values.night_allowance_applicable = Number(values.night_allowance) > 0 ? 'Yes' : 'No';
   }
+  if (isYes(values.station)) {
+    values.day_allowance_applicable = 'Yes';
+    values.night_allowance_applicable = 'Yes';
+  }
   return values;
 };
 
@@ -453,17 +457,23 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
         delete next.station_out_time;
         delete next.station_in_time;
         delete next.station_in_date;
+        delete next.day_allowance_applicable;
+        delete next.day_allowance;
+        delete next.night_allowance_applicable;
+        delete next.night_allowance;
       }
-      if (key === 'day_allowance_applicable' && !isYes(value)) delete next.day_allowance;
-      if (key === 'night_allowance_applicable' && !isYes(value)) delete next.night_allowance;
+      if (key === 'station' && isYes(value)) {
+        next.day_allowance_applicable = 'Yes';
+        next.night_allowance_applicable = 'Yes';
+      }
     }
     return next;
   });
   const formFields = useMemo(() => fields.filter((field) => {
     if (definition.slug !== 'driver-attendance') return true;
     if (['station_name', 'station_out_time', 'station_in_time', 'station_in_date'].includes(field.key)) return isYes(values.station);
-    if (field.key === 'day_allowance') return isYes(values.day_allowance_applicable);
-    if (field.key === 'night_allowance') return isYes(values.night_allowance_applicable);
+    if (['day_allowance_applicable', 'night_allowance_applicable'].includes(field.key)) return false;
+    if (['day_allowance', 'night_allowance'].includes(field.key)) return isYes(values.station);
     return true;
   }), [definition.slug, fields, values.day_allowance_applicable, values.night_allowance_applicable, values.station]);
   const orderedFields = useMemo(() => {
@@ -544,9 +554,14 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
         delete data.station_out_time;
         delete data.station_in_time;
         delete data.station_in_date;
+        delete data.day_allowance_applicable;
+        delete data.day_allowance;
+        delete data.night_allowance_applicable;
+        delete data.night_allowance;
+      } else {
+        data.day_allowance_applicable = 'Yes';
+        data.night_allowance_applicable = 'Yes';
       }
-      if (!isYes(data.day_allowance_applicable)) delete data.day_allowance;
-      if (!isYes(data.night_allowance_applicable)) delete data.night_allowance;
     }
     onSubmit({ data }, initial, setError);
   };

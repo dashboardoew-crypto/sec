@@ -207,9 +207,14 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
       delete data.station_out_time;
       delete data.station_in_time;
       delete data.station_in_date;
+      delete data.day_allowance_applicable;
+      delete data.day_allowance;
+      delete data.night_allowance_applicable;
+      delete data.night_allowance;
+    } else {
+      data.day_allowance_applicable = "Yes";
+      data.night_allowance_applicable = "Yes";
     }
-    if (!isYes(data.day_allowance_applicable)) delete data.day_allowance;
-    if (!isYes(data.night_allowance_applicable)) delete data.night_allowance;
     setIfKnown("total_days", driverAttendanceTotalDays(data));
   }
 
