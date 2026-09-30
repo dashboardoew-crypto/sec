@@ -129,7 +129,6 @@ export default function HrCenterPage() {
     nextFrom = from,
     nextTo = to,
     nextSource = source,
-    nextSearch = search,
   ) => {
     const currentRequest = ++requestId.current;
     setLoading(true);
@@ -138,7 +137,7 @@ export default function HrCenterPage() {
     try {
       const [nextReport, nextTransactions] = await Promise.all([
         fetchHrReport(nextFrom, nextTo, nextSource),
-        fetchPaymentTransactions(nextFrom, nextTo, nextSource, nextSearch),
+        fetchPaymentTransactions(nextFrom, nextTo, nextSource),
       ]);
       if (currentRequest !== requestId.current) return;
       setReport(nextReport);
@@ -505,7 +504,7 @@ export default function HrCenterPage() {
               setError('The from date must be on or before the to date.');
               return;
             }
-            void load(from, to, source, search);
+             void load(from, to, source);
           }} disabled={loading} className="flex h-[42px] items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50">
             {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Apply
           </button>

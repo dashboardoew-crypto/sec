@@ -612,49 +612,15 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
     const bill = billMap.get(exactBillKey);
     const subtotal = item.baseAmount + item.overtimeAmount;
     const payableAmount = Number(subtotal.toFixed(2));
-    const matchingTransactions = transactions.filter((transaction) =>
-      transaction.personName.trim().toLowerCase() === item.name.trim().toLowerCase() &&
-      sourceMatches(transaction.sourceScope, sourceScope) &&
-      paymentOverlapsPeriod(transaction, from, to),
-    );
-    const personDetails = details.filter((detail) =>
-      String(detail["name"] ?? "").trim().toLowerCase() === item.name.trim().toLowerCase() &&
-      detail["paymentIncluded"] !== false,
-    );
-    const transactionPaidAmount = matchingTransactions
-      .filter((transaction) => {
-        const targetedReferences = parseAttendanceReferences(transaction.attendanceReferences);
-        if (!targetedReferences.length) return false;
-        const references = new Set(personDetails.map((detail) => String(detail["referenceNo"] ?? "")));
-        return targetedReferences.some((reference) => references.has(reference));
-      })
-      // Only the attendance amount reduces payable. Round-off is extra cash
-      // and must not reduce the person's remaining payable balance.
-      .reduce(
-        (sum, transaction) =>
-          sum + Math.max(numericValue(transaction.amount) - numericValue(transaction.roundingAmount), 0),
-        0,
-      );
-    const paidAmount = Math.min(
-      Math.max(transactionPaidAmount, 0),
-      Math.max(payableAmount, 0),
-    );
     return {
-        ...item,
-        wageAmount: item.baseAmount,
-        overtimeRate: item.overtimeRate,
+      ...item,
+      wageAmount: item.baseAmount,
+      overtimeRate: item.overtimeRate,
       totalAmount: payableAmount,
       leftDays: Math.max(expectedDays - dates.size, 0),
-      paidAmount,
-      outstandingAmount: Math.max(payableAmount - paidAmount, 0),
-      paymentStatus: (() => {
-        const personDetails = details.filter((detail) =>
-          String(detail["name"] ?? "").trim().toLowerCase() === item.name.trim().toLowerCase(),
-        );
-        return personDetails.length > 0 && personDetails.every((detail) => detail["paymentIncluded"] === false)
-          ? "excluded"
-          : paymentStatusFor(paidAmount, payableAmount);
-      })(),
+      paidAmount: 0,
+      outstandingAmount: payableAmount,
+      paymentStatus: "unpaid" as const,
       billNumber: bill?.billNumber ?? null,
       paidAt: bill?.paidAt?.toISOString() ?? null,
     };
@@ -740,8 +706,30 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
       }
     }
   }
+  const summariesWithAllocations = summaries.map((summaryRow) => {
+    const personDetails = sortedDetails.filter((detail) =>
+      personKey(detail["name"]) === personKey(summaryRow.name),
+    );
+    const includedDetails = personDetails.filter((detail) => detail["paymentIncluded"] !== false);
+    const paidAmount = Number(Math.min(
+      includedDetails.reduce(
+        (total, detail) => total + (detailPayments.get(String(detail["id"] ?? ""))?.paidAmount ?? 0),
+        0,
+      ),
+      Math.max(summaryRow.totalAmount, 0),
+    ).toFixed(2));
+    const fullyExcluded = personDetails.length > 0 && personDetails.every(
+      (detail) => detail["paymentIncluded"] === false,
+    );
+    return {
+      ...summaryRow,
+      paidAmount,
+      outstandingAmount: Number(Math.max(summaryRow.totalAmount - paidAmount, 0).toFixed(2)),
+      paymentStatus: fullyExcluded ? "excluded" as const : paymentStatusFor(paidAmount, summaryRow.totalAmount),
+    };
+  });
   return {
-    from, to, sourceScope, expectedDays, summaries,
+    from, to, sourceScope, expectedDays, summaries: summariesWithAllocations,
     details: sortedDetails.map((item) => ({
       ...item,
       paidAmount: item["paymentIncluded"] === false ? 0 : Number((detailPayments.get(String(item["id"] ?? ""))?.paidAmount ?? 0).toFixed(2)),

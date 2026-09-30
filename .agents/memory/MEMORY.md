@@ -4,3 +4,4 @@
 - [SPL overtime rounding](overtime-rounding.md) — overtime is paid in completed 30-minute blocks; floor the value consistently across displays and bills.
 - [Payment bill round-off](payment-roundoff.md) — payment paise are automatically rounded up to the next whole rupee and shown separately.
 - [Compact JSX edits](compact-jsx-edits.md) — inspect exact generated single-line JSX before patching; small context mismatches can leave duplicate render branches.
+- [Payment summary allocation](payment-summary-allocation.md) — person-level paid totals must sum capped attendance allocations, not raw transaction amounts.
