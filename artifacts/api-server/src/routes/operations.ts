@@ -645,11 +645,12 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
   for (const [personKey, personDetails] of detailsByPerson) {
     const personName = String(personDetails[0]?.["name"] ?? "");
     const exactBillKey = billKeyFor(personName, from, to, sourceScope);
+    const personReferences = new Set(personDetails.map((detail) => String(detail["referenceNo"] ?? "")));
     const matchingTransactions = transactions
       .filter((transaction) =>
         transaction.personName.trim().toLowerCase() === personKey &&
-      sourceMatches(transaction.sourceScope, sourceScope) &&
-      paymentOverlapsPeriod(transaction, from, to),
+        paymentOverlapsPeriod(transaction, from, to) &&
+        parseAttendanceReferences(transaction.attendanceReferences).some((reference) => personReferences.has(reference)),
       )
       .sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
     const bill = billMap.get(exactBillKey);
@@ -1030,10 +1031,18 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
   const source = typeof req.query.source === "string" ? req.query.source : "all";
   const name = typeof req.query.name === "string" ? req.query.name.trim().toLowerCase() : "";
   const paidOn = typeof req.query.paidOn === "string" ? req.query.paidOn : "";
+  const matchesSource = (transaction: typeof rows[number]) => {
+    if (source === "all") return sourceMatches(transaction.sourceScope, source);
+    const references = parseAttendanceReferences(transaction.attendanceReferences);
+    if (!references.length) return transaction.sourceScope === source;
+    return references.some((reference) =>
+      (registerByAttendanceReference.get(reference) ?? registerSlugForAttendanceReference(reference)) === source,
+    );
+  };
   return res.json(uniqueTransactionBillNumbers(rows).filter((transaction) =>
     (!from || transaction.toDate >= from) &&
     (!to || transaction.fromDate <= to) &&
-    sourceMatches(transaction.sourceScope, source) &&
+    matchesSource(transaction) &&
     (!paidOn || dateInIndia(transaction.paidAt) === paidOn) &&
     (!name || transaction.personName.toLowerCase().includes(name)),
   ).map((transaction) => {
