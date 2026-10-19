@@ -443,10 +443,17 @@ const driverAttendanceTotalDays = (values: Record<string, unknown>) => {
   return Math.max(1, Math.floor((stationInDate - attendanceDate) / 86_400_000));
 };
 
-function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, role, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; role?: string; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing: RegisterRecord | undefined, onError: (message: string) => void) => void }) {
+function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, driverPhones, securityNames, nameOptions, role: userRole, initial, pending, onClose, onSubmit }: { definition: RegisterDefinition; fields: FieldDefinition[]; labourNames: string[]; keyNames: string[]; driverNames: string[]; driverPhones: Record<string, string>; securityNames: string[]; nameOptions: string[]; role?: string; initial?: RegisterRecord; pending: boolean; onClose: () => void; onSubmit: (data: { data: Record<string, unknown> }, editing: RegisterRecord | undefined, onError: (message: string) => void) => void }) {
+  const role = definition.slug === 'key-movement' ? undefined : userRole;
   const initialValues = useMemo(() => ({
+    ...(!initial && fields.some((field) => field.key === 'date')
+      ? { date: indiaDateKey(new Date()) }
+      : {}),
+    ...(definition.slug === 'daily-attendance'
+      ? { has_gate_pass: initial?.data.has_gate_pass ?? 'No' }
+      : {}),
     ...(definition.slug === 'driver-attendance' ? normalizeDriverAttendanceValues(initial?.data ?? {}) : (initial?.data ?? {})),
-  }), [definition.fields, initial]);
+  }), [definition.slug, fields, initial]);
   const [values, setValues] = useState<Record<string, unknown>>(initialValues);
   const [error, setError] = useState('');
   const setValue = (key: string, value: unknown) => setValues((prev) => {
@@ -467,21 +474,33 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
         next.night_allowance_applicable = 'Yes';
       }
     }
+    if (definition.slug === 'daily-attendance' && key === 'has_gate_pass' && !isYes(value)) {
+      delete next.gate_pass_out_time;
+      delete next.gate_pass_in_time;
+    }
     return next;
   });
   const formFields = useMemo(() => fields.filter((field) => {
+    if (definition.slug === 'daily-attendance' && ['gate_pass_out_time', 'gate_pass_in_time'].includes(field.key)) {
+      return isYes(values.has_gate_pass);
+    }
     if (definition.slug !== 'driver-attendance') return true;
     if (['station_name', 'station_out_time', 'station_in_time', 'station_in_date'].includes(field.key)) return isYes(values.station);
     if (['day_allowance_applicable', 'night_allowance_applicable'].includes(field.key)) return false;
     if (['day_allowance', 'night_allowance'].includes(field.key)) return isYes(values.station);
     return true;
-  }), [definition.slug, fields, values.day_allowance_applicable, values.night_allowance_applicable, values.station]);
+  }), [definition.slug, fields, values.day_allowance_applicable, values.has_gate_pass, values.night_allowance_applicable, values.station]);
   const orderedFields = useMemo(() => {
     if (!['daily-attendance', 'chowk-labour'].includes(definition.slug)) return formFields;
     const timeOrder = String(values.shift ?? '').toLowerCase() === 'evening'
       ? ['evening_in', 'evening_out', 'morning_in', 'morning_out']
       : ['morning_in', 'morning_out', 'evening_in', 'evening_out'];
-    const orderedKeys = [definition.slug === 'daily-attendance' ? 'labour_name' : 'name', 'shift', ...timeOrder];
+    const orderedKeys = [
+      definition.slug === 'daily-attendance' ? 'labour_name' : 'name',
+      'shift',
+      ...timeOrder,
+      ...(definition.slug === 'daily-attendance' ? ['has_gate_pass', 'gate_pass_out_time', 'gate_pass_in_time'] : []),
+    ];
     const ordered = orderedKeys
       .map((key) => formFields.find((field) => field.key === key))
       .filter((field): field is FieldDefinition => Boolean(field));
@@ -562,6 +581,10 @@ function RecordDialog({ definition, fields, labourNames, keyNames, driverNames, 
         data.day_allowance_applicable = 'Yes';
         data.night_allowance_applicable = 'Yes';
       }
+    }
+    if (definition.slug === 'daily-attendance' && !isYes(data.has_gate_pass)) {
+      delete data.gate_pass_out_time;
+      delete data.gate_pass_in_time;
     }
     onSubmit({ data }, initial, setError);
   };

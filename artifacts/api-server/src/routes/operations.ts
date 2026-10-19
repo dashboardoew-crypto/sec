@@ -156,6 +156,14 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     if (keys.has(key) && value !== undefined) data[key] = value;
   };
 
+  if (
+    register.slug === "daily-attendance" &&
+    String(data.has_gate_pass ?? "").trim().toLowerCase() !== "yes"
+  ) {
+    delete data.gate_pass_out_time;
+    delete data.gate_pass_in_time;
+  }
+
   const isMeterRegister = register.slug === "mango-tree-meter" || register.slug === "clinic-gate-meter";
   if (isMeterRegister) {
     const officeInitial = Number(data.office_initial);

@@ -126,6 +126,9 @@ const attendanceTimeFields: FieldDefinition[] = [
 const trainingFields: FieldDefinition[] = [
   { key: "labour_name", label: "LABOUR NAME", type: "text", required: true },
   ...attendanceTimeFields,
+  { key: "has_gate_pass", label: "IS THERE ANY GATE PASS?", type: "select", required: true, options: ["Yes", "No"] },
+  { key: "gate_pass_out_time", label: "GATE PASS OUT TIME", type: "time" },
+  { key: "gate_pass_in_time", label: "GATE PASS IN TIME", type: "time" },
 ];
 
 const chowkLabourFields: FieldDefinition[] = [
@@ -160,6 +163,7 @@ const serviceBillFields: FieldDefinition[] = [
 
 const jackRegisterFields: FieldDefinition[] = [
   { key: "date", label: "DATE", type: "date", required: true },
+  { key: "serial_number", label: "SERIAL NUMBER", type: "text" },
   { key: "name_of_party", label: "NAME OF PARTY", type: "text", required: true },
   { key: "challan_no", label: "CHALLAN NO.", type: "text", required: true },
   { key: "challan_date", label: "CHALLAN DATE", type: "date", required: true },
