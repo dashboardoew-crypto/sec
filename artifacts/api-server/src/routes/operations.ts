@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, backupSettingsTable, paymentAttendanceExclusionsTable, paymentBillsTable, paymentTransactionsTable, registerRecordsTable } from "@workspace/db";
 import {
   CreateRegisterRecordBody,
@@ -1315,13 +1315,48 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
       return res.json(toResponse(row[0], responseDataForRole(req, definition, row[0].data)));
     }
   }
-  const row = await db.insert(registerRecordsTable).values({
-    id: randomUUID(),
-    registerSlug: slug,
-    recordDate,
-    createdAt,
-    data,
-  }).returning();
+  let row: (typeof registerRecordsTable.$inferSelect)[];
+  if (slug === "jack-register") {
+    row = await db.transaction(async (tx) => {
+      // Serialize Jack Register allocations so concurrent creates cannot share a number.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(48192, 1)`);
+      const jackRows = await tx.select().from(registerRecordsTable)
+        .where(eq(registerRecordsTable.registerSlug, slug))
+        .orderBy(asc(registerRecordsTable.createdAt), asc(registerRecordsTable.id));
+      const serialOf = (value: unknown) => {
+        const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+        if (!/^\d+$/.test(text)) return undefined;
+        const number = Number(text);
+        return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+      };
+      let nextSerial = Math.max(0, ...jackRows.map((existingRow) => serialOf(existingRow.data.serial_number) ?? 0)) + 1;
+
+      // Give older entries a number the first time a new Jack Register entry is saved.
+      for (const existingRow of jackRows) {
+        if (serialOf(existingRow.data.serial_number) !== undefined) continue;
+        await tx.update(registerRecordsTable).set({
+          data: { ...existingRow.data, serial_number: String(nextSerial) },
+        }).where(eq(registerRecordsTable.id, existingRow.id));
+        nextSerial += 1;
+      }
+      data.serial_number = String(nextSerial);
+      return tx.insert(registerRecordsTable).values({
+        id: randomUUID(),
+        registerSlug: slug,
+        recordDate,
+        createdAt,
+        data,
+      }).returning();
+    });
+  } else {
+    row = await db.insert(registerRecordsTable).values({
+      id: randomUUID(),
+      registerSlug: slug,
+      recordDate,
+      createdAt,
+      data,
+    }).returning();
+  }
   return res.status(201).json(toResponse(row[0], responseDataForRole(req, definition, row[0].data)));
 });
 
@@ -1360,6 +1395,10 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     definition,
     inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: selectedDate }, existing[0].data),
   );
+  if (slug === "jack-register") {
+    if (existing[0].data.serial_number === undefined) delete data.serial_number;
+    else data.serial_number = existing[0].data.serial_number;
+  }
   const missing = validateRequiredFields(definition, selectedDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
   const row = await db.update(registerRecordsTable).set({

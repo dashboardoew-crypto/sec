@@ -163,7 +163,7 @@ const serviceBillFields: FieldDefinition[] = [
 
 const jackRegisterFields: FieldDefinition[] = [
   { key: "date", label: "DATE", type: "date", required: true },
-  { key: "serial_number", label: "SERIAL NUMBER", type: "text" },
+  { key: "serial_number", label: "SERIAL NUMBER", type: "number", derived: true },
   { key: "name_of_party", label: "NAME OF PARTY", type: "text", required: true },
   { key: "challan_no", label: "CHALLAN NO.", type: "text", required: true },
   { key: "challan_date", label: "CHALLAN DATE", type: "date", required: true },
