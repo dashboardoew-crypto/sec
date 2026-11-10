@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: security-operations
+    runtime: node
+    plan: free
+    buildCommand: npm install -g pnpm && pnpm install && pnpm run build
+    startCommand: pnpm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
