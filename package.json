@@ -16,6 +16,10 @@
     "db:push:force": "pnpm --filter @workspace/db run push-force"
   },
   "private": true,
+  "packageManager": "pnpm@10.5.2",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "@replit/connectors-sdk": "^0.4.3"
   },

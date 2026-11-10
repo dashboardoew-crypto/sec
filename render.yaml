@@ -3,7 +3,7 @@ services:
     name: security-operations
     runtime: node
     plan: free
-    buildCommand: npm install -g pnpm && pnpm install && pnpm run build
+    buildCommand: corepack enable && pnpm install && pnpm run build
     startCommand: pnpm start
     envVars:
       - key: NODE_ENV
