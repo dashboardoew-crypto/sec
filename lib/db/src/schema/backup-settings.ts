@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export const backupSettingsTable = pgTable("backup_settings", {
   id: text("id").primaryKey(),
@@ -9,6 +9,8 @@ export const backupSettingsTable = pgTable("backup_settings", {
   preparedBy: text("prepared_by"),
   checkedBy: text("checked_by"),
   verifiedBy: text("verified_by"),
+  registerEmails: jsonb("register_emails").$type<Record<string, any>>().notNull().default({}),
+  breakdownAlertEmail: text("breakdown_alert_email"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

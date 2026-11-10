@@ -41,6 +41,63 @@ const minutesBetween = (from: unknown, to: unknown) => {
   return (end - start + 1440) % 1440;
 };
 
+const calculateServiceDuration = (
+  startDateVal: unknown,
+  startTimeVal: unknown,
+  endDateVal: unknown,
+  endTimeVal: unknown,
+): string | undefined => {
+  if (!startTimeVal || !endTimeVal) return undefined;
+  const outTime = String(startTimeVal).trim();
+  const inTime = String(endTimeVal).trim();
+  if (!outTime || !inTime) return undefined;
+
+  const outDate = String(startDateVal ?? "").trim();
+  const inDate = String(endDateVal ?? "").trim() || outDate;
+  if (!outDate) return undefined;
+
+  const parseToUtc = (dStr: string, tStr: string): number | undefined => {
+    let y = 0, m = 0, d = 0;
+    const isoMatch = dStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const dmyMatch = dStr.match(/^(\d{2})-(\d{2})-(\d{4})/);
+    if (isoMatch) {
+      y = Number(isoMatch[1]);
+      m = Number(isoMatch[2]);
+      d = Number(isoMatch[3]);
+    } else if (dmyMatch) {
+      d = Number(dmyMatch[1]);
+      m = Number(dmyMatch[2]);
+      y = Number(dmyMatch[3]);
+    } else {
+      return undefined;
+    }
+    const tMatch = tStr.match(/^(\d{1,2}):(\d{2})/);
+    if (!tMatch) return undefined;
+    const hours = Number(tMatch[1]);
+    const minutes = Number(tMatch[2]);
+    if (![y, m, d, hours, minutes].every(Number.isFinite)) return undefined;
+    return Date.UTC(y, m - 1, d, hours, minutes);
+  };
+
+  const startUtc = parseToUtc(outDate, outTime);
+  const endUtc = parseToUtc(inDate, inTime);
+  if (startUtc === undefined || endUtc === undefined) return undefined;
+
+  const diffMs = endUtc - startUtc;
+  if (diffMs < 0) return "Invalid time range";
+
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const remainderMinutes = totalMinutes % 1440;
+  const hours = Math.floor(remainderMinutes / 60);
+  const minutes = remainderMinutes % 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
+  return `${hours}h ${minutes}m`;
+};
+
 const minutesFromTime = (value: unknown, _period?: "morning" | "evening") => {
   if (typeof value !== "string") return undefined;
   const [hours, minutes] = value.split(":").map(Number);
@@ -201,30 +258,7 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
     }
   }
 
-  if (register.slug === "driver-attendance") {
-    const isYes = (value: unknown) => String(value ?? "").trim().toLowerCase() === "yes";
-    const hasValue = (value: unknown) => value !== undefined && value !== null && value !== "";
-    if (data.day_allowance_applicable === undefined && hasValue(data.day_allowance)) {
-      data.day_allowance_applicable = Number(data.day_allowance) > 0 ? "Yes" : "No";
-    }
-    if (data.night_allowance_applicable === undefined && hasValue(data.night_allowance)) {
-      data.night_allowance_applicable = Number(data.night_allowance) > 0 ? "Yes" : "No";
-    }
-    if (!isYes(data.station)) {
-      delete data.station_name;
-      delete data.station_out_time;
-      delete data.station_in_time;
-      delete data.station_in_date;
-      delete data.day_allowance_applicable;
-      delete data.day_allowance;
-      delete data.night_allowance_applicable;
-      delete data.night_allowance;
-    } else {
-      data.day_allowance_applicable = "Yes";
-      data.night_allowance_applicable = "Yes";
-    }
-    setIfKnown("total_days", driverAttendanceTotalDays(data));
-  }
+
 
   const initialReading = Number(data.initial_reading);
   const finalReading = Number(data.final_reading);
@@ -254,6 +288,58 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
   const unit21 = minutesBetween(data.out_time_from_unit_2, data.in_time_in_unit_1);
   if (unit12 !== undefined) setIfKnown("time_taken_to_travel_from_unit1_to_2", `${Math.floor(unit12 / 60)}h ${unit12 % 60}m`);
   if (unit21 !== undefined) setIfKnown("time_taken_to_travel_from_unit_2_to_1", `${Math.floor(unit21 / 60)}h ${unit21 % 60}m`);
+
+  if (register.slug === "solar-panel-cleaning") {
+    const cleaningDuration = minutesBetween(data.in_time, data.out_time);
+    if (cleaningDuration !== undefined) {
+      setIfKnown("man_power", `${Math.floor(cleaningDuration / 60)}h ${cleaningDuration % 60}m`);
+    }
+  }
+
+  if (register.slug === "folk-lifter" || register.slug === "fork-lifter") {
+    const initial = Number(data.initial_meter_reading);
+    const final = Number(data.final_meter_reading);
+    if (Number.isFinite(initial) && Number.isFinite(final)) {
+      setIfKnown("today_total_reading", Math.round((final - initial) * 100) / 100);
+    }
+  }
+
+  if (register.slug === "car-breakdowns" || register.slug === "car-breakdown") {
+    const duration = calculateServiceDuration(
+      data.date ?? data.current_date,
+      data.car_out_time_for_service,
+      data.car_in_date,
+      data.car_in_time_after_service,
+    );
+    if (duration !== undefined) {
+      setIfKnown("total_time_consumed_in_service", duration);
+    }
+  }
+
+  if (register.slug === "outgoing-vehicles" || register.slug === "outgoing-vehicle-log") {
+    const rawChoice = String(data.station ?? data.station_choice ?? "").trim().toLowerCase();
+    const nameOfPlace = String(data.station_name ?? data.location ?? "").trim();
+    if (rawChoice === "unit 2" || rawChoice === "unit-2") {
+      data.station = "Unit 2";
+      data.station_name = "Unit 2";
+    } else if (rawChoice === "local" || rawChoice === "other") {
+      data.station = "Local";
+      data.station_name = nameOfPlace;
+    } else if (rawChoice === "out of station" || rawChoice === "out-station") {
+      data.station = "Out of Station";
+      data.station_name = nameOfPlace;
+    }
+  }
+
+  if (register.slug === "driver-attendance") {
+    if (!data.date_of_in_time && data.date) {
+      data.date_of_in_time = calendarDate(data.date as string) || data.date;
+    }
+    if (data.out_time && !data.date_of_out_time) {
+      data.date_of_out_time = data.date_of_in_time || calendarDate(data.date as string) || data.date;
+    }
+  }
+
   return data;
 };
 
@@ -265,7 +351,18 @@ export const validateRequiredFields = (register: RegisterDefinition, recordDate:
 };
 
 const responseDataForRole = (req: Request, definition: RegisterDefinition, data: Record<string, unknown>) => {
-  const calculatedData = ["daily-attendance", "chowk-labour", "driver-attendance"].includes(definition.slug)
+  const calculatedData = [
+    "daily-attendance",
+    "chowk-labour",
+    "driver-attendance",
+    "solar-panel-cleaning",
+    "folk-lifter",
+    "fork-lifter",
+    "outgoing-vehicles",
+    "outgoing-vehicle-log",
+    "car-breakdowns",
+    "car-breakdown",
+  ].includes(definition.slug)
     ? applyDerivedValues(definition, data)
     : data;
 
@@ -280,6 +377,10 @@ const responseDataForRole = (req: Request, definition: RegisterDefinition, data:
     delete visible.payment_status;
     delete visible.overtime_payment_status;
     return visible;
+  }
+
+  if (definition.slug === "driver-schedule" && calculatedData.remark === undefined && calculatedData.print_batch !== undefined) {
+    return { ...calculatedData, remark: calculatedData.print_batch };
   }
 
   return calculatedData;
@@ -338,14 +439,29 @@ const recordSummary = (definition: RegisterDefinition, data: Record<string, unkn
   return subject ? `${definition.title}: ${String(subject)}` : definition.title;
 };
 
-const calendarDate = (value: string | Date | null | undefined) => {
+const calendarDate = (value: string | Date | null | undefined): string | null => {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (!value) return null;
-  const trimmed = value.trim();
-  const dayFirst = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (dayFirst) return `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}`;
-  const isoDate = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
-  return isoDate?.[1] ?? trimmed;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  // ISO: YYYY-MM-DD or YYYY/MM/DD
+  const iso = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) {
+    return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  }
+  // Day-first: DD-MM-YYYY or DD/MM/YYYY
+  const dayFirst = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dayFirst) {
+    return `${dayFirst[3]}-${dayFirst[2].padStart(2, "0")}-${dayFirst[1].padStart(2, "0")}`;
+  }
+  // Day-first 2-digit year: DD-MM-YY or DD/MM/YY (e.g. 5/11/26 -> 2026-11-05)
+  const dmy2 = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$/);
+  if (dmy2) {
+    const rawYear = Number(dmy2[3]);
+    const year = rawYear < 50 ? 2000 + rawYear : 1900 + rawYear;
+    return `${year}-${dmy2[2].padStart(2, "0")}-${dmy2[1].padStart(2, "0")}`;
+  }
+  return trimmed;
 };
 
 const hrRegisterSlugs = ["driver-attendance", "daily-attendance", "chowk-labour"] as const;
@@ -358,8 +474,11 @@ const parseRegisterRecordsQuery = (query: Request["query"]) => {
     const parsed = new Date(`${value}T00:00:00.000Z`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   };
+  const rawLimit = Number(query.limit);
+  const clampedLimit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 500) : undefined;
   return ListRegisterRecordsQueryParams.parse({
     ...query,
+    limit: clampedLimit,
     from: parseDateQuery(query.from),
     to: parseDateQuery(query.to),
   });
@@ -477,7 +596,7 @@ const hrReport = async (from: string, to: string, sourceScope = "all") => {
   const [rows, labourRows, chowkLabourMasterRows, driverMasterRows, bills, transactions, exclusions] = await Promise.all([
     db.select().from(registerRecordsTable).where(inArray(registerRecordsTable.registerSlug, [...hrRegisterSlugs])),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "labour-master")),
-    db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "chowk-labour-master")).orderBy(desc(registerRecordsTable.updatedAt)),
+    db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "chowk-labour-master")).orderBy(desc(registerRecordsTable.updatedAt)).limit(1),
     db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, "driver-master")).orderBy(desc(registerRecordsTable.updatedAt)),
     db.select().from(paymentBillsTable),
     db.select().from(paymentTransactionsTable),
@@ -767,51 +886,110 @@ const dateInIndia = (value: Date) => {
 };
 
 const editWindowForRole = (role: string | undefined, definition?: RegisterDefinition) => {
-  if (role === "hr") return null;
-  if (definition?.module === "master" && (role === "admin" || role === "manager" || role === "hr")) return null;
-  if (role === "admin") return null;
+  if (role === "hr" || role === "admin") return null;
+  if (definition?.module === "master" && role === "manager") return null;
   if (role === "manager") return 7;
-  if (role === "security") return 7;
+  if (role === "security") return 3;
   return undefined;
 };
 
-const isEntryDate = (value: string | null) => {
+const isEntryDate = (value: string | null, role?: string) => {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return false;
   const today = dateInIndia(new Date());
+  // Strictly no future dates allowed
+  if (value > today) return false;
+  // Admin & HR can enter any past date
+  if (role === "admin" || role === "hr") return true;
   const todayStart = new Date(`${today}T00:00:00.000Z`);
-  const earliest = new Date(todayStart.getTime() - 2 * 86_400_000).toISOString().slice(0, 10);
-  return value >= earliest && value <= today;
+  const days = role === "manager" ? 7 : 3;
+  const earliest = new Date(todayStart.getTime() - days * 86_400_000).toISOString().slice(0, 10);
+  return value >= earliest;
 };
 
-const canEditRecord = (createdAt: Date, role: string | undefined, definition?: RegisterDefinition) => {
+const canEditRecord = (
+  createdAt: Date,
+  role: string | undefined,
+  definition?: RegisterDefinition,
+  recordDate?: string | null,
+) => {
+  if (role === "hr" || role === "admin") return true;
+  if (definition?.module === "master" && role === "manager") return true;
+  const today = dateInIndia(new Date());
   const windowDays = editWindowForRole(role, definition);
   if (windowDays === null) return true;
   if (windowDays === undefined) return false;
+
   const createdDate = new Date(`${dateInIndia(createdAt)}T00:00:00Z`);
-  const today = new Date(`${dateInIndia(new Date())}T00:00:00Z`);
-  const daysSinceCreation = Math.floor((today.getTime() - createdDate.getTime()) / 86_400_000);
-  return daysSinceCreation >= 0 && daysSinceCreation <= windowDays;
+  const todayDate = new Date(`${today}T00:00:00Z`);
+  const daysSinceCreation = Math.floor((todayDate.getTime() - createdDate.getTime()) / 86_400_000);
+  if (daysSinceCreation < 0 || daysSinceCreation > windowDays) return false;
+
+  if (recordDate && /^\d{4}-\d{2}-\d{2}$/.test(recordDate)) {
+    const rDate = new Date(`${recordDate}T00:00:00Z`);
+    const daysSinceRecordDate = Math.floor((todayDate.getTime() - rDate.getTime()) / 86_400_000);
+    if (daysSinceRecordDate < 0 || daysSinceRecordDate > windowDays) return false;
+  }
+  return true;
 };
 
 router.get("/dashboard", async (req: Request, res: Response) => {
-  const allRows = await db.select().from(registerRecordsTable);
-  const rows = allRows.filter((row) => {
-    const definition = getRegister(row.registerSlug);
-    return definition ? canAccessDefinition(req, definition) : false;
-  });
   const definitions = REGISTER_DEFINITIONS.filter((definition) => canAccessDefinition(req, definition));
-  const modules = ["security", "main-gate", "master"].map((module) => ({
-    module,
-    label: module === "security" ? "Security Operations" : module === "main-gate" ? "Main Gate Security" : "Master",
-    totalRecords: rows.filter((row) => getRegister(row.registerSlug)?.module === module).length,
-    registerCount: definitions.filter((item) => item.module === module).length,
-  }));
-  const latest = rows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 5);
-  const latestDate = rows.map(dateForRecord).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
+  const allowedSlugs = definitions.map((d) => d.slug);
+
+  if (allowedSlugs.length === 0) {
+    return res.json({
+      totalRecords: 0,
+      totalRegisters: 0,
+      modules: [],
+      attentionItems: [],
+      latestDate: null,
+      latestActivity: [],
+    });
+  }
+
+  const [counts, latest, latestDateRows] = await Promise.all([
+    db
+      .select({
+        registerSlug: registerRecordsTable.registerSlug,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(registerRecordsTable)
+      .where(inArray(registerRecordsTable.registerSlug, allowedSlugs))
+      .groupBy(registerRecordsTable.registerSlug),
+    db
+      .select()
+      .from(registerRecordsTable)
+      .where(inArray(registerRecordsTable.registerSlug, allowedSlugs))
+      .orderBy(desc(registerRecordsTable.updatedAt))
+      .limit(5),
+    db
+      .select({
+        maxDate: sql<string | null>`max(record_date)`,
+      })
+      .from(registerRecordsTable)
+      .where(inArray(registerRecordsTable.registerSlug, allowedSlugs)),
+  ]);
+
+  const countMap = new Map(counts.map((c) => [c.registerSlug, c.count]));
+  const totalRecords = counts.reduce((acc, c) => acc + c.count, 0);
+
+  const modules = ["security", "main-gate", "master"].map((module) => {
+    const moduleDefs = definitions.filter((item) => item.module === module);
+    const moduleRecords = moduleDefs.reduce((acc, item) => acc + (countMap.get(item.slug) ?? 0), 0);
+    return {
+      module,
+      label: module === "security" ? "Security Operations" : module === "main-gate" ? "Main Gate Security" : "Master",
+      totalRecords: moduleRecords,
+      registerCount: moduleDefs.length,
+    };
+  });
+
+  const latestDate = latestDateRows[0]?.maxDate ?? null;
+
   return res.json({
-    totalRecords: rows.length,
+    totalRecords,
     totalRegisters: definitions.length,
     modules,
     attentionItems: [
@@ -826,13 +1004,18 @@ router.get("/dashboard", async (req: Request, res: Response) => {
 
 router.get("/activity", async (req: Request, res: Response) => {
   const query = GetActivityQueryParams.parse(req.query);
-  const allRows = await db.select().from(registerRecordsTable).orderBy(desc(registerRecordsTable.updatedAt));
-  const rows = allRows
-    .filter((row) => {
-      const definition = getRegister(row.registerSlug);
-      return definition ? canAccessDefinition(req, definition) : false;
-    })
-    .slice(0, query.limit ?? 100);
+  const definitions = REGISTER_DEFINITIONS.filter((definition) => canAccessDefinition(req, definition));
+  const allowedSlugs = definitions.map((d) => d.slug);
+
+  if (allowedSlugs.length === 0) return res.json([]);
+
+  const rows = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(inArray(registerRecordsTable.registerSlug, allowedSlugs))
+    .orderBy(desc(registerRecordsTable.updatedAt))
+    .limit(query.limit ?? 100);
+
   return res.json(rows.map((row) => {
     const definition = getRegister(row.registerSlug)!;
     return {
@@ -846,13 +1029,73 @@ router.get("/activity", async (req: Request, res: Response) => {
 });
 
 router.get("/registers", async (req: Request, res: Response) => {
-  const counts = await db.select({ registerSlug: registerRecordsTable.registerSlug }).from(registerRecordsTable);
   const definitions = REGISTER_DEFINITIONS.filter((definition) => canAccessDefinition(req, definition));
-  return res.json(definitions.map((definition) => ({
-    ...definition,
-    recordCount: counts.filter((row) => row.registerSlug === definition.slug).length,
-  })));
+  const counts = await db
+    .select({
+      registerSlug: registerRecordsTable.registerSlug,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(registerRecordsTable)
+    .groupBy(registerRecordsTable.registerSlug);
+
+  const countMap = new Map(counts.map((c) => [c.registerSlug, c.count]));
+
+  return res.json(definitions.map((definition) => {
+    let recordCount = countMap.get(definition.slug) ?? 0;
+    if (definition.slug === "outgoing-vehicles") {
+      recordCount += (countMap.get("outgoing-vehicle-log") ?? 0);
+    }
+    return {
+      ...definition,
+      recordCount,
+    };
+  }));
 });
+
+const fetchFilteredRegisterRecords = async (
+  req: Request,
+  definition: RegisterDefinition,
+  query: ReturnType<typeof parseRegisterRecordsQuery>,
+) => {
+  const slugsToQuery =
+    definition.slug === "outgoing-vehicles" || definition.slug === "outgoing-vehicle-log"
+      ? ["outgoing-vehicles", "outgoing-vehicle-log"]
+      : [definition.slug];
+
+  let rows = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(inArray(registerRecordsTable.registerSlug, slugsToQuery))
+    .orderBy(desc(registerRecordsTable.updatedAt));
+
+  const search = query.search?.trim().toLowerCase();
+  if (search) {
+    rows = rows.filter((row) =>
+      JSON.stringify(responseDataForRole(req, definition, row.data)).toLowerCase().includes(search),
+    );
+  }
+
+  const name = query.name?.trim().toLowerCase();
+  if (name) {
+    rows = rows.filter((row) =>
+      Object.entries(responseDataForRole(req, definition, row.data))
+        .filter(([key]) => key.includes("name") || key === "labour_name")
+        .some(([, value]) => String(value ?? "").toLowerCase().includes(name)),
+    );
+  }
+
+  if (query.from) {
+    const fromDate = calendarDate(query.from);
+    if (fromDate) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! >= fromDate);
+  }
+
+  if (query.to) {
+    const toDate = calendarDate(query.to);
+    if (toDate) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! <= toDate);
+  }
+
+  return rows;
+};
 
 router.get("/registers/:slug/records", async (req: Request, res: Response) => {
   const { slug } = ListRegisterRecordsParams.parse(req.params);
@@ -860,24 +1103,20 @@ router.get("/registers/:slug/records", async (req: Request, res: Response) => {
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canReadDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
-  let rows = await db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, slug)).orderBy(desc(registerRecordsTable.updatedAt));
-  const search = query.search?.trim().toLowerCase();
-  if (search) rows = rows.filter((row) => JSON.stringify(responseDataForRole(req, definition, row.data)).toLowerCase().includes(search));
-  const name = query.name?.trim().toLowerCase();
-  if (name) rows = rows.filter((row) => Object.entries(responseDataForRole(req, definition, row.data))
-    .filter(([key]) => key.includes("name") || key === "labour_name")
-    .some(([, value]) => String(value ?? "").toLowerCase().includes(name)));
-  if (query.from) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! >= calendarDate(query.from)!);
-  if (query.to) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! <= calendarDate(query.to)!);
+
+  const rows = await fetchFilteredRegisterRecords(req, definition, query);
   const paidReferences = hrRegisterSlugs.includes(slug as typeof hrRegisterSlugs[number])
     ? await paidAttendanceReferences()
     : new Set<string>();
+
   return res.json({
-    records: rows.slice(0, query.limit ?? 100).map((row) => toResponse(
-      row,
-      responseDataForRole(req, definition, row.data),
-      paymentStatusForRegisterRecord(row, paidReferences),
-    )),
+    records: rows.slice(0, query.limit ?? 100).map((row) =>
+      toResponse(
+        row,
+        responseDataForRole(req, definition, row.data),
+        paymentStatusForRegisterRecord(row, paidReferences),
+      ),
+    ),
     total: rows.length,
   });
 });
@@ -888,16 +1127,12 @@ router.get("/registers/:slug/records/export", async (req: Request, res: Response
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canReadDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
-  let rows = await db.select().from(registerRecordsTable).where(eq(registerRecordsTable.registerSlug, slug)).orderBy(desc(registerRecordsTable.updatedAt));
-  const search = query.search?.trim().toLowerCase();
-  if (search) rows = rows.filter((row) => JSON.stringify(responseDataForRole(req, definition, row.data)).toLowerCase().includes(search));
-  const name = query.name?.trim().toLowerCase();
-  if (name) rows = rows.filter((row) => Object.entries(responseDataForRole(req, definition, row.data))
-    .filter(([key]) => key.includes("name") || key === "labour_name")
-    .some(([, value]) => String(value ?? "").toLowerCase().includes(name)));
-  if (query.from) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! >= calendarDate(query.from)!);
-  if (query.to) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! <= calendarDate(query.to)!);
-  return res.json({ records: rows.map((row) => toResponse(row, responseDataForRole(req, definition, row.data))), total: rows.length });
+
+  const rows = await fetchFilteredRegisterRecords(req, definition, query);
+  return res.json({
+    records: rows.map((row) => toResponse(row, responseDataForRole(req, definition, row.data))),
+    total: rows.length,
+  });
 });
 
 router.get("/hr/report", async (req: Request, res: Response) => {
@@ -1291,8 +1526,13 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
   const selectedDate = calendarDate(body.data.date as string | undefined);
-  if (!isEntryDate(selectedDate)) {
-    return res.status(400).json({ error: "Select a date from today or the previous two days." });
+  if (!isEntryDate(selectedDate, req.user?.role)) {
+    const errorMsg = req.user?.role === "manager"
+      ? "Managers can only add records from today or up to 7 days prior. Future dates are not allowed."
+      : req.user?.role === "security"
+        ? "Security staff can only add records from today or up to 3 days prior. Future dates are not allowed."
+        : "Future dates are not allowed.";
+    return res.status(400).json({ error: errorMsg });
   }
   const createdAt = new Date();
   const recordDate = createdAt.toISOString();
@@ -1302,6 +1542,52 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   );
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
+  if (slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log") {
+    const driverName = String(data.driver_name ?? "").trim().toLowerCase();
+    if (driverName) {
+      const activeRows = await db.select().from(registerRecordsTable)
+        .where(
+          and(
+            inArray(registerRecordsTable.registerSlug, ["outgoing-vehicles", "outgoing-vehicle-log"]),
+            sql`LOWER(data->>'driver_name') = ${driverName}`,
+            sql`data->>'out_time' IS NOT NULL AND data->>'out_time' != ''`,
+            sql`(data->>'final_reading' IS NULL OR data->>'final_reading' = '' OR (data->>'final_reading')::numeric <= 0)`,
+            sql`(data->>'in_time' IS NULL OR data->>'in_time' = '')`
+          )
+        )
+        .limit(1);
+      if (activeRows.length > 0) {
+        const activeData = (activeRows[0].data ?? {}) as Record<string, unknown>;
+        const tripStation = String(activeData.station ?? activeData.station_choice ?? "Out of Station");
+        const tripPlace = String(activeData.station_name ?? "");
+        return res.status(400).json({
+          error: `Driver ${String(data.driver_name)} is currently out of office on an active trip (${tripStation}${tripPlace ? ` - ${tripPlace}` : ""}). Record their return (final reading) before dispatching a new vehicle.`
+        });
+      }
+
+      // Check if driver has already logged out / ended shift in driver attendance on this date
+      if (selectedDate) {
+        const attendanceRows = await db.select().from(registerRecordsTable)
+          .where(
+            and(
+              eq(registerRecordsTable.registerSlug, "driver-attendance"),
+              sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`
+            )
+          );
+        for (const attRow of attendanceRows) {
+          const attDate = dateForRecord(attRow);
+          if (attDate === selectedDate) {
+            const outTime = String(attRow.data.out_time ?? "").trim();
+            if (outTime) {
+              return res.status(400).json({
+                error: `Driver ${String(data.driver_name)} has already logged out / ended shift for today (Out Time: ${outTime}). Dispatch requires an active on-duty driver.`
+              });
+            }
+          }
+        }
+      }
+    }
+  }
   if (slug === "chowk-labour-master") {
     const existing = await db.select().from(registerRecordsTable)
       .where(eq(registerRecordsTable.registerSlug, slug))
@@ -1366,30 +1652,43 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
-  const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug))).limit(1);
+  const isVehicleSlug = slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log";
+  const slugFilter = isVehicleSlug
+    ? inArray(registerRecordsTable.registerSlug, ["outgoing-vehicles", "outgoing-vehicle-log"])
+    : eq(registerRecordsTable.registerSlug, slug);
+  const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), slugFilter)).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
-  if (paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
+  const isHrSlug = hrRegisterSlugs.includes(slug as typeof hrRegisterSlugs[number]);
+  if (isHrSlug && paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
     return res.status(409).json({ error: "Payment done: this attendance record cannot be edited or deleted." });
   }
   const editWindowDays = editWindowForRole(req.user?.role, definition);
   if (editWindowDays === undefined) {
     return res.status(403).json({ error: "This role cannot edit records" });
   }
-  if (!canEditRecord(existing[0].createdAt, req.user?.role, definition)) {
+  const existingRecordDate = calendarDate(typeof existing[0].data.date === "string" ? existing[0].data.date : undefined);
+  if (!canEditRecord(existing[0].createdAt, req.user?.role, definition, existingRecordDate)) {
     return res.status(403).json({
-      error: req.user?.role === "admin"
-        ? "This record cannot be edited"
-        : `This record can no longer be edited. ${req.user?.role === "manager" ? "Managers" : "Security staff"} can edit records for ${editWindowDays} days after entry.`,
+      error: req.user?.role === "security"
+        ? "Security staff can only edit records from the last 3 days."
+        : req.user?.role === "admin"
+          ? "This record cannot be edited"
+          : `This record can no longer be edited. Managers can edit records for ${editWindowDays} days after entry.`,
     });
   }
-  const existingDate = calendarDate(typeof existing[0].data.date === "string" ? existing[0].data.date : undefined)
+  const existingDate = existingRecordDate
     ?? existing[0].recordDate
     ?? dateInIndia(new Date());
   const selectedDate = body.data?.date === undefined
     ? existingDate
     : calendarDate(body.data.date as string | undefined);
-  if (!selectedDate || (body.data?.date !== undefined && selectedDate !== existingDate && !isEntryDate(selectedDate))) {
-    return res.status(400).json({ error: "Select a date from today or the previous two days." });
+  if (!selectedDate || (body.data?.date !== undefined && selectedDate !== existingDate && !isEntryDate(selectedDate, req.user?.role))) {
+    const errorMsg = req.user?.role === "manager"
+      ? "Managers can only set dates from today or up to 7 days prior. Future dates are not allowed."
+      : req.user?.role === "security"
+        ? "Security staff can only set dates from today or up to 3 days prior. Future dates are not allowed."
+        : "Future dates are not allowed.";
+    return res.status(400).json({ error: errorMsg });
   }
   const data = applyDerivedValues(
     definition,
@@ -1401,6 +1700,54 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   }
   const missing = validateRequiredFields(definition, selectedDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
+  if (slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log") {
+    const driverName = String(data.driver_name ?? "").trim().toLowerCase();
+    const existingDriver = String(existing[0].data?.driver_name ?? "").trim().toLowerCase();
+    // Only block if changing driver to another driver who is currently out, or if this record itself had no driver
+    if (driverName && driverName !== existingDriver) {
+      const activeRows = await db.select().from(registerRecordsTable)
+        .where(
+          and(
+            inArray(registerRecordsTable.registerSlug, ["outgoing-vehicles", "outgoing-vehicle-log"]),
+            sql`id != ${id}`,
+            sql`LOWER(data->>'driver_name') = ${driverName}`,
+            sql`data->>'out_time' IS NOT NULL AND data->>'out_time' != ''`,
+            sql`(data->>'final_reading' IS NULL OR data->>'final_reading' = '' OR (data->>'final_reading')::numeric <= 0)`,
+            sql`(data->>'in_time' IS NULL OR data->>'in_time' = '')`
+          )
+        )
+        .limit(1);
+      if (activeRows.length > 0) {
+        const activeData = (activeRows[0].data ?? {}) as Record<string, unknown>;
+        const tripStation = String(activeData.station ?? activeData.station_choice ?? "Out of Station");
+        const tripPlace = String(activeData.station_name ?? "");
+        return res.status(400).json({
+          error: `Driver ${String(data.driver_name)} is currently out of office on an active trip (${tripStation}${tripPlace ? ` - ${tripPlace}` : ""}). Record their return (final reading) before assigning them to another trip.`
+        });
+      }
+
+      if (selectedDate) {
+        const attendanceRows = await db.select().from(registerRecordsTable)
+          .where(
+            and(
+              eq(registerRecordsTable.registerSlug, "driver-attendance"),
+              sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`
+            )
+          );
+        for (const attRow of attendanceRows) {
+          const attDate = dateForRecord(attRow);
+          if (attDate === selectedDate) {
+            const outTime = String(attRow.data.out_time ?? "").trim();
+            if (outTime) {
+              return res.status(400).json({
+                error: `Driver ${String(data.driver_name)} has already logged out / ended shift for today (Out Time: ${outTime}). Assign an active on-duty driver.`
+              });
+            }
+          }
+        }
+      }
+    }
+  }
   const row = await db.update(registerRecordsTable).set({
     data,
     updatedAt: new Date(),
@@ -1417,13 +1764,19 @@ router.delete("/registers/:slug/records/:id", async (req: Request, res: Response
     return res.status(403).json({ error: "Only managers and admins can delete records" });
   }
 
+  const isVehicleSlug = slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log";
+  const slugFilter = isVehicleSlug
+    ? inArray(registerRecordsTable.registerSlug, ["outgoing-vehicles", "outgoing-vehicle-log"])
+    : eq(registerRecordsTable.registerSlug, slug);
+
   const existing = await db
     .select()
     .from(registerRecordsTable)
-    .where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug)))
+    .where(and(eq(registerRecordsTable.id, id), slugFilter))
     .limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
-  if (paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
+  const isHrDeleteSlug = hrRegisterSlugs.includes(slug as typeof hrRegisterSlugs[number]);
+  if (isHrDeleteSlug && paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
     return res.status(409).json({ error: "Payment done: this attendance record cannot be edited or deleted." });
   }
   if (!canEditRecord(existing[0].createdAt, req.user?.role, definition)) {
@@ -1434,7 +1787,7 @@ router.delete("/registers/:slug/records/:id", async (req: Request, res: Response
 
   await db
     .delete(registerRecordsTable)
-    .where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, slug)));
+    .where(and(eq(registerRecordsTable.id, id), slugFilter));
   return res.status(204).send();
 });
 

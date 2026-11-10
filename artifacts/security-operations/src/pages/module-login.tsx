@@ -1,4 +1,4 @@
-import { ArrowRight, BarChart3, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BarChart3, Car, Gauge, LogOut, ShieldCheck, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
 import { canAccessWorkspace, useAuth, type WorkspaceSlug } from '@/lib/auth';
 
@@ -8,7 +8,16 @@ const modules: Array<{
   label: string;
   description: string;
   icon: typeof ShieldCheck;
+  highlight?: boolean;
 }> = [
+  {
+    slug: 'driver-board',
+    href: '/driver-board',
+    label: 'Live Driver & Vehicle Board',
+    description: 'Real-time driver presence, vehicle assignments, active trips en-route & fleet service',
+    icon: Car,
+    highlight: true,
+  },
   {
     slug: 'security',
     href: '/registers/security',
@@ -40,8 +49,8 @@ const modules: Array<{
   {
     slug: 'reports',
     href: '/reports',
-    label: 'Reports',
-    description: 'Person-wise driver, labour and training reports',
+    label: 'Reports 3.0',
+    description: 'Module Report 3.0 (Solar Cleaning Man Power), Report 2.0 (Driver & Vehicle) & HR reports',
     icon: BarChart3,
   },
 ];
@@ -55,6 +64,32 @@ export default function ModuleLogin() {
       <section className="relative mx-auto flex min-h-[100dvh] w-full max-w-[1280px] flex-col justify-center px-6 py-12 sm:px-10 lg:px-16">
         <div className="absolute right-6 top-6 flex items-center gap-3 sm:right-10 sm:top-8">
           <span className="hidden text-xs text-white/60 sm:inline">{user?.displayName}</span>
+          <Link
+            href="/driver-board"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/30"
+            data-testid="link-header-driver-board"
+          >
+            <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+            <Car size={14} /> Live Fleet Board
+          </Link>
+          {user?.role === 'admin' && (
+            <>
+              <Link
+                href="/admin/users?tab=breakdowns"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-500/20 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/30"
+                data-testid="link-header-breakdown-report"
+              >
+                <AlertTriangle size={14} className="text-red-400" /> Breakdown Report
+              </Link>
+              <Link
+                href="/admin/users"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
+                data-testid="link-header-admin-panel"
+              >
+                <ShieldCheck size={14} /> Admin Panel
+              </Link>
+            </>
+          )}
           <button onClick={() => void logout()} className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15" data-testid="button-module-logout">
             <LogOut size={14} /> Sign out
           </button>
@@ -89,9 +124,17 @@ export default function ModuleLogin() {
                 <Icon size={31} strokeWidth={1.7} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block font-serif text-2xl font-bold tracking-[-.02em]">
-                  {label}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="block font-serif text-2xl font-bold tracking-[-.02em]">
+                    {label}
+                  </span>
+                  {slug === 'driver-board' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold tracking-wide text-emerald-800">
+                      <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      LIVE
+                    </span>
+                  )}
+                </div>
                 <span className="mt-1 block text-sm leading-6 text-slate-500">
                   {description}
                 </span>

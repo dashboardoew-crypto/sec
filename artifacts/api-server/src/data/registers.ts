@@ -109,7 +109,7 @@ const register = (
   fields: makeFields(labels, options),
 });
 
-const meterFields: FieldDefinition[] = [
+const mangoTreeMeterFields: FieldDefinition[] = [
   { key: "on_time", label: "ON TIME", type: "time", required: true },
   {
     key: "off_time",
@@ -120,25 +120,25 @@ const meterFields: FieldDefinition[] = [
   },
   {
     key: "office_initial",
-    label: "OFFICE INITIAL",
+    label: "OFFICE INITIAL ELECTRICITY METER READING",
     type: "number",
     required: true,
   },
   {
     key: "office_final",
-    label: "OFFICE FINAL",
+    label: "OFFICE FINAL ELECTRICITY METER READING",
     type: "number",
     required: true,
   },
   {
     key: "kothi_initial",
-    label: "KOTHI INITIAL",
+    label: "MANGO TREE WATER CONSUMPTION INITIAL READING",
     type: "number",
     required: true,
   },
   {
     key: "kothi_final",
-    label: "KOTHI FINAL reading",
+    label: "MANGO TREE WATER CONSUMPTION FINAL READING",
     type: "number",
     required: true,
   },
@@ -150,13 +150,66 @@ const meterFields: FieldDefinition[] = [
   },
   {
     key: "total_water_consumed",
-    label: "TOTAL WATER CONSUMED",
+    label: "TOTAL WATER CONSUMED (LITER)",
     type: "number",
     derived: true,
   },
   {
     key: "per_minute_water_consumed",
-    label: "PER MINUTE WATER CONSUMED",
+    label: "PER MIN WATER CONSUMED (LITER)",
+    type: "number",
+    derived: true,
+  },
+];
+
+const clinicGateMeterFields: FieldDefinition[] = [
+  { key: "on_time", label: "ON TIME", type: "time", required: true },
+  {
+    key: "off_time",
+    label: "OFF TIME",
+    type: "time",
+    required: true,
+    derived: true,
+  },
+  {
+    key: "office_initial",
+    label: "OFFICE INITIAL ELECTRICITY METER READING",
+    type: "number",
+    required: true,
+  },
+  {
+    key: "office_final",
+    label: "OFFICE FINAL ELECTRICITY METER READING",
+    type: "number",
+    required: true,
+  },
+  {
+    key: "kothi_initial",
+    label: "CLINIC GATE WATER CONSUMPTION INITIAL READING",
+    type: "number",
+    required: true,
+  },
+  {
+    key: "kothi_final",
+    label: "CLINIC GATE WATER CONSUMPTION FINAL READING",
+    type: "number",
+    required: true,
+  },
+  {
+    key: "minutes_consumed",
+    label: "MINUTES CONSUMED",
+    type: "number",
+    derived: true,
+  },
+  {
+    key: "total_water_consumed",
+    label: "TOTAL WATER CONSUMED (LITER)",
+    type: "number",
+    derived: true,
+  },
+  {
+    key: "per_minute_water_consumed",
+    label: "PER MIN WATER CONSUMED (LITER)",
     type: "number",
     derived: true,
   },
@@ -222,10 +275,58 @@ const solarPanelCleaningFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "text", required: true },
   { key: "in_time", label: "IN-TIME", type: "time", required: true },
   { key: "out_time", label: "OUT-TIME", type: "time" },
+  { key: "man_power", label: "MAN POWER", type: "text", derived: true },
   { key: "yard", label: "YARD", type: "text" },
   { key: "canopy_zone_i", label: "CANOPY ZONE I", type: "text" },
   { key: "foundry_zone_ii", label: "FOUNDRY ZONE II", type: "text" },
   { key: "machine_shop_iii", label: "MACHINE SHOP III", type: "text" },
+  { key: "remark", label: "REMARK", type: "textarea" },
+];
+
+const folkLifterFields: FieldDefinition[] = [
+  { key: "date", label: "DATE", type: "date", required: true },
+  {
+    key: "initial_meter_reading",
+    label: "INITIAL METER READING",
+    type: "number",
+    required: true,
+  },
+  {
+    key: "final_meter_reading",
+    label: "FINAL METER READING",
+    type: "number",
+    required: true,
+  },
+  {
+    key: "today_total_reading",
+    label: "TODAY TOTAL READING",
+    type: "number",
+    derived: true,
+  },
+  { key: "remark", label: "REMARK", type: "textarea" },
+];
+
+const carBreakdownsFields: FieldDefinition[] = [
+  { key: "date", label: "CURRENT DATE", type: "date", required: true },
+  { key: "car_name", label: "CAR NAME", type: "text", required: true },
+  {
+    key: "car_out_time_for_service",
+    label: "CAR OUT TIME FOR SERVICE",
+    type: "time",
+    required: true,
+  },
+  { key: "car_in_date", label: "CAR IN DATE", type: "date" },
+  {
+    key: "car_in_time_after_service",
+    label: "CAR IN TIME AFTER SERVICE",
+    type: "time",
+  },
+  {
+    key: "total_time_consumed_in_service",
+    label: "TOTAL TIME CONSUMED IN SERVICE",
+    type: "text",
+    derived: true,
+  },
   { key: "remark", label: "REMARK", type: "textarea" },
 ];
 
@@ -253,6 +354,9 @@ const serviceBillFields: FieldDefinition[] = [
     required: true,
   },
   { key: "amount", label: "AMOUNT", type: "number", required: true },
+  { key: "bill_received_from", label: "BILL RECEIVED FROM", type: "text" },
+  { key: "bill_handover_to", label: "BILL HANDOVER TO", type: "text" },
+  { key: "bill_handover_date", label: "BILL HANDOVER DATE", type: "date" },
 ];
 
 const jackRegisterFields: FieldDefinition[] = [
@@ -305,29 +409,10 @@ const securityMasterFields: FieldDefinition[] = [
 
 const driverAttendanceFields: FieldDefinition[] = [
   { key: "name", label: "NAME", type: "select", required: true },
+  { key: "date_of_in_time", label: "DATE OF IN TIME", type: "date", required: true },
   { key: "in_time", label: "IN-TIME", type: "time", required: true },
+  { key: "date_of_out_time", label: "DATE OF OUT TIME", type: "date" },
   { key: "out_time", label: "OUT-TIME", type: "time" },
-  { key: "station", label: "STATION", type: "select", options: ["Yes", "No"] },
-  { key: "station_name", label: "STATION NAME", type: "text" },
-  { key: "station_out_time", label: "STATION OUT-TIME", type: "time" },
-  { key: "station_in_time", label: "STATION IN-TIME", type: "time" },
-  { key: "station_in_date", label: "STATION IN DATE", type: "date" },
-  { key: "total_days", label: "TOTAL DAYS", type: "number", derived: true },
-  { key: "sign", label: "SIGN", type: "text" },
-  {
-    key: "day_allowance_applicable",
-    label: "DAY ALLOWANCE",
-    type: "select",
-    options: ["Yes", "No"],
-  },
-  { key: "day_allowance", label: "DA", type: "number" },
-  {
-    key: "night_allowance_applicable",
-    label: "NIGHT ALLOWANCE",
-    type: "select",
-    options: ["Yes", "No"],
-  },
-  { key: "night_allowance", label: "NA", type: "number" },
 ];
 
 const nameMasterFields: FieldDefinition[] = [
@@ -336,6 +421,33 @@ const nameMasterFields: FieldDefinition[] = [
 
 const keyMasterFields: FieldDefinition[] = [
   { key: "location", label: "LOCATION", type: "text", required: true },
+];
+
+const outgoingVehicleFields: FieldDefinition[] = [
+  { key: "date", label: "Date", type: "date", required: true },
+  { key: "driver_name", label: "Driver Name", type: "select", required: true },
+  { key: "car_name", label: "Car Name", type: "text", required: true },
+  { key: "out_time", label: "Out Time", type: "time", required: true },
+  {
+    key: "station",
+    label: "Station / Trip Type",
+    type: "select",
+    required: true,
+    options: ["Unit 2", "Local", "Out of Station"],
+  },
+  {
+    key: "station_name",
+    label: "Destination / Name of Place",
+    type: "text",
+    required: false,
+  },
+  { key: "initial_reading", label: "Initial reading", type: "number", required: true },
+  { key: "final_reading", label: "Final reading", type: "number" },
+  { key: "total_km_car_run", label: "Total km car run", type: "number", derived: true },
+  { key: "in_time", label: "In Time", type: "time" },
+  { key: "name_of_the_person_in_car", label: "Name of the Person in Car", type: "text", required: true },
+  { key: "requested_by_whom", label: "Requested By Whom", type: "text" },
+  { key: "sign", label: "Sign", type: "select" },
 ];
 
 const labourMasterFields: FieldDefinition[] = [
@@ -385,22 +497,22 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   {
     ...register(
       "mango-tree-meter",
-      "Mango Tree Meter Reading",
+      "Mango Tree Meter Reading (Tubewell 1)",
       "security",
       [],
       "Track irrigation meter readings and water usage.",
     ),
-    fields: meterFields,
+    fields: mangoTreeMeterFields,
   },
   {
     ...register(
       "clinic-gate-meter",
-      "Clinic Gate Meter Reading",
+      "Clinic Gate Meter Reading (Tube Well 2)",
       "security",
       [],
       "Track clinic gate irrigation and meter usage.",
     ),
-    fields: meterFields,
+    fields: clinicGateMeterFields,
   },
   {
     ...register(
@@ -453,10 +565,11 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
       "CAR NAME",
       "FETCHED PHONE",
       "LOCATION",
-      "Print Batch",
+      "Requested By Whom",
+      "REMARK",
     ],
     "Schedule drivers and vehicles for daily assignments.",
-    { optional: ["FETCHED PHONE", "Print Batch"] },
+    { optional: ["FETCHED PHONE", "REMARK", "Requested By Whom"] },
   ),
   {
     ...register(
@@ -477,6 +590,26 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
       "Track jack issue and challan records.",
     ),
     fields: jackRegisterFields,
+  },
+  {
+    ...register(
+      "folk-lifter",
+      "Folk Lifter",
+      "security",
+      [],
+      "Track daily folk lifter initial and final meter readings and total usage.",
+    ),
+    fields: folkLifterFields,
+  },
+  {
+    ...register(
+      "car-breakdowns",
+      "Car Breakdowns",
+      "security",
+      [],
+      "Track car breakdowns, service out/in times, and total service duration.",
+    ),
+    fields: carBreakdownsFields,
   },
   {
     ...register(
@@ -568,26 +701,16 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
     ],
     "Record official staff and work-related gate movements.",
   ),
-  register(
-    "outgoing-vehicles",
-    "Outgoing Vehicles Register",
-    "main-gate",
-    [
-      "Date",
-      "Driver Name",
-      "Car Name",
-      "Out Time",
-      "Location",
-      "Initial Reading",
-      "Final Reading",
-      "Total KM Car Run",
-      "In Time",
-      "Name of the Person in Car",
-      "Signature",
-    ],
-    "Track outgoing vehicles, trips, and odometer readings.",
-    { optional: ["Total KM Car Run"] },
-  ),
+  {
+    ...register(
+      "outgoing-vehicles",
+      "Outgoing Vehicles Register",
+      "main-gate",
+      [],
+      "Track all outgoing vehicle movements across Unit 2, Local, and Out of Station.",
+    ),
+    fields: outgoingVehicleFields,
+  },
   register(
     "visitor-record",
     "Visitor Record Register",
@@ -615,26 +738,6 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
     ),
     fields: kothiAttendanceFields,
   },
-  register(
-    "outgoing-vehicle-log",
-    "Outgoing Vehicle Log",
-    "main-gate",
-    [
-      "Date",
-      "Driver Name",
-      "Car Name",
-      "Out Time",
-      "Station",
-      "Initial reading",
-      "Final reading",
-      "Total km car run",
-      "In Time",
-      "Name of the Person in Car",
-      "Sign",
-    ],
-    "Track secondary outgoing vehicle records.",
-    { optional: ["Total km car run"] },
-  ),
   register(
     "contractor-gate-pass",
     "Contractor Personal Gate Pass",
@@ -730,5 +833,18 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   }),
 }));
 
-export const getRegister = (slug: string) =>
-  REGISTER_DEFINITIONS.find((item) => item.slug === slug);
+const REGISTERS_BY_SLUG = new Map<string, RegisterDefinition>(
+  REGISTER_DEFINITIONS.map((def) => [def.slug, def]),
+);
+
+export const getRegister = (slug: string) => {
+  const normalizedSlug =
+    slug === "fork-lifter"
+      ? "folk-lifter"
+      : slug === "car-breakdown"
+        ? "car-breakdowns"
+        : slug === "outgoing-vehicle-log"
+          ? "outgoing-vehicles"
+          : slug;
+  return REGISTERS_BY_SLUG.get(normalizedSlug);
+};
