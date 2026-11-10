@@ -3,9 +3,7 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
-  Clock,
   Download,
-  Filter,
   Mail,
   Plus,
   RefreshCw,
@@ -81,8 +79,6 @@ export function BreakdownReportView({
   const [breakdownAlertEmail, setBreakdownAlertEmail] = useState('');
   const [fallbackEmail, setFallbackEmail] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
-  const [isGmailConfigured, setIsGmailConfigured] = useState(false);
-  const [loadingEmailConfig, setLoadingEmailConfig] = useState(false);
   const [savingEmailConfig, setSavingEmailConfig] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
   const [emailConfigNotice, setEmailConfigNotice] = useState('');
@@ -103,19 +99,15 @@ export function BreakdownReportView({
 
   const loadEmailConfig = async () => {
     try {
-      setLoadingEmailConfig(true);
       const res = await fetch('/api/breakdowns/email-config', { credentials: 'include' });
       const data = await safeParseJson(res);
       if (res.ok) {
         setBreakdownAlertEmail(data.breakdownAlertEmail || '');
         setFallbackEmail(data.fallbackEmail || '');
         setSenderEmail(data.senderEmail || '');
-        setIsGmailConfigured(Boolean(data.isGmailConfigured));
       }
     } catch {
       // ignore
-    } finally {
-      setLoadingEmailConfig(false);
     }
   };
 

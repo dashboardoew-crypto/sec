@@ -6,6 +6,8 @@ import { VehicleReportModule } from '@/components/vehicle-report-module';
 import { SolarReportModule } from '@/components/solar-report-module';
 import { BreakdownReportView } from '@/components/breakdown-report-view';
 import { CarBreakdownReportModule } from '@/components/car-breakdown-report-module';
+import { DriverComprehensiveReportView } from '@/components/driver-comprehensive-report';
+import { downloadCsv } from '@/lib/date-utils';
 import {
   displayDate,
   fetchHrReport,
@@ -15,7 +17,6 @@ import {
   today,
   type HrDetail,
   type HrReport,
-  type HrSummary,
 } from '@/lib/hr-report';
 
 type ReportSource = 'driver-attendance' | 'chowk-labour' | 'daily-attendance';
@@ -41,18 +42,9 @@ const reportOptions: Array<{ source: ReportSource; label: string; description: s
 const inputClass = 'w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
 const amount = (value: number) => `₹${value.toFixed(2)}`;
 const reportLabel = (source: string) => reportOptions.find((option) => option.source === source)?.label ?? source;
-const downloadCsv = (filename: string, rows: string[][]) => {
-  const csv = rows.map((row) => row.map((cell) => JSON.stringify(cell)).join(',')).join('\n');
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-};
 
 export default function ReportsPage() {
-  const [reportVersion, setReportVersion] = useState<'v4' | 'v3' | 'v2' | 'v1' | 'breakdowns'>('v4');
+  const [reportVersion, setReportVersion] = useState<'v4' | 'v3' | 'v2' | 'v1' | 'breakdowns' | 'driver-360'>('driver-360');
   const [source, setSource] = useState<ReportSource>('driver-attendance');
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
@@ -175,16 +167,50 @@ export default function ReportsPage() {
 
   return (
     <div className="ops-grid min-h-[100dvh] px-3 py-5 sm:px-5 sm:py-8 md:px-8 lg:px-10">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <Link href="/" className="flex items-center gap-2 text-sm font-semibold">
           <ArrowLeft size={16} /> Back to modules
         </Link>
-        <span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Reports workspace</span>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/driver-board"
+            className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 shadow-sm transition"
+            data-testid="link-reports-driver-board"
+          >
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-500"></span>
+            </span>
+            <Car size={14} /> Live Driver & Fleet Board ↗
+          </Link>
+          <span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Reports workspace</span>
+        </div>
       </div>
 
       {/* Main Version Switcher */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-2 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setReportVersion('driver-360')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition sm:text-sm ${
+              reportVersion === 'driver-360'
+                ? 'bg-indigo-600 text-white shadow-md dark:bg-indigo-500'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            data-testid="button-report-driver-360"
+          >
+            <Users size={16} /> 🚘 Driver 360° Presence & Trips (Whole Summary)
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+                reportVersion === 'driver-360'
+                  ? 'bg-white/25 text-white'
+                  : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
+              }`}
+            >
+              Audit
+            </span>
+          </button>
+
           <button
             onClick={() => setReportVersion('v4')}
             className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition sm:text-sm ${
@@ -280,19 +306,23 @@ export default function ReportsPage() {
         </div>
 
         <div className="hidden px-2 font-mono text-[11px] text-muted-foreground lg:block">
-          {reportVersion === 'v4'
-            ? 'Car Breakdown Service Logs, Monthly Downtime & Vehicle Reliability Analytics'
-            : reportVersion === 'breakdowns'
-              ? 'Tubewell 1 & 2 Breakdown Incident Reports, Live Status & Dispatches'
-              : reportVersion === 'v3'
-                ? 'Solar Panel Cleaning Register & Monthly Man Power Calculations'
-                : reportVersion === 'v2'
-                  ? 'Outgoing Vehicle Log (Local) & Out of Station KM Analytics'
-                  : 'Driver Attendance, Chowk Labour & Training Reports'}
+          {reportVersion === 'driver-360'
+            ? 'Complete Driver Summary (All Drivers & Individual): 0-Trip Idle Days, 1-Trip, 2-Trip, Multi-Trip & Full Manifest'
+            : reportVersion === 'v4'
+              ? 'Car Breakdown Service Logs, Monthly Downtime & Vehicle Reliability Analytics'
+              : reportVersion === 'breakdowns'
+                ? 'Tubewell 1 & 2 Breakdown Incident Reports, Live Status & Dispatches'
+                : reportVersion === 'v3'
+                  ? 'Solar Panel Cleaning Register & Monthly Man Power Calculations'
+                  : reportVersion === 'v2'
+                    ? 'Outgoing Vehicle Log (Local) & Out of Station KM Analytics'
+                    : 'Driver Attendance, Chowk Labour & Training Reports'}
         </div>
       </div>
 
-      {reportVersion === 'v4' ? (
+      {reportVersion === 'driver-360' ? (
+        <DriverComprehensiveReportView />
+      ) : reportVersion === 'v4' ? (
         <CarBreakdownReportModule />
       ) : reportVersion === 'breakdowns' ? (
         <BreakdownReportView />

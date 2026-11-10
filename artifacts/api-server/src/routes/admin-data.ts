@@ -1401,7 +1401,7 @@ const validateImportConsistency = async (imported: {
   }
 };
 
-router.use(requireRole("admin"));
+router.use("/admin/data", requireRole("admin"));
 
 router.get("/admin/data/backup", async (_req: Request, res: Response) => {
   return res.json(publicSettings(await getSettings()));

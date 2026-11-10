@@ -2,47 +2,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { inArray, desc } from "drizzle-orm";
 import { db, registerRecordsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/authMiddleware";
+import { parseTimeMinutes, formatDuration, parseNum } from "../lib/time-utils";
 
 const router: IRouter = Router();
-router.use(requireAuth);
-
-const parseTimeMinutes = (val: unknown): number | undefined => {
-  if (typeof val !== "string" && typeof val !== "number") return undefined;
-  const str = String(val).trim();
-  if (!str) return undefined;
-
-  const match = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?$/i);
-  if (match) {
-    let hours = parseInt(match[1], 10);
-    const minutes = parseInt(match[2], 10);
-    const ampm = match[3]?.toLowerCase();
-    if (ampm === "pm" && hours < 12) hours += 12;
-    if (ampm === "am" && hours === 12) hours = 0;
-    if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-      return hours * 60 + minutes;
-    }
-  }
-  return undefined;
-};
-
-const formatDuration = (totalMinutes: number): string => {
-  if (totalMinutes <= 0) return "0m";
-  const h = Math.floor(totalMinutes / 60);
-  const m = Math.round(totalMinutes % 60);
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
-};
-
-const parseNum = (val: unknown): number => {
-  if (typeof val === "number" && !isNaN(val)) return val;
-  if (typeof val === "string") {
-    const cleaned = val.replace(/,/g, "").trim();
-    const parsed = parseFloat(cleaned);
-    return !isNaN(parsed) ? parsed : 0;
-  }
-  return 0;
-};
 
 const normalizeToIsoDate = (dateVal: unknown): string => {
   if (!dateVal) return "";
@@ -1450,11 +1412,502 @@ export const getLiveDriverPresence = async (customDate?: string): Promise<Driver
   };
 };
 
-router.get("/reports/vehicle/drivers-live", async (req: Request, res: Response) => {
-  if (!["admin", "manager", "hr", "security"].includes(req.user?.role ?? "")) {
-    return res.status(403).json({ error: "Only HR, managers, admins, and security can view live driver presence" });
+export type DriverDailyTripItem = {
+  recordId: string;
+  tripNumber: number;
+  carName: string;
+  station: "Unit 2" | "Local" | "Out of Station";
+  stationName: string;
+  outTime: string;
+  inTime: string;
+  durationMinutes: number;
+  durationFormatted: string;
+  initialReading: number;
+  finalReading: number;
+  kmRun: number;
+  personInCar: string;
+  requestedBy: string;
+  isActive: boolean;
+};
+
+export type DriverDayRecord = {
+  date: string;
+  dateFormatted: string;
+  driverName: string;
+  phone: string;
+  isPresent: boolean;
+  attendanceRecordId?: string;
+  inTime?: string;
+  dateOfInTime?: string;
+  outTime?: string;
+  dateOfOutTime?: string;
+  presenceMinutes: number;
+  presenceFormatted: string;
+  isClockedOut: boolean;
+  isOnDuty: boolean;
+  tripCount: number;
+  trips: DriverDailyTripItem[];
+  totalKm: number;
+  drivingMinutes: number;
+  drivingFormatted: string;
+  status: "idle_in_company" | "active_on_trip" | "completed_trips" | "trips_no_attendance" | "absent";
+  statusLabel: string;
+};
+
+export type DriverConsolidatedSummary = {
+  driverName: string;
+  phone: string;
+  workLocation: string;
+  supervisor: string;
+  daysPresent: number;
+  daysWithTrips: number;
+  daysIdleNoTrips: number;
+  days1Trip: number;
+  days2Trips: number;
+  days3PlusTrips: number;
+  totalTrips: number;
+  localTrips: number;
+  localKm: number;
+  outStationTrips: number;
+  outStationKm: number;
+  unit2Trips: number;
+  unit2Km: number;
+  totalKm: number;
+  totalPresenceMinutes: number;
+  totalPresenceFormatted: string;
+  totalDrivingMinutes: number;
+  totalDrivingFormatted: string;
+  avgKmPerTrip: number;
+  avgTripsPerPresentDay: number;
+  utilizationRate: number;
+  days: DriverDayRecord[];
+};
+
+export type DriverComprehensiveReport = {
+  range: { from: string; to: string };
+  summary: {
+    totalRegisteredDrivers: number;
+    totalActiveDriversInRange: number;
+    totalDutyDays: number;
+    totalTripsDone: number;
+    totalIdleDays: number;
+    totalCombinedKm: number;
+    driversWithZeroTripsCount: number;
+  };
+  availableDrivers: string[];
+  driverSummaries: DriverConsolidatedSummary[];
+  allDailyRecords: DriverDayRecord[];
+};
+
+export const getDriverComprehensiveReport = async ({
+  from: rawFrom,
+  to: rawTo,
+  driver: selectedDriver,
+}: {
+  from?: string;
+  to?: string;
+  driver?: string;
+}): Promise<DriverComprehensiveReport> => {
+  const todayStr = dateInIndiaStr();
+  const to = rawTo ? normalizeToIsoDate(rawTo) : todayStr;
+  const from = rawFrom ? normalizeToIsoDate(rawFrom) : `${to.slice(0, 7)}-01`;
+
+  const rows = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(
+      inArray(registerRecordsTable.registerSlug, [
+        "driver-master",
+        "driver-attendance",
+        "outgoing-vehicles",
+        "outgoing-vehicle-log",
+      ])
+    )
+    .orderBy(desc(registerRecordsTable.createdAt));
+
+  type MasterInfo = {
+    name: string;
+    phone: string;
+    workLocation: string;
+    supervisor: string;
+  };
+  const masterDrivers = new Map<string, MasterInfo>();
+  const allDriverNames = new Map<string, string>();
+
+  // 1. Collect master drivers
+  for (const row of rows) {
+    if (row.registerSlug === "driver-master") {
+      const data = (row.data ?? {}) as Record<string, unknown>;
+      const name = String(data.name ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      allDriverNames.set(key, name);
+      masterDrivers.set(key, {
+        name,
+        phone: String(data.mobile_no ?? data.mobile ?? data.phone ?? "").trim(),
+        workLocation: String(data.work_location ?? "").trim(),
+        supervisor: String(data.supervisor ?? "").trim(),
+      });
+    }
   }
 
+  type AttendanceItem = {
+    recordId: string;
+    inTime: string;
+    dateOfInTime: string;
+    outTime: string;
+    dateOfOutTime: string;
+    presenceMinutes: number;
+    station: boolean;
+    stationName: string;
+  };
+  const attendanceMap = new Map<string, Map<string, AttendanceItem>>();
+  const tripsMap = new Map<string, Map<string, DriverDailyTripItem[]>>();
+
+  // Process rows
+  for (const row of rows) {
+    const data = (row.data ?? {}) as Record<string, unknown>;
+
+    if (row.registerSlug === "driver-attendance") {
+      const name = String(data.name ?? data.driver_name ?? data.driver ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!allDriverNames.has(key)) allDriverNames.set(key, name);
+
+      const inDate = normalizeToIsoDate(data.date_of_in_time ?? data.date ?? row.recordDate);
+      if (!inDate || inDate < from || inDate > to) continue;
+
+      const inTime = String(data.in_time ?? "").trim();
+      const outTime = String(data.out_time ?? "").trim();
+      const dateOfInTime = String(data.date_of_in_time ?? inDate).trim();
+      const dateOfOutTime = String(data.date_of_out_time ?? (outTime ? inDate : "")).trim();
+
+      let presenceMinutes = 0;
+      const inM = parseTimeMinutes(inTime);
+      const outM = parseTimeMinutes(outTime);
+      if (inM !== undefined && outM !== undefined) {
+        presenceMinutes = (outM - inM + 1440) % 1440;
+      }
+
+      if (!attendanceMap.has(key)) attendanceMap.set(key, new Map());
+      const driverAtts = attendanceMap.get(key)!;
+      if (!driverAtts.has(inDate)) {
+        driverAtts.set(inDate, {
+          recordId: row.id,
+          inTime,
+          dateOfInTime,
+          outTime,
+          dateOfOutTime,
+          presenceMinutes,
+          station: String(data.station ?? "").trim().toLowerCase() === "yes",
+          stationName: String(data.station_name ?? "").trim(),
+        });
+      }
+    }
+
+    if (row.registerSlug === "outgoing-vehicles" || row.registerSlug === "outgoing-vehicle-log") {
+      const name = String(data.driver_name ?? data.driver ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!allDriverNames.has(key)) allDriverNames.set(key, name);
+
+      const tripDate = normalizeToIsoDate(data.date ?? row.recordDate);
+      if (!tripDate || tripDate < from || tripDate > to) continue;
+
+      const outTime = String(data.out_time ?? "").trim();
+      const inTime = String(data.in_time ?? "").trim();
+      const initial = parseNum(data.initial_reading ?? data.initialReading);
+      const final = parseNum(data.final_reading ?? data.finalReading);
+      let kmRun = parseNum(data.total_km_car_run ?? data.totalKmCarRun ?? data.total_km);
+      if (!kmRun && final > initial && initial > 0) kmRun = final - initial;
+      kmRun = Math.max(0, kmRun);
+
+      let durationMinutes = 0;
+      const outM = parseTimeMinutes(outTime);
+      const inM = parseTimeMinutes(inTime);
+      if (outM !== undefined && inM !== undefined) {
+        durationMinutes = (inM - outM + 1440) % 1440;
+      }
+
+      const rawChoice = String(data.station ?? data.station_choice ?? "").trim().toLowerCase();
+      let stationType: "Unit 2" | "Local" | "Out of Station" = "Local";
+      if (rawChoice === "unit 2" || rawChoice === "unit-2") {
+        stationType = "Unit 2";
+      } else if (rawChoice === "out of station" || rawChoice === "out-station" || (!rawChoice && row.registerSlug === "outgoing-vehicles")) {
+        stationType = "Out of Station";
+      } else {
+        stationType = "Local";
+      }
+
+      const stationName = String(data.station_name ?? data.location ?? data.destination ?? stationType).trim();
+      const carName = String(data.car_name ?? data.vehicle_name ?? data.car ?? "Car").trim();
+      const isActive = Boolean(outTime && !inTime && (!final || final <= 0));
+
+      if (!tripsMap.has(key)) tripsMap.set(key, new Map());
+      const driverTripsByDate = tripsMap.get(key)!;
+      if (!driverTripsByDate.has(tripDate)) driverTripsByDate.set(tripDate, []);
+
+      const list = driverTripsByDate.get(tripDate)!;
+      list.push({
+        recordId: row.id,
+        tripNumber: list.length + 1,
+        carName,
+        station: stationType,
+        stationName,
+        outTime,
+        inTime,
+        durationMinutes,
+        durationFormatted: formatDuration(durationMinutes),
+        initialReading: initial,
+        finalReading: final,
+        kmRun: Math.round(kmRun * 10) / 10,
+        personInCar: String(data.name_of_the_person_in_car ?? data.person_in_car ?? data.passenger ?? "—").trim(),
+        requestedBy: String(data.requested_by_whom ?? data.requested_by ?? "—").trim(),
+        isActive,
+      });
+    }
+  }
+
+  // Filter target drivers
+  const targetDriverKeys = selectedDriver && selectedDriver !== "ALL"
+    ? [selectedDriver.toLowerCase()]
+    : Array.from(allDriverNames.keys());
+
+  const driverSummaries: DriverConsolidatedSummary[] = [];
+  const allDailyRecords: DriverDayRecord[] = [];
+
+  let totalDutyDaysCount = 0;
+  let totalTripsDoneCount = 0;
+  let totalIdleDaysCount = 0;
+  let totalCombinedKmCount = 0;
+  let driversWithZeroTripsCount = 0;
+
+  for (const key of targetDriverKeys) {
+    const displayName = allDriverNames.get(key) || masterDrivers.get(key)?.name || key.toUpperCase();
+    const master = masterDrivers.get(key);
+    const phone = master?.phone || "";
+    const workLocation = master?.workLocation || "";
+    const supervisor = master?.supervisor || "";
+
+    const driverAtts = attendanceMap.get(key) || new Map<string, AttendanceItem>();
+    const driverTrips = tripsMap.get(key) || new Map<string, DriverDailyTripItem[]>();
+
+    const dateSet = new Set<string>();
+    for (const d of driverAtts.keys()) dateSet.add(d);
+    for (const d of driverTrips.keys()) dateSet.add(d);
+
+    if (from === to && master) {
+      dateSet.add(from);
+    }
+
+    const sortedDates = Array.from(dateSet).sort();
+
+    const dailyRecordsForDriver: DriverDayRecord[] = [];
+    let driverTotalTrips = 0;
+    let driverLocalTrips = 0;
+    let driverLocalKm = 0;
+    let driverOutStationTrips = 0;
+    let driverOutStationKm = 0;
+    let driverUnit2Trips = 0;
+    let driverUnit2Km = 0;
+    let driverTotalKm = 0;
+    let driverPresenceMinutes = 0;
+    let driverDrivingMinutes = 0;
+    let driverDaysPresent = 0;
+    let driverDaysWithTrips = 0;
+    let driverDaysIdleNoTrips = 0;
+    let driverDays1Trip = 0;
+    let driverDays2Trips = 0;
+    let driverDays3PlusTrips = 0;
+
+    for (const d of sortedDates) {
+      const att = driverAtts.get(d);
+      const dayTrips = (driverTrips.get(d) || []).map((t, idx) => ({ ...t, tripNumber: idx + 1 }));
+      const isPresent = Boolean(att);
+      const tripCount = dayTrips.length;
+
+      let dayKm = 0;
+      let dayDrivingMinutes = 0;
+      for (const t of dayTrips) {
+        dayKm += t.kmRun;
+        dayDrivingMinutes += t.durationMinutes;
+        driverTotalTrips += 1;
+        if (t.station === "Unit 2") {
+          driverUnit2Trips += 1;
+          driverUnit2Km += t.kmRun;
+        } else if (t.station === "Out of Station") {
+          driverOutStationTrips += 1;
+          driverOutStationKm += t.kmRun;
+        } else {
+          driverLocalTrips += 1;
+          driverLocalKm += t.kmRun;
+        }
+      }
+
+      driverTotalKm += dayKm;
+      driverDrivingMinutes += dayDrivingMinutes;
+      if (isPresent && att) {
+        driverDaysPresent += 1;
+        driverPresenceMinutes += att.presenceMinutes;
+        totalDutyDaysCount += 1;
+      }
+
+      if (tripCount > 0) {
+        driverDaysWithTrips += 1;
+        if (tripCount === 1) driverDays1Trip += 1;
+        else if (tripCount === 2) driverDays2Trips += 1;
+        else driverDays3PlusTrips += 1;
+      } else if (isPresent) {
+        driverDaysIdleNoTrips += 1;
+        totalIdleDaysCount += 1;
+      }
+
+      totalTripsDoneCount += tripCount;
+      totalCombinedKmCount += dayKm;
+
+      let status: DriverDayRecord["status"] = "absent";
+      let statusLabel = "Absent / Not Punched In";
+
+      if (dayTrips.some((t) => t.isActive)) {
+        status = "active_on_trip";
+        const act = dayTrips.find((t) => t.isActive)!;
+        statusLabel = `On Trip (${act.carName} → ${act.stationName})`;
+      } else if (isPresent && tripCount === 0) {
+        status = "idle_in_company";
+        statusLabel = "Present in Company (0 Trips)";
+      } else if (isPresent && tripCount === 1) {
+        status = "completed_trips";
+        statusLabel = "1 Trip Completed";
+      } else if (isPresent && tripCount === 2) {
+        status = "completed_trips";
+        statusLabel = "2 Trips Completed";
+      } else if (isPresent && tripCount > 2) {
+        status = "completed_trips";
+        statusLabel = `${tripCount} Trips Completed`;
+      } else if (!isPresent && tripCount > 0) {
+        status = "trips_no_attendance";
+        statusLabel = `${tripCount} Trip(s) Done (No Attendance)`;
+      }
+
+      const [y, m, dayNum] = d.split("-");
+      const dateFormatted = `${dayNum}-${m}-${y}`;
+
+      const dayRec: DriverDayRecord = {
+        date: d,
+        dateFormatted,
+        driverName: displayName,
+        phone,
+        isPresent,
+        attendanceRecordId: att?.recordId,
+        inTime: att?.inTime || undefined,
+        dateOfInTime: att?.dateOfInTime || undefined,
+        outTime: att?.outTime || undefined,
+        dateOfOutTime: att?.dateOfOutTime || undefined,
+        presenceMinutes: att?.presenceMinutes || 0,
+        presenceFormatted: formatDuration(att?.presenceMinutes || 0),
+        isClockedOut: Boolean(att?.outTime && att.outTime !== "—"),
+        isOnDuty: Boolean(att?.inTime && (!att.outTime || att.outTime === "—")),
+        tripCount,
+        trips: dayTrips,
+        totalKm: Math.round(dayKm * 10) / 10,
+        drivingMinutes: dayDrivingMinutes,
+        drivingFormatted: formatDuration(dayDrivingMinutes),
+        status,
+        statusLabel,
+      };
+
+      dailyRecordsForDriver.push(dayRec);
+      allDailyRecords.push(dayRec);
+    }
+
+    if (driverDaysPresent > 0 && driverTotalTrips === 0) {
+      driversWithZeroTripsCount += 1;
+    }
+
+    const avgKmPerTrip = driverTotalTrips > 0 ? Math.round((driverTotalKm / driverTotalTrips) * 10) / 10 : 0;
+    const avgTripsPerPresentDay = driverDaysPresent > 0 ? Math.round((driverTotalTrips / driverDaysPresent) * 10) / 10 : 0;
+    const utilizationRate = driverDaysPresent > 0 ? Math.round((driverDaysWithTrips / driverDaysPresent) * 100) : 0;
+
+    driverSummaries.push({
+      driverName: displayName,
+      phone,
+      workLocation,
+      supervisor,
+      daysPresent: driverDaysPresent,
+      daysWithTrips: driverDaysWithTrips,
+      daysIdleNoTrips: driverDaysIdleNoTrips,
+      days1Trip: driverDays1Trip,
+      days2Trips: driverDays2Trips,
+      days3PlusTrips: driverDays3PlusTrips,
+      totalTrips: driverTotalTrips,
+      localTrips: driverLocalTrips,
+      localKm: Math.round(driverLocalKm * 10) / 10,
+      outStationTrips: driverOutStationTrips,
+      outStationKm: Math.round(driverOutStationKm * 10) / 10,
+      unit2Trips: driverUnit2Trips,
+      unit2Km: Math.round(driverUnit2Km * 10) / 10,
+      totalKm: Math.round(driverTotalKm * 10) / 10,
+      totalPresenceMinutes: driverPresenceMinutes,
+      totalPresenceFormatted: formatDuration(driverPresenceMinutes),
+      totalDrivingMinutes: driverDrivingMinutes,
+      totalDrivingFormatted: formatDuration(driverDrivingMinutes),
+      avgKmPerTrip,
+      avgTripsPerPresentDay,
+      utilizationRate,
+      days: dailyRecordsForDriver.reverse(),
+    });
+  }
+
+  driverSummaries.sort((a, b) => b.daysPresent - a.daysPresent || b.totalTrips - a.totalTrips || a.driverName.localeCompare(b.driverName));
+  allDailyRecords.sort((a, b) => b.date.localeCompare(a.date) || a.driverName.localeCompare(b.driverName));
+
+  return {
+    range: { from, to },
+    summary: {
+      totalRegisteredDrivers: allDriverNames.size,
+      totalActiveDriversInRange: driverSummaries.filter((d) => d.daysPresent > 0 || d.totalTrips > 0).length,
+      totalDutyDays: totalDutyDaysCount,
+      totalTripsDone: totalTripsDoneCount,
+      totalIdleDays: totalIdleDaysCount,
+      totalCombinedKm: Math.round(totalCombinedKmCount * 10) / 10,
+      driversWithZeroTripsCount,
+    },
+    availableDrivers: Array.from(allDriverNames.values()).sort(),
+    driverSummaries,
+    allDailyRecords,
+  };
+};
+
+router.get("/reports/driver-comprehensive", requireAuth, async (req: Request, res: Response) => {
+  if (!["admin", "manager", "hr", "security"].includes(req.user?.role ?? "")) {
+    return res.status(403).json({ error: "Only HR, managers, admins, and security can view driver reports" });
+  }
+
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  const driver = typeof req.query.driver === "string" ? req.query.driver : undefined;
+
+  if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    return res.status(400).json({ error: "Invalid 'from' date format (YYYY-MM-DD)" });
+  }
+  if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    return res.status(400).json({ error: "Invalid 'to' date format (YYYY-MM-DD)" });
+  }
+  if (from && to && from > to) {
+    return res.status(400).json({ error: "'from' date cannot be after 'to' date" });
+  }
+
+  try {
+    const report = await getDriverComprehensiveReport({ from, to, driver });
+    return res.json(report);
+  } catch (error) {
+    req.log?.error({ err: error }, "Failed to generate driver comprehensive report");
+    return res.status(500).json({ error: "Failed to generate driver comprehensive report" });
+  }
+});
+
+router.get("/reports/vehicle/drivers-live", async (req: Request, res: Response) => {
+  // Public live presence board: accessible to all viewers, staff, gate screens & logged-in roles
   try {
     const date = typeof req.query.date === "string" ? req.query.date : undefined;
     const report = await getLiveDriverPresence(date);
@@ -1465,7 +1918,7 @@ router.get("/reports/vehicle/drivers-live", async (req: Request, res: Response) 
   }
 });
 
-router.get("/reports/vehicle-analytics", async (req: Request, res: Response) => {
+router.get("/reports/vehicle-analytics", requireAuth, async (req: Request, res: Response) => {
   if (!["admin", "manager", "hr", "security"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR, managers, admins, and security can view vehicle reports" });
   }

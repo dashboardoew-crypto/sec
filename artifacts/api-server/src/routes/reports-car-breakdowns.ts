@@ -2,28 +2,10 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { desc, inArray } from "drizzle-orm";
 import { db, registerRecordsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/authMiddleware";
+import { parseTimeMinutes } from "../lib/time-utils";
 
 const router: IRouter = Router();
-router.use(requireAuth);
-
-const parseTimeMinutes = (val: unknown): number | undefined => {
-  if (typeof val !== "string" && typeof val !== "number") return undefined;
-  const str = String(val).trim();
-  if (!str) return undefined;
-
-  const match = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?$/i);
-  if (match) {
-    let hours = parseInt(match[1], 10);
-    const minutes = parseInt(match[2], 10);
-    const ampm = match[3]?.toLowerCase();
-    if (ampm === "pm" && hours < 12) hours += 12;
-    if (ampm === "am" && hours === 12) hours = 0;
-    if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-      return hours * 60 + minutes;
-    }
-  }
-  return undefined;
-};
+router.use("/reports/car-breakdowns", requireAuth);
 
 const parseToUtc = (dStr: string, tStr: string): number | undefined => {
 

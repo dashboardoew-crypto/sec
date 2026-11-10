@@ -53,9 +53,11 @@ app.use("/api", (err: any, _req: any, res: any, _next: any) => {
   res.status(status).json({ error: err?.message || "Internal server error" });
 });
 
-// Serve built frontend assets if present (production / Linux deployment mode)
+// Serve built frontend assets if present (production / Linux deployment mode / local mode)
 const publicDirCandidates = [
   path.resolve(process.cwd(), "artifacts/security-operations/dist/public"),
+  path.resolve(process.cwd(), "../security-operations/dist/public"),
+  path.resolve(process.cwd(), "dist/public"),
   path.resolve(import.meta.dirname, "../../security-operations/dist/public"),
   path.resolve(import.meta.dirname, "../security-operations/dist/public"),
   path.resolve(import.meta.dirname, "./public"),

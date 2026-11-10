@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, Download, FileSpreadsheet, KeyRound, Mail, Pencil, Search, Send, ShieldAlert, Trash2, Upload, UserPlus, UsersRound, Wrench, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Download, FileSpreadsheet, KeyRound, Mail, Pencil, Search, Send, ShieldAlert, Trash2, Upload, UserPlus, UsersRound, X } from 'lucide-react';
 import { Link } from 'wouter';
 import { PageIntro } from '@/components/ops-ui';
 import { useAuth, type AuthUser, type UserRole } from '@/lib/auth';
@@ -50,7 +50,7 @@ const DEFAULT_REGISTERS: RegisterEmailItem[] = [
   { slug: "driver-schedule", title: "Driver Daily Schedule", module: "security" },
   { slug: "service-bill", title: "Service Bill Entry", module: "security" },
   { slug: "jack-register", title: "Jack Register OEW", module: "security" },
-  { slug: "folk-lifter", title: "Folk Lifter", module: "security" },
+  { slug: "fork-lifter", title: "Fork Lifter", module: "security" },
   { slug: "car-breakdowns", title: "Car Breakdowns", module: "security" },
   { slug: "personal-gate-pass", title: "Personal Gate Pass Register", module: "main-gate" },
   { slug: "official-gate-pass", title: "Official Gate Pass Register", module: "main-gate" },

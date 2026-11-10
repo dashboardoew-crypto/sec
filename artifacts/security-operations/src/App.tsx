@@ -54,8 +54,7 @@ function ReportsAccessRoute() {
 }
 
 function DriverBoardAccessRoute() {
-  const { user } = useAuth();
-  return canAccessWorkspace(user?.role, 'driver-board') ? <DriverBoardPage /> : <NotFound />;
+  return <DriverBoardPage />;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
@@ -71,6 +70,8 @@ function Router() {
           <Route path="/" component={ModuleLogin} />
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/driver-board" component={DriverBoardAccessRoute} />
+          <Route path="/fleet" component={DriverBoardAccessRoute} />
+          <Route path="/live" component={DriverBoardAccessRoute} />
           <Route path="/registers/:slug" component={RegistersPage} />
           <Route path="/admin/users" component={AdminUsersPage} />
           <Route path="/hr" component={HrCenterAccessRoute} />
@@ -84,7 +85,27 @@ function Router() {
 
 function AuthGate() {
   const { isLoading, user } = useAuth();
+  const [location] = useLocation();
+
   if (isLoading) return <LoadingScreen label="Loading workspace…" />;
+
+  // Allow anyone to view Live Driver & Fleet Board without requiring login
+  const isDriverBoardRoute =
+    location === '/driver-board' ||
+    location.startsWith('/driver-board') ||
+    location === '/fleet' ||
+    location === '/live';
+
+  if (!user && isDriverBoardRoute) {
+    return (
+      <RoutedErrorBoundary>
+        <Suspense fallback={<LoadingScreen label="Loading Live Driver & Fleet Board…" />}>
+          <DriverBoardPage />
+        </Suspense>
+      </RoutedErrorBoundary>
+    );
+  }
+
   if (!user) {
     return (
       <Suspense fallback={<LoadingScreen label="Loading login…" />}>

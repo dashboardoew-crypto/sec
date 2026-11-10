@@ -14,6 +14,7 @@ export const canCreateRegisterRecord = (role?: UserRole | null) =>
   role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
 
 export const canAccessWorkspace = (role: UserRole | undefined | null, workspace: WorkspaceSlug) => {
+  if (workspace === 'driver-board') return true;
   if (workspace === 'master' || workspace === 'hr' || workspace === 'payments' || workspace === 'reports' || workspace === 'payment-report') return role === 'admin' || role === 'manager' || role === 'hr';
   return role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
 };

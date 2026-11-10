@@ -2,7 +2,7 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypt
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, authSessionsTable, authUsersTable, type AuthUser } from "@workspace/db";
-import { hashSessionToken, requireAuth, requireRole, SESSION_COOKIE } from "../middlewares/authMiddleware";
+import { hashSessionToken, requireRole, SESSION_COOKIE } from "../middlewares/authMiddleware";
 
 type UserRole = "admin" | "manager" | "hr" | "security";
 const USER_ROLES: UserRole[] = ["admin", "manager", "hr", "security"];

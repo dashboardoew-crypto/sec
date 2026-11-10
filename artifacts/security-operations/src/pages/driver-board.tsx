@@ -4,18 +4,21 @@ import {
   ArrowLeft,
   Calendar,
   Car,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   ExternalLink,
+  LogIn,
   MapPin,
-  Navigation,
+  Maximize,
+  Minimize,
   PhoneCall,
   Printer,
   Radio,
   RefreshCw,
   Search,
   UserCheck,
-  UserMinus,
   UserX,
   Users,
   Wrench,
@@ -23,10 +26,8 @@ import {
 import { Link } from 'wouter';
 import {
   fetchLiveDriverPresence,
-  type ActiveVehicleItem,
   type DriverLivePresenceItem,
   type DriverLivePresenceReport,
-  type ServiceVehicleItem,
 } from '@/lib/vehicle-report';
 import { useAuth } from '@/lib/auth';
 
@@ -83,6 +84,42 @@ export default function DriverBoardPage() {
   const [activeTab, setActiveTab] = useState<'roster' | 'fleet' | 'service' | 'schedule'>('roster');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'on_trip' | 'on_station' | 'punched_out' | 'not_reported'>('all');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Fullscreen event listener
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Ignore fullscreen denial
+    }
+  };
+
+  const copyShareLink = async () => {
+    try {
+      const shareUrl = window.location.origin + '/driver-board';
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2200);
+    } catch {
+      // Fallback
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2200);
+    }
+  };
 
   // Clock in IST
   useEffect(() => {
@@ -172,7 +209,7 @@ export default function DriverBoardPage() {
               data-testid="link-back-modules"
             >
               <ArrowLeft size={14} />
-              <span>Modules</span>
+              <span>{user ? 'Modules' : 'ERP Home'}</span>
             </Link>
             <div className="h-4 w-px bg-slate-800" />
             <div className="flex items-center gap-2">
@@ -188,9 +225,14 @@ export default function DriverBoardPage() {
                     <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     LIVE OPS
                   </span>
+                  {!user && (
+                    <span className="hidden sm:inline-flex rounded-full border border-slate-700 bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-300">
+                      Public View
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-slate-400 hidden sm:block">
-                  Real-time Duty Presence, Vehicle Dispatches & Maintenance Tracking
+                  Real-time Duty Presence, Vehicle Dispatches & Maintenance Tracking · Open to All
                 </p>
               </div>
             </div>
@@ -230,16 +272,58 @@ export default function DriverBoardPage() {
               <span className="hidden sm:inline">Refresh</span>
             </button>
 
+            {/* Copy / Share Link */}
+            <button
+              type="button"
+              onClick={() => void copyShareLink()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-700 hover:bg-slate-800 transition"
+              title="Copy link to share this board"
+              data-testid="button-share-board"
+            >
+              {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span className="hidden md:inline">{copied ? 'Copied!' : 'Share'}</span>
+            </button>
+
+            {/* Fullscreen TV / Monitor Mode */}
+            <button
+              type="button"
+              onClick={() => void toggleFullscreen()}
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-700 hover:bg-slate-800 transition"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Full Screen Display for Gate TV / Monitor'}
+              data-testid="button-fullscreen-board"
+            >
+              {isFullscreen ? <Minimize size={13} /> : <Maximize size={13} />}
+              <span className="hidden md:inline">{isFullscreen ? 'Exit Full' : 'Fullscreen'}</span>
+            </button>
+
             {/* Print Board */}
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-700 hover:bg-slate-800 transition"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-700 hover:bg-slate-800 transition"
               title="Print Gate Handover Sheet"
             >
               <Printer size={13} />
               <span className="hidden md:inline">Print</span>
             </button>
+
+            {/* Sign in / User status */}
+            {!user ? (
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/30 transition shadow-sm"
+                data-testid="link-board-signin"
+              >
+                <LogIn size={13} />
+                <span>Sign In</span>
+              </Link>
+            ) : (
+              <span className="hidden xl:inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-slate-400">
+                <span className="size-1.5 rounded-full bg-emerald-400" />
+                <span className="font-medium text-slate-200">{user.displayName}</span>
+                <span className="text-[10px] uppercase text-slate-500 font-mono">({user.role})</span>
+              </span>
+            )}
           </div>
         </div>
       </header>

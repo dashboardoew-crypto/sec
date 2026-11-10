@@ -351,3 +351,111 @@ export async function fetchLiveDriverPresence(date?: string): Promise<DriverLive
   }
   return response.json();
 }
+
+export type DriverDailyTripItem = {
+  recordId: string;
+  tripNumber: number;
+  carName: string;
+  station: "Unit 2" | "Local" | "Out of Station";
+  stationName: string;
+  outTime: string;
+  inTime: string;
+  durationMinutes: number;
+  durationFormatted: string;
+  initialReading: number;
+  finalReading: number;
+  kmRun: number;
+  personInCar: string;
+  requestedBy: string;
+  isActive: boolean;
+};
+
+export type DriverDayRecord = {
+  date: string;
+  dateFormatted: string;
+  driverName: string;
+  phone: string;
+  isPresent: boolean;
+  attendanceRecordId?: string;
+  inTime?: string;
+  dateOfInTime?: string;
+  outTime?: string;
+  dateOfOutTime?: string;
+  presenceMinutes: number;
+  presenceFormatted: string;
+  isClockedOut: boolean;
+  isOnDuty: boolean;
+  tripCount: number;
+  trips: DriverDailyTripItem[];
+  totalKm: number;
+  drivingMinutes: number;
+  drivingFormatted: string;
+  status: "idle_in_company" | "active_on_trip" | "completed_trips" | "trips_no_attendance" | "absent";
+  statusLabel: string;
+};
+
+export type DriverConsolidatedSummary = {
+  driverName: string;
+  phone: string;
+  workLocation: string;
+  supervisor: string;
+  daysPresent: number;
+  daysWithTrips: number;
+  daysIdleNoTrips: number;
+  days1Trip: number;
+  days2Trips: number;
+  days3PlusTrips: number;
+  totalTrips: number;
+  localTrips: number;
+  localKm: number;
+  outStationTrips: number;
+  outStationKm: number;
+  unit2Trips: number;
+  unit2Km: number;
+  totalKm: number;
+  totalPresenceMinutes: number;
+  totalPresenceFormatted: string;
+  totalDrivingMinutes: number;
+  totalDrivingFormatted: string;
+  avgKmPerTrip: number;
+  avgTripsPerPresentDay: number;
+  utilizationRate: number;
+  days: DriverDayRecord[];
+};
+
+export type DriverComprehensiveReport = {
+  range: { from: string; to: string };
+  summary: {
+    totalRegisteredDrivers: number;
+    totalActiveDriversInRange: number;
+    totalDutyDays: number;
+    totalTripsDone: number;
+    totalIdleDays: number;
+    totalCombinedKm: number;
+    driversWithZeroTripsCount: number;
+  };
+  availableDrivers: string[];
+  driverSummaries: DriverConsolidatedSummary[];
+  allDailyRecords: DriverDayRecord[];
+};
+
+export async function fetchDriverComprehensiveReport(params?: {
+  from?: string;
+  to?: string;
+  driver?: string;
+}): Promise<DriverComprehensiveReport> {
+  const q = new URLSearchParams();
+  if (params?.from) q.set('from', params.from);
+  if (params?.to) q.set('to', params.to);
+  if (params?.driver && params.driver !== 'ALL') q.set('driver', params.driver);
+
+  const qs = q.toString() ? `?${q.toString()}` : '';
+  const response = await fetch(`/api/reports/driver-comprehensive${qs}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Failed to fetch driver comprehensive report (${response.status})`);
+  }
+  return response.json();
+}

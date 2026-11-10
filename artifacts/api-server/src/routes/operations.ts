@@ -20,7 +20,7 @@ import {
 import { canAccessModule, canCreateRegisterRecord, requireAuth, requireRole } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
-router.use(requireAuth);
+router.use(["/dashboard", "/activity", "/registers", "/hr", "/admin", "/payments"], requireAuth);
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
@@ -113,12 +113,6 @@ const timeFromMinutes = (value: number) => {
 const formatClockDuration = (minutes: number) =>
   `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
-const formatSignedClockDuration = (minutes: number) => {
-  const sign = minutes < 0 ? "-" : "";
-  const absolute = Math.abs(minutes);
-  return `${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
-};
-
 const totalDaysForMinutes = (minutes: number) => {
   if (minutes < 300) return 0;
   if (minutes < 480) return 0.5;
@@ -195,15 +189,6 @@ const driverAttendanceDate = (value: unknown) => {
   return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
     ? timestamp
     : undefined;
-};
-
-const driverAttendanceTotalDays = (data: Record<string, unknown>) => {
-  if (typeof data.in_time !== "string" || !data.in_time.trim()) return undefined;
-  const attendanceDate = driverAttendanceDate(data.date);
-  if (attendanceDate === undefined) return undefined;
-  const stationInDate = driverAttendanceDate(data.station_in_date);
-  if (stationInDate === undefined) return 1;
-  return Math.max(1, Math.floor((stationInDate - attendanceDate) / 86_400_000));
 };
 
 export const applyDerivedValues = (register: RegisterDefinition, input: Record<string, unknown>) => {
@@ -343,7 +328,7 @@ export const applyDerivedValues = (register: RegisterDefinition, input: Record<s
   return data;
 };
 
-export const validateRequiredFields = (register: RegisterDefinition, recordDate: string | null, data: Record<string, unknown>) => {
+export const validateRequiredFields = (register: RegisterDefinition, _recordDate: string | null, data: Record<string, unknown>) => {
   const missing = register.fields
     .filter((field) => field.required)
     .filter((field) => data[field.key] === undefined || data[field.key] === null || data[field.key] === "");
@@ -491,7 +476,7 @@ const parseDurationMinutes = (value: unknown) => {
   if (!text || (!text[2] && !text[3])) return undefined;
   return (text[1] === "-" ? -1 : 1) * (Number(text[2] ?? 0) * 60 + Number(text[3] ?? 0));
 };
-const personNameForRecord = (slug: string, data: Record<string, unknown>) =>
+const personNameForRecord = (_slug: string, data: Record<string, unknown>) =>
   String(data.labour_name ?? data.driver_name ?? data.choosen_driver ?? data.name ?? "").trim();
 const numericValue = (value: unknown) => {
   const number = Number(value);
@@ -1060,7 +1045,9 @@ const fetchFilteredRegisterRecords = async (
   const slugsToQuery =
     definition.slug === "outgoing-vehicles" || definition.slug === "outgoing-vehicle-log"
       ? ["outgoing-vehicles", "outgoing-vehicle-log"]
-      : [definition.slug];
+      : definition.slug === "fork-lifter" || definition.slug === "folk-lifter"
+        ? ["fork-lifter", "folk-lifter"]
+        : [definition.slug];
 
   let rows = await db
     .select()

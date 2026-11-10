@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, CalendarDays, Check, CheckCircle2, ChevronDown, Clock, Download, Edit3, ExternalLink, FilePlus2, LockKeyhole, LogOut, RefreshCw, Search, Send, SlidersHorizontal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CalendarDays, Car, Check, CheckCircle2, ChevronDown, Clock, Download, Edit3, ExternalLink, FilePlus2, LockKeyhole, LogOut, RefreshCw, Search, Send, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { getListRegisterRecordsQueryKey, getListRegistersQueryKey, useCreateRegisterRecord, useDeleteRegisterRecord, useListRegisterRecords, useListRegisters, useUpdateRegisterRecord } from '@workspace/api-client-react';
@@ -265,6 +265,16 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     }
   }, [dialog, definition.slug]);
 
+  useEffect(() => {
+    if (!['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) return;
+    const onWindowFocus = () => {
+      void driverAttendanceQuery.refetch();
+      void activeVehiclesQuery.refetch();
+    };
+    window.addEventListener('focus', onWindowFocus);
+    return () => window.removeEventListener('focus', onWindowFocus);
+  }, [definition.slug]);
+
   const activeDriverTrips = useMemo(() => {
     if (!['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
       return new Map<string, { station: string; stationName: string; carName: string; outTime: string; date: string }>();
@@ -407,6 +417,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     }
     return set;
   }, [sortedRecords, definition, visibleFields]);
+  const isVehicleRegister = ['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug);
+  const activeVehiclesOnRoadCount = useMemo(() => {
+    if (!isVehicleRegister) return 0;
+    return sortedRecords.filter((r) => isBlankValue(r.data.in_time) || isBlankValue(r.data.final_reading)).length;
+  }, [isVehicleRegister, sortedRecords]);
   const labourNames = useMemo(() => {
     const names = (labourMasterQuery.data?.records ?? [])
       .map((record) => String(record.data.name ?? '').trim())
@@ -549,9 +564,25 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   }, [definition.slug, dialog, editRecordId, records, setLocation]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 3200); return () => window.clearTimeout(timer); }, [notice]);
    const isSingletonSettings = definition.slug === 'chowk-labour-master';
-   return <div className="min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10"><Link href={`/registers/${definition.module}`} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground" data-testid="link-back-to-module"><ArrowLeft size={14} /> {moduleLabel(definition.module)}</Link><PageIntro eyebrow={moduleEyebrow(definition.module)} title={definition.title} description={definition.description} action={canCreateRegisterRecord(user?.role) ? <div className="flex items-center gap-2">{['mango-tree-meter', 'clinic-gate-meter'].includes(definition.slug) && <button type="button" onClick={() => setBreakdownModalOpen(true)} className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-500/20 dark:text-red-400 shadow-sm transition" data-testid="button-breakdown"><AlertTriangle size={16} /> Breakdown</button>}<button onClick={() => setDialog(isSingletonSettings && records[0] ? records[0] : 'create')} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90" data-testid="button-add-record"><FilePlus2 size={16} /> {isSingletonSettings && records[0] ? 'Edit settings' : 'Add record'}</button></div> : <span className="rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">Read-only access</span>} />
+   return <div className="min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10"><Link href={`/registers/${definition.module}`} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground" data-testid="link-back-to-module"><ArrowLeft size={14} /> {moduleLabel(definition.module)}</Link><PageIntro eyebrow={moduleEyebrow(definition.module)} title={definition.title} description={definition.description} action={<div className="flex flex-wrap items-center gap-2">{['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug) && <Link href="/driver-board" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 shadow-sm transition" data-testid="button-open-driver-board" title="Open Real-time Driver & Fleet Board"><span className="size-2 rounded-full bg-emerald-500 animate-pulse" /><Car size={15} /> Live Fleet Board</Link>}{['mango-tree-meter', 'clinic-gate-meter'].includes(definition.slug) && <button type="button" onClick={() => setBreakdownModalOpen(true)} className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-500/20 dark:text-red-400 shadow-sm transition" data-testid="button-breakdown"><AlertTriangle size={16} /> Breakdown</button>}{canCreateRegisterRecord(user?.role) ? <button onClick={() => setDialog(isSingletonSettings && records[0] ? records[0] : 'create')} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90" data-testid="button-add-record"><FilePlus2 size={16} /> {isSingletonSettings && records[0] ? 'Edit settings' : 'Add record'}</button> : <span className="rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">Read-only access</span>}</div>} />
     {notice && <div className="mb-5 flex items-center gap-2 rounded-lg border border-[hsl(var(--chart-3))]/30 bg-[hsl(var(--chart-3))]/10 px-4 py-3 text-sm text-[hsl(var(--chart-3))]" data-testid="status-success"><Check size={16} />{notice}</div>}
         <RegisterFilters hasNameField={hasNameField} searchDraft={searchDraft} search={search} from={from} to={to} showFilters={showFilters} onSearchDraftChange={setSearchDraft} onApplySearch={applySearch} onClearSearch={clearSearch} onFromChange={setFrom} onToChange={setTo} onToggleFilters={() => setShowFilters((value) => !value)} onClearFilters={clearFilters} onExport={exportCsv} sortOrder={sortOrder} onSortChange={setSortOrder} />
+        {isVehicleRegister && activeVehiclesOnRoadCount > 0 && (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3.5 shadow-sm text-red-700 dark:text-red-300" data-testid="banner-active-dispatches">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex size-2.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex size-2.5 rounded-full bg-red-500"></span>
+              </span>
+              <span className="text-xs font-bold">
+                {activeVehiclesOnRoadCount} vehicle{activeVehiclesOnRoadCount === 1 ? '' : 's'} currently out on trip — In-Time & Final Reading pending (highlighted in RED)
+              </span>
+            </div>
+            <span className="font-mono text-[10px] uppercase font-bold rounded-full bg-red-500/20 px-2 py-0.5 text-red-700 dark:text-red-300">
+              Active Dispatches
+            </span>
+          </div>
+        )}
         {passCounts.length > 0 && <section className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm" data-testid="section-pass-counts"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold"><span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary"><Check size={14} /></span>Gate passes by person</div><p className="mt-1 text-xs text-muted-foreground">Auto-counted from the records currently shown.</p></div><span className="rounded-full border border-primary/20 bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">Auto-counted</span></div><div className="mt-4 flex flex-wrap gap-2">{passCounts.map(({ name, count }) => <span key={name} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"><span className="font-semibold">{name}</span><span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-primary">{count}</span></span>)}</div></section>}
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {recordsQuery.isLoading ? (
@@ -609,21 +640,30 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                     const editable = !paymentDone && canEditRecord(record.createdAt, user?.role, definition.module, record.data.date, definition.slug);
                     const deletable = !paymentDone && canDeleteRecord(record.createdAt, user?.role);
                     const incomplete = incompleteSet.has(record.id);
+                    const isPendingVehicleReturn = isVehicleRegister && (isBlankValue(record.data.in_time) || isBlankValue(record.data.final_reading));
 
                     return (
                       <tr
                         key={record.id}
                         className={`group transition-colors ${
-                          incomplete
-                            ? 'bg-red-500/[0.04] text-red-800 hover:bg-red-500/10 dark:bg-red-950/20 dark:text-red-400'
-                            : 'hover:bg-secondary/35 text-foreground'
+                          isPendingVehicleReturn
+                            ? 'bg-red-500/[0.09] text-red-700 hover:bg-red-500/[0.15] dark:bg-red-950/40 dark:text-red-300 font-semibold border-l-4 border-l-red-500 shadow-[inset_0_1px_0_rgba(239,68,68,0.1)]'
+                            : incomplete
+                              ? 'bg-red-500/[0.06] text-red-800 hover:bg-red-500/10 dark:bg-red-950/25 dark:text-red-400 font-medium'
+                              : 'hover:bg-secondary/35 text-foreground'
                         }`}
-                        title={incomplete ? 'Incomplete record: data is not filled fully' : undefined}
+                        title={
+                          isPendingVehicleReturn
+                            ? 'Trip in progress: In-Time and Final Reading not entered yet (Vehicle on road)'
+                            : incomplete
+                              ? 'Incomplete record: data is not filled fully'
+                              : undefined
+                        }
                         data-testid={`row-record-${record.id}`}
                       >
                         {visibleFields.map((field) => {
                           let cellValue = record.data[field.key];
-                          if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug) && field.key === 'station') {
+                          if (isVehicleRegister && field.key === 'station') {
                             const station = String(record.data.station ?? '').trim();
                             const place = String(record.data.station_name ?? record.data.location ?? '').trim();
                             if (station.toLowerCase() === 'unit 2' || station.toLowerCase() === 'unit-2') {
@@ -652,18 +692,64 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                               </td>
                             );
                           }
+                          if (isVehicleRegister && field.key === 'in_time') {
+                            const isInBlank = isBlankValue(cellValue);
+                            return (
+                              <td key={field.key} className="max-w-[190px] truncate px-4 py-4 text-sm font-semibold">
+                                {isInBlank ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-xs font-bold text-red-700 dark:text-red-300">
+                                    <span className="size-1.5 rounded-full bg-red-500 animate-pulse" /> Pending (Out)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-slate-800 dark:text-slate-200">
+                                    <Clock size={12} className="text-muted-foreground" /> {String(cellValue)}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          }
+                          if (isVehicleRegister && field.key === 'final_reading') {
+                            const isFinalBlank = isBlankValue(cellValue);
+                            return (
+                              <td key={field.key} className="max-w-[190px] truncate px-4 py-4 text-sm font-semibold">
+                                {isFinalBlank ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/15 px-2 py-0.5 text-xs font-bold text-red-700 dark:text-red-300">
+                                    Not entered
+                                  </span>
+                                ) : (
+                                  <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+                                    {Number(cellValue).toLocaleString()}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          }
+                          if (isVehicleRegister && field.key === 'total_km_car_run') {
+                            const isKmBlank = isBlankValue(cellValue);
+                            return (
+                              <td key={field.key} className="max-w-[190px] truncate px-4 py-4 text-sm">
+                                {isKmBlank ? (
+                                  <span className="font-mono text-xs text-red-500/80 italic font-medium">Pending in-time</span>
+                                ) : (
+                                  <span className="font-mono text-xs font-bold text-primary">{String(cellValue)} km</span>
+                                )}
+                              </td>
+                            );
+                          }
                           return (
                             <td
                               key={field.key}
                               className={`max-w-[190px] truncate px-4 py-4 text-sm ${
-                                incomplete
-                                  ? 'font-medium text-red-800 dark:text-red-400'
-                                  : field.derived
-                                    ? 'font-medium text-primary'
-                                    : ''
+                                isPendingVehicleReturn
+                                  ? 'font-semibold text-red-700 dark:text-red-300'
+                                  : incomplete
+                                    ? 'font-medium text-red-800 dark:text-red-400'
+                                    : field.derived
+                                      ? 'font-medium text-primary'
+                                      : ''
                               }`}
                             >
-                              {formatValue(cellValue, field, incomplete)}
+                              {formatValue(cellValue, field, incomplete || isPendingVehicleReturn)}
                             </td>
                           );
                         })}
@@ -679,6 +765,17 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                               </span>
                             ) : (
                               <>
+                                {isPendingVehicleReturn && editable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDialog(record)}
+                                    className="inline-flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/15 px-2.5 py-1.5 text-xs font-bold text-red-700 hover:bg-red-500/25 dark:text-red-300 shadow-sm transition mr-1"
+                                    title="Enter In-Time and Final Reading when vehicle returns"
+                                    data-testid={`button-enter-return-${record.id}`}
+                                  >
+                                    <Clock size={12} /> Enter Return
+                                  </button>
+                                )}
                                 {definition.slug === 'driver-attendance' && editable && isBlankValue(record.data.out_time) && (
                                   <button
                                     type="button"
@@ -909,6 +1006,10 @@ export const isRecordIncomplete = (
     ) {
       return true;
     }
+    // Until both in_time and final_reading are entered, the outgoing vehicle record is incomplete/active and must be red!
+    if (isBlankValue(data.in_time) || isBlankValue(data.final_reading)) {
+      return true;
+    }
     return false;
   }
 
@@ -974,31 +1075,6 @@ const trainingDurationMinutes = (values: Record<string, unknown>) => {
   ].filter((value): value is number => value !== undefined);
 
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
-};
-
-const driverAttendanceDate = (value: unknown) => {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const dayFirst = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  const year = Number(iso?.[1] ?? dayFirst?.[3]);
-  const month = Number(iso?.[2] ?? dayFirst?.[2]);
-  const day = Number(iso?.[3] ?? dayFirst?.[1]);
-  if (![year, month, day].every(Number.isFinite)) return undefined;
-  const timestamp = Date.UTC(year, month - 1, day);
-  const parsed = new Date(timestamp);
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
-    ? timestamp
-    : undefined;
-};
-
-const driverAttendanceTotalDays = (values: Record<string, unknown>) => {
-  if (typeof values.in_time !== 'string' || !values.in_time.trim()) return undefined;
-  const attendanceDate = driverAttendanceDate(values.date);
-  if (attendanceDate === undefined) return undefined;
-  const stationInDate = driverAttendanceDate(values.station_in_date);
-  if (stationInDate === undefined) return 1;
-  return Math.max(1, Math.floor((stationInDate - attendanceDate) / 86_400_000));
 };
 
 function RecordDialog({
@@ -1233,6 +1309,7 @@ function RecordDialog({
   const isEnteringFinalReading = Number.isFinite(currentFinalReading) && currentFinalReading > 0;
   const isReturningTrip = Boolean(initial && isVehicleRegister && initialHadOutTime && isEnteringFinalReading);
   const [clockOutDriverOnReturn, setClockOutDriverOnReturn] = useState(false);
+  const [overrideAttendance, setOverrideAttendance] = useState(false);
 
   const selectedDateRaw = String(values.date ?? todayDate).trim();
   const selectedDateIso = toInputDate(selectedDateRaw);
@@ -1324,7 +1401,16 @@ function RecordDialog({
       }
     });
 
-    if (isVehicleRegister) {
+    if (definition.slug === 'driver-attendance') {
+      if (!data.date_of_in_time && data.date) {
+        data.date_of_in_time = data.date;
+      }
+      if (!data.date && data.date_of_in_time) {
+        data.date = data.date_of_in_time;
+      }
+    }
+
+    if (isVehicleRegister && !overrideAttendance) {
       if (attendingDrivers && attendingDrivers.length === 0) {
         if (busyDriversOnDate.length > 0 && loggedOutDrivers.length > 0) {
           setError(`Cannot dispatch: All attending drivers for ${selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw} are either on a trip or have logged out for the day.`);
@@ -1333,7 +1419,7 @@ function RecordDialog({
         } else if (loggedOutDrivers.length > 0) {
           setError(`Cannot dispatch: All attending drivers for ${selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw} have already logged out / ended their shift for the day.`);
         } else {
-          setError(`No driver attendance recorded on ${selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw}. Please mark attendance in Driver Attendance first.`);
+          setError(`No driver attendance recorded on ${selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw}. Please mark attendance in Driver Attendance first or enable Override.`);
         }
         return;
       }
@@ -1438,7 +1524,7 @@ function RecordDialog({
               nameOptions={nameOptions}
               editable={!initial || !['manager', 'security'].includes(role ?? '') || !isNameField(field)}
               onChange={(v) => setValue(field.key, v)}
-              attendingDrivers={attendingDrivers}
+              attendingDrivers={overrideAttendance ? driverNames : attendingDrivers}
               allAttendingDrivers={allAttendingDrivers}
               busyDriversOnDate={busyDriversOnDate}
               loggedOutDrivers={loggedOutDrivers}
@@ -1447,6 +1533,8 @@ function RecordDialog({
               onRetryAttendance={onRetryAttendance}
               selectedDateFormatted={selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw}
               role={role}
+              overrideAttendance={overrideAttendance}
+              onToggleOverride={() => setOverrideAttendance((prev) => !prev)}
             />
           ))}
         </div>
@@ -1507,6 +1595,8 @@ function FieldInput({
   onRetryAttendance,
   selectedDateFormatted,
   role,
+  overrideAttendance,
+  onToggleOverride,
 }: {
   field: FieldDefinition;
   value: unknown;
@@ -1526,6 +1616,8 @@ function FieldInput({
   onRetryAttendance?: () => void;
   selectedDateFormatted?: string;
   role?: string;
+  overrideAttendance?: boolean;
+  onToggleOverride?: () => void;
 }) {
   const isDateField = field.type === 'date' || field.key === 'date';
   const todayDate = indiaDateKey(new Date());
@@ -1626,7 +1718,7 @@ function FieldInput({
                       No driver attendance recorded on <strong>{selectedDateFormatted}</strong>. Please mark attendance in Driver Attendance first.
                     </span>
                   </div>
-                  <div className="mt-1.5 flex items-center gap-3">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-3">
                     <Link
                       href="/registers/driver-attendance"
                       target="_blank"
@@ -1643,10 +1735,33 @@ function FieldInput({
                         <RefreshCw size={11} /> Refresh attendance
                       </button>
                     )}
+                    {onToggleOverride && (
+                      <button
+                        type="button"
+                        onClick={onToggleOverride}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 underline hover:opacity-80"
+                      >
+                        🔓 Override (Show all drivers)
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
                 <div className="space-y-1.5">
+                  {overrideAttendance && (
+                    <div className="flex items-center justify-between rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] text-indigo-900 dark:text-indigo-200 font-medium">
+                      <span>🔓 Showing all registered drivers (Attendance override active)</span>
+                      {onToggleOverride && (
+                        <button
+                          type="button"
+                          onClick={onToggleOverride}
+                          className="text-xs font-semibold underline text-indigo-700 dark:text-indigo-300 hover:opacity-80"
+                        >
+                          Revert
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {attendingDrivers && attendingDrivers.length > 0 ? (
                     <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
                       <CheckCircle2 size={12} className="shrink-0" />

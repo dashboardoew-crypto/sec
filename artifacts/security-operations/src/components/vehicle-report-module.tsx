@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'wouter';
 import {
   AlertTriangle,
   CalendarDays,
   Car,
-  CheckCircle2,
   Clock,
   Compass,
   Download,
@@ -14,40 +14,21 @@ import {
   Search,
   User,
   Users,
-  XCircle,
 } from 'lucide-react';
 import {
   fetchLiveDriverPresence,
   fetchVehicleAnalytics,
-  type CarConsolidatedSummary,
-  type CarDestinationMonthlySummary,
-  type CarMonthlySummary,
-  type DriverKmSummary,
-  type DriverLivePresenceItem,
   type DriverLivePresenceReport,
-  type DriverLocalTimeSummary,
-  type DriverMonthlyHoursSummary,
-  type LocationConsolidatedSummary,
-  type LocationMonthlySummary,
-  type StationDriverSummary,
-  type TripDetail,
   type VehicleAnalyticsReport,
 } from '@/lib/vehicle-report';
-import { downloadCsv } from '@/lib/date-utils';
+import { downloadCsv, formatDuration } from '@/lib/date-utils';
+import { DriverComprehensiveReportView } from './driver-comprehensive-report';
 
 const inputClass =
   'w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
 
-const formatDuration = (totalMinutes: number): string => {
-  if (!totalMinutes || totalMinutes <= 0) return '0m';
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${mins}m`;
-};
-
 type SubReportTab =
+  | 'driver-360'
   | 'live-drivers'
   | 'local-time'
   | 'driver-km'
@@ -827,6 +808,21 @@ export function VehicleReportModule() {
       {/* Sub-report Tab Selector */}
       <div className="border-b border-border">
         <nav className="flex flex-wrap gap-1 sm:gap-2">
+          {/* DRIVER 360 COMPREHENSIVE PRESENCE & TRIPS (WHOLE SUMMARY) */}
+          <button
+            onClick={() => setActiveTab('driver-360')}
+            className={`flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs sm:text-sm font-bold transition ${
+              activeTab === 'driver-360'
+                ? 'border-indigo-600 bg-indigo-500/10 text-indigo-700 dark:border-indigo-400 dark:text-indigo-300'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Users size={15} /> 🚘 Driver 360° Presence & Trips (Whole Summary)
+            <span className="rounded-full bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-indigo-800 dark:text-indigo-200">
+              Audit
+            </span>
+          </button>
+
           {/* LIVE DRIVER PRESENCE BOARD */}
           <button
             onClick={() => {
@@ -848,6 +844,15 @@ export function VehicleReportModule() {
               {liveDriversData ? `${liveDriversData.summary.totalPresentToday} Present` : 'Live'}
             </span>
           </button>
+
+          {/* DEDICATED FULL LIVE FLEET BOARD LINK */}
+          <Link
+            href="/driver-board"
+            className="inline-flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-xs sm:text-sm font-bold text-emerald-700 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300 transition"
+            title="Open Dedicated Full-Screen Live Driver & Fleet Board"
+          >
+            <Car size={15} /> Full Fleet Board ↗
+          </Link>
 
           {/* Group 1: Core Daily Registers */}
           <button
@@ -1031,6 +1036,9 @@ export function VehicleReportModule() {
           {driver !== 'ALL' && <span> · Driver: <span className="font-semibold text-foreground">{driver}</span></span>}
         </div>
       </div>
+
+      {/* TAB: DRIVER 360 COMPREHENSIVE PRESENCE & TRIPS AUDIT */}
+      {activeTab === 'driver-360' && <DriverComprehensiveReportView />}
 
       {/* TAB 0: LIVE DRIVER PRESENCE BOARD */}
       {activeTab === 'live-drivers' && (

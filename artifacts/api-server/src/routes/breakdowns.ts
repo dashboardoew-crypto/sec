@@ -1,17 +1,16 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { desc, eq, and, gte, lte, ilike, sql } from "drizzle-orm";
+import { desc, eq, and, gte, lte, sql } from "drizzle-orm";
 import nodemailer from "nodemailer";
 import {
   db,
   breakdownsTable,
   backupSettingsTable,
   authUsersTable,
-  type Breakdown,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
-router.use(requireAuth);
+router.use("/breakdowns", requireAuth);
 
 let tableInitialized = false;
 export const ensureBreakdownsTable = async () => {
@@ -189,7 +188,7 @@ export const sendBreakdownAlertEmail = async (breakdown: {
 };
 
 // GET /breakdowns/email-config - get current breakdown alert email configuration
-router.get("/breakdowns/email-config", async (req: Request, res: Response) => {
+router.get("/breakdowns/email-config", async (_req: Request, res: Response) => {
   await ensureBreakdownsTable();
   const settingsRows = await db.select().from(backupSettingsTable).limit(1);
   const settings = settingsRows[0] ?? null;

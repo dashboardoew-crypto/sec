@@ -17,6 +17,7 @@ import {
 import { Link } from 'wouter';
 import { PageIntro } from '@/components/ops-ui';
 import { canEditPayments, useAuth } from '@/lib/auth';
+import { downloadCsv } from '@/lib/date-utils';
 import {
   displayDate,
   fetchBillSignatories,
@@ -400,7 +401,7 @@ export default function HrCenterPage() {
         statusLabel(row.paymentStatus),
       ]),
     ];
-    downloadCsv(rows, `hr-summary-${from || 'all-dates'}-to-${to || 'all-dates'}.csv`);
+    downloadCsv(`hr-summary-${from || 'all-dates'}-to-${to || 'all-dates'}.csv`, rows);
   };
 
   const exportTransactions = () => {
@@ -418,7 +419,7 @@ export default function HrCenterPage() {
         transaction.paidBy ?? '',
       ]),
     ];
-    downloadCsv(rows, `payment-transactions-${transactionPaidOn || 'all-dates'}.csv`);
+    downloadCsv(`payment-transactions-${transactionPaidOn || 'all-dates'}.csv`, rows);
   };
 
   const openBill = async (transactionId: string) => {
@@ -634,7 +635,7 @@ function Overview({ report, summaries, totals, loading, onOpenPayments, onSelect
   );
 }
 
-function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, roundOffAmount, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onOpenBill, onCloseBill, billTransaction, billDetails, billSignatories, driverWages, driverPaymentName, setDriverPaymentName, driverPaymentDays, setDriverPaymentDays, driverPaymentMethod, setDriverPaymentMethod, driverPaymentReference, setDriverPaymentReference, driverPaymentNote, setDriverPaymentNote, onRecordDriverPayment, loading }: {
+function PaymentsView({ report, summaries, details, transactions, selected, selectedPerson: _selectedPerson, setSelectedPerson, selectedEntryIds, paymentTotal, roundOffAmount, onTogglePaymentEntry, paymentMethod, setPaymentMethod, paymentReference, setPaymentReference, paymentNote, setPaymentNote, saving, editable, onRecordPayment, onPrint, onOpenBill, onCloseBill, billTransaction, billDetails, billSignatories, driverWages, driverPaymentName, setDriverPaymentName, driverPaymentDays, setDriverPaymentDays, driverPaymentMethod, setDriverPaymentMethod, driverPaymentReference, setDriverPaymentReference, driverPaymentNote, setDriverPaymentNote, onRecordDriverPayment, loading }: {
   report: HrReport | null;
   summaries: HrSummary[];
   details: HrReport['details'];
@@ -1038,14 +1039,6 @@ function Metric({ label, value, detail, tone }: { label: string; value: string; 
   return <div className={`rounded-xl border p-4 shadow-sm ${tone === 'success' ? 'border-emerald-200 bg-emerald-50/70' : tone === 'warning' ? 'border-amber-200 bg-amber-50/70' : 'border-border bg-card'}`}><div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div><div className="mt-1 font-mono text-xl font-bold">{value}</div>{detail && <div className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</div>}</div>;
 }
 
-function Control({ label, detail, good }: { label: string; detail: string; good: boolean }) {
-  return <div className="flex gap-3 px-5 py-4"><div className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full ${good ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{good ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}</div><div><div className="text-sm font-semibold">{label}</div><div className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</div></div></div>;
-}
-
-function WorkflowStep({ number, title, text }: { number: string; title: string; text: string }) {
-  return <div className="flex gap-3"><span className="font-mono text-[10px] font-bold tracking-wider text-primary">{number}</span><div><div className="text-sm font-semibold">{title}</div><div className="mt-1 text-xs leading-5 text-muted-foreground">{text}</div></div></div>;
-}
-
 function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusClass(status)}`}>{status === 'paid' ? <CheckCircle2 size={12} /> : status === 'excluded' ? <AlertTriangle size={12} /> : <Clock3 size={12} />}{statusLabel(status)}</span>;
 }
@@ -1092,14 +1085,4 @@ function DetailTable({ details, selectedEntryIds, onTogglePaymentEntry, canEditR
 
 function EmptyTable({ text }: { text: string }) {
   return <div className="p-10 text-center text-sm text-muted-foreground">{text}</div>;
-}
-
-function downloadCsv(rows: string[][], filename: string) {
-  const csv = rows.map((row) => row.map((cell) => JSON.stringify(cell)).join(',')).join('\n');
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
 }

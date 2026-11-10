@@ -12,11 +12,11 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
-router.use(operationsRouter);
-router.use(adminDataRouter);
 router.use(reportsVehicleRouter);
 router.use(reportsSolarRouter);
 router.use(reportsCarBreakdownsRouter);
 router.use(breakdownsRouter);
+router.use(operationsRouter);
+router.use(adminDataRouter);
 
 export default router;

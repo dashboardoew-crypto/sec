@@ -283,27 +283,27 @@ const solarPanelCleaningFields: FieldDefinition[] = [
   { key: "remark", label: "REMARK", type: "textarea" },
 ];
 
-const folkLifterFields: FieldDefinition[] = [
-  { key: "date", label: "DATE", type: "date", required: true },
+const forkLifterFields: FieldDefinition[] = [
+  { key: "date", label: "Date", type: "date", required: true },
   {
     key: "initial_meter_reading",
-    label: "INITIAL METER READING",
+    label: "Initial Meter Reading",
     type: "number",
     required: true,
   },
   {
     key: "final_meter_reading",
-    label: "FINAL METER READING",
+    label: "Final Meter Reading",
     type: "number",
     required: true,
   },
   {
     key: "today_total_reading",
-    label: "TODAY TOTAL READING",
+    label: "Today Total Reading",
     type: "number",
     derived: true,
   },
-  { key: "remark", label: "REMARK", type: "textarea" },
+  { key: "remark", label: "Remark", type: "textarea" },
 ];
 
 const carBreakdownsFields: FieldDefinition[] = [
@@ -593,13 +593,13 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
   },
   {
     ...register(
-      "folk-lifter",
-      "Folk Lifter",
+      "fork-lifter",
+      "Fork Lifter",
       "security",
       [],
-      "Track daily folk lifter initial and final meter readings and total usage.",
+      "Track daily fork lifter initial and final meter readings and total usage.",
     ),
-    fields: folkLifterFields,
+    fields: forkLifterFields,
   },
   {
     ...register(
@@ -839,8 +839,8 @@ const REGISTERS_BY_SLUG = new Map<string, RegisterDefinition>(
 
 export const getRegister = (slug: string) => {
   const normalizedSlug =
-    slug === "fork-lifter"
-      ? "folk-lifter"
+    slug === "folk-lifter"
+      ? "fork-lifter"
       : slug === "car-breakdown"
         ? "car-breakdowns"
         : slug === "outgoing-vehicle-log"

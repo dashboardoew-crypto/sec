@@ -3,7 +3,10 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
-const rawPort = process.env.PORT || '3000';
+const rawPort =
+  process.env.VITE_PORT ||
+  process.env.WEB_PORT ||
+  (process.env.PORT && process.env.PORT !== '5000' ? process.env.PORT : '3000');
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
@@ -15,9 +15,6 @@ import {
 import {
   fetchCarBreakdownAnalytics,
   type CarBreakdownAnalyticsReport,
-  type CarBreakdownRecordItem,
-  type CarBreakdownVehicleSummary,
-  type MonthlyCarBreakdownSummary,
 } from '@/lib/car-breakdown-report';
 import { downloadCsv } from '@/lib/date-utils';
 

@@ -1,19 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
+import { loadEnvFileSafely } from "@workspace/db";
 
 if (!process.env.DATABASE_URL) {
   const envCandidates = [
     path.resolve(process.cwd(), ".env"),
+    path.resolve(process.cwd(), "../.env"),
     path.resolve(process.cwd(), "../../.env"),
     path.resolve(import.meta.dirname, ".env"),
+    path.resolve(import.meta.dirname, "../.env"),
     path.resolve(import.meta.dirname, "../../.env"),
   ];
   for (const p of envCandidates) {
     if (fs.existsSync(p)) {
-      try {
-        process.loadEnvFile(p);
-        if (process.env.DATABASE_URL) break;
-      } catch {}
+      loadEnvFileSafely(p);
+      if (process.env.DATABASE_URL) break;
     }
   }
 }

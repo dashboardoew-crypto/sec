@@ -119,8 +119,14 @@ export const timeToMinutes = (val: unknown): number | undefined => {
 /**
  * Format minutes to human readable string (e.g. "2h 30m")
  */
-export const formatDuration = (minutes: number): string =>
-  `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+export const formatDuration = (minutes: number): string => {
+  if (!minutes || minutes <= 0) return '0m';
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${mins}m`;
+};
 
 /**
  * Format minutes to HH:mm clock duration string
@@ -279,6 +285,19 @@ export const getAllDateKeys = (value: unknown): string[] => {
     keys.add(`${dStr}/${mStr}/${y2Str}`);
     keys.add(`${day}-${month}-${y2Str}`);
     keys.add(`${day}/${month}/${y2Str}`);
+
+    // If day and month are both <= 12, also index the alternate day/month order
+    // to safeguard against browser / OS locale variations (e.g. en-US mm/dd/yyyy vs en-IN dd/mm/yyyy)
+    if (day <= 12 && month <= 12 && day !== month) {
+      const altM = dStr;
+      const altD = mStr;
+      keys.add(`${yStr}-${altM}-${altD}`);
+      keys.add(`${yStr}/${altM}/${altD}`);
+      keys.add(`${altD}-${altM}-${yStr}`);
+      keys.add(`${altD}/${altM}/${yStr}`);
+      keys.add(`${altD}-${altM}-${y2Str}`);
+      keys.add(`${altD}/${altM}/${y2Str}`);
+    }
   }
   return Array.from(keys);
 };

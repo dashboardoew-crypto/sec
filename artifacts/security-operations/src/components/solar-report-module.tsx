@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   CalendarDays,
   Clock,
@@ -13,10 +13,7 @@ import {
 } from 'lucide-react';
 import {
   fetchSolarAnalytics,
-  type MonthlySolarSummary,
   type SolarAnalyticsReport,
-  type SolarCleaningRecordItem,
-  type WorkerSolarSummary,
 } from '@/lib/solar-report';
 import { downloadCsv } from '@/lib/date-utils';
 
