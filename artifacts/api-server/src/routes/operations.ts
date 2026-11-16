@@ -20,7 +20,7 @@ import {
 import { canAccessModule, canCreateRegisterRecord, requireAuth, requireRole } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
-router.use(["/dashboard", "/activity", "/registers", "/hr", "/admin", "/payments"], requireAuth);
+router.use(["/dashboard", "/activity", "/registers", "/hr", "/admin", "/payments", "/labour"], requireAuth);
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
@@ -352,9 +352,20 @@ const responseDataForRole = (req: Request, definition: RegisterDefinition, data:
     : data;
 
   if (req.user?.role === "security" && referenceMasterSlugs.includes(definition.slug)) {
-    return definition.slug === "key-master"
-      ? { location: calculatedData.location }
-      : { name: calculatedData.name };
+    if (definition.slug === "key-master") {
+      return { location: calculatedData.location };
+    }
+    if (definition.slug === "labour-master") {
+      return {
+        name: calculatedData.name,
+        father_name: calculatedData.father_name,
+        work_location: calculatedData.work_location,
+        supervisor: calculatedData.supervisor,
+        is_closed: calculatedData.is_closed,
+        closed_at: calculatedData.closed_at,
+      };
+    }
+    return { name: calculatedData.name };
   }
 
   if (req.user?.role === "security" && ["daily-attendance", "chowk-labour"].includes(definition.slug)) {
@@ -1047,7 +1058,9 @@ const fetchFilteredRegisterRecords = async (
       ? ["outgoing-vehicles", "outgoing-vehicle-log"]
       : definition.slug === "fork-lifter" || definition.slug === "folk-lifter"
         ? ["fork-lifter", "folk-lifter"]
-        : [definition.slug];
+        : definition.slug === "camera-breakdown" || definition.slug === "camera-breakdowns"
+          ? ["camera-breakdown", "camera-breakdowns"]
+          : [definition.slug];
 
   let rows = await db
     .select()
@@ -1776,6 +1789,171 @@ router.delete("/registers/:slug/records/:id", async (req: Request, res: Response
     .delete(registerRecordsTable)
     .where(and(eq(registerRecordsTable.id, id), slugFilter));
   return res.status(204).send();
+});
+
+// POST /labour/employees - add new labour employee from training register
+router.post("/labour/employees", async (req: Request, res: Response) => {
+  const { name, father_name, work_location, supervisor } = req.body ?? {};
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({ error: "Employee name is required" });
+  }
+  const cleanName = name.trim();
+  const cleanFather = typeof father_name === "string" ? father_name.trim() : "";
+  const cleanLocation = typeof work_location === "string" ? work_location.trim() : "";
+  const cleanSupervisor = typeof supervisor === "string" ? supervisor.trim() : "";
+
+  // Check if an employee with the exact name already exists
+  const existing = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(
+      and(
+        eq(registerRecordsTable.registerSlug, "labour-master"),
+        sql`LOWER(data->>'name') = ${cleanName.toLowerCase()}`
+      )
+    )
+    .limit(1);
+
+  if (existing[0]) {
+    const existingData = (existing[0].data ?? {}) as Record<string, unknown>;
+    // If it was closed, reactivate it with updated info
+    if (existingData.is_closed) {
+      const updatedData = {
+        ...existingData,
+        father_name: cleanFather || existingData.father_name,
+        work_location: cleanLocation || existingData.work_location,
+        supervisor: cleanSupervisor || existingData.supervisor,
+        is_closed: false,
+        closed_at: null,
+      };
+      const updated = await db
+        .update(registerRecordsTable)
+        .set({ data: updatedData, updatedAt: new Date() })
+        .where(eq(registerRecordsTable.id, existing[0].id))
+        .returning();
+      return res.status(200).json({
+        success: true,
+        record: toResponse(updated[0], updated[0].data),
+        reactivated: true,
+      });
+    }
+    return res.status(400).json({ error: `An active employee named "${cleanName}" already exists in Labour Master.` });
+  }
+
+  const createdAt = new Date();
+  const recordDate = createdAt.toISOString();
+
+  const data = {
+    name: cleanName,
+    father_name: cleanFather,
+    work_location: cleanLocation,
+    supervisor: cleanSupervisor,
+    wages_per_day: 0,
+    overtime_rate: "0",
+    is_closed: false,
+    closed_at: null,
+  };
+
+  const inserted = await db
+    .insert(registerRecordsTable)
+    .values({
+      id: randomUUID(),
+      registerSlug: "labour-master",
+      recordDate,
+      createdAt,
+      updatedAt: createdAt,
+      data,
+    })
+    .returning();
+
+  return res.status(201).json({
+    success: true,
+    record: toResponse(inserted[0], inserted[0].data),
+  });
+});
+
+// POST /labour/employees/:id/toggle-close - close or unclose labour employee
+router.post("/labour/employees/:id/toggle-close", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const { closed } = req.body ?? {};
+
+  const existing = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(and(eq(registerRecordsTable.id, id), eq(registerRecordsTable.registerSlug, "labour-master")))
+    .limit(1);
+
+  if (!existing[0]) {
+    return res.status(404).json({ error: "Labour employee not found" });
+  }
+
+  const existingData = (existing[0].data ?? {}) as Record<string, unknown>;
+  const isClosed = Boolean(closed);
+  const updatedData = {
+    ...existingData,
+    is_closed: isClosed,
+    closed_at: isClosed ? new Date().toISOString() : null,
+  };
+
+  const updated = await db
+    .update(registerRecordsTable)
+    .set({
+      data: updatedData,
+      updatedAt: new Date(),
+    })
+    .where(eq(registerRecordsTable.id, id))
+    .returning();
+
+  return res.json({
+    success: true,
+    record: toResponse(updated[0], updated[0].data),
+  });
+});
+
+// POST /labour/employees/toggle-close-by-name - close or unclose employee by name
+router.post("/labour/employees/toggle-close-by-name", async (req: Request, res: Response) => {
+  const { name, closed } = req.body ?? {};
+  if (!name || typeof name !== "string") {
+    return res.status(400).json({ error: "Employee name is required" });
+  }
+  const cleanName = name.trim().toLowerCase();
+
+  const existing = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(
+      and(
+        eq(registerRecordsTable.registerSlug, "labour-master"),
+        sql`LOWER(data->>'name') = ${cleanName}`
+      )
+    )
+    .limit(1);
+
+  if (!existing[0]) {
+    return res.status(404).json({ error: `Labour employee "${name}" not found` });
+  }
+
+  const existingData = (existing[0].data ?? {}) as Record<string, unknown>;
+  const isClosed = Boolean(closed);
+  const updatedData = {
+    ...existingData,
+    is_closed: isClosed,
+    closed_at: isClosed ? new Date().toISOString() : null,
+  };
+
+  const updated = await db
+    .update(registerRecordsTable)
+    .set({
+      data: updatedData,
+      updatedAt: new Date(),
+    })
+    .where(eq(registerRecordsTable.id, existing[0].id))
+    .returning();
+
+  return res.json({
+    success: true,
+    record: toResponse(updated[0], updated[0].data),
+  });
 });
 
 export default router;

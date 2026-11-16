@@ -52,6 +52,7 @@ const DEFAULT_REGISTERS: RegisterEmailItem[] = [
   { slug: "jack-register", title: "Jack Register OEW", module: "security" },
   { slug: "fork-lifter", title: "Fork Lifter", module: "security" },
   { slug: "car-breakdowns", title: "Car Breakdowns", module: "security" },
+  { slug: "camera-breakdown", title: "Camera Breakdown", module: "security" },
   { slug: "personal-gate-pass", title: "Personal Gate Pass Register", module: "main-gate" },
   { slug: "official-gate-pass", title: "Official Gate Pass Register", module: "main-gate" },
   { slug: "outgoing-vehicles", title: "Outgoing Vehicles Register", module: "main-gate" },

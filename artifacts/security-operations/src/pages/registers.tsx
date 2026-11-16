@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, CalendarDays, Car, Check, CheckCircle2, ChevronDown, Clock, Download, Edit3, ExternalLink, FilePlus2, LockKeyhole, LogOut, RefreshCw, Search, Send, SlidersHorizontal, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CalendarDays, Car, Check, CheckCircle2, ChevronDown, Clock, Download, Edit3, ExternalLink, FilePlus2, LockKeyhole, LogOut, RefreshCw, RotateCcw, Search, Send, SlidersHorizontal, Trash2, UserPlus, UserX, X } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { getListRegisterRecordsQueryKey, getListRegistersQueryKey, useCreateRegisterRecord, useDeleteRegisterRecord, useListRegisterRecords, useListRegisters, useUpdateRegisterRecord } from '@workspace/api-client-react';
@@ -94,6 +94,19 @@ const normalizeOutgoingVehicleValues = (data: Record<string, unknown>) => {
     values.station_name = place || rawStation;
   }
   return values;
+};
+
+export type LabourEmployeeStatus = {
+  id: string;
+  name: string;
+  father_name?: string;
+  work_location?: string;
+  supervisor?: string;
+  is_closed: boolean;
+  closed_at?: string | null;
+  daysSinceClosed?: number;
+  canUnclose: boolean;
+  shouldShow: boolean;
 };
 
 export default function RegistersPage() {
@@ -422,12 +435,61 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     if (!isVehicleRegister) return 0;
     return sortedRecords.filter((r) => isBlankValue(r.data.in_time) || isBlankValue(r.data.final_reading)).length;
   }, [isVehicleRegister, sortedRecords]);
-  const labourNames = useMemo(() => {
-    const names = (labourMasterQuery.data?.records ?? [])
-      .map((record) => String(record.data.name ?? '').trim())
-      .filter(Boolean);
-    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  const labourEmployeeStatuses = useMemo(() => {
+    const records = labourMasterQuery.data?.records ?? [];
+    const now = Date.now();
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+    return records
+      .map((record) => {
+        const name = String(record.data.name ?? '').trim();
+        if (!name) return null;
+
+        const isClosed = Boolean(record.data.is_closed);
+        let daysSinceClosed: number | undefined = undefined;
+        let shouldShow = true;
+        let canUnclose = false;
+
+        if (isClosed) {
+          const closedAtTime = record.data.closed_at
+            ? new Date(String(record.data.closed_at)).getTime()
+            : now;
+          const diffMs = now - closedAtTime;
+          daysSinceClosed = Math.max(0, diffMs / (24 * 60 * 60 * 1000));
+
+          if (diffMs <= THREE_DAYS_MS) {
+            shouldShow = true;
+            canUnclose = true;
+          } else {
+            shouldShow = false;
+            canUnclose = false;
+          }
+        }
+
+        return {
+          id: record.id,
+          name,
+          father_name: String(record.data.father_name ?? '').trim(),
+          work_location: String(record.data.work_location ?? '').trim(),
+          supervisor: String(record.data.supervisor ?? '').trim(),
+          is_closed: isClosed,
+          closed_at: (record.data.closed_at as string) || null,
+          daysSinceClosed,
+          canUnclose,
+          shouldShow,
+        };
+      })
+      .filter((emp): emp is NonNullable<typeof emp> => emp !== null);
   }, [labourMasterQuery.data?.records]);
+
+  const visibleLabourEmployees = useMemo(() => {
+    return labourEmployeeStatuses.filter((emp) => emp.shouldShow);
+  }, [labourEmployeeStatuses]);
+
+  const labourNames = useMemo(() => {
+    const names = visibleLabourEmployees.map((record) => record.name);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [visibleLabourEmployees]);
   const keyNames = useMemo(() => {
     const names = (keyMasterQuery.data?.records ?? [])
       .map((record) => String(record.data.location ?? '').trim())
@@ -860,6 +922,8 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
            definition={definition}
            fields={dialogFields}
            labourNames={labourNames}
+           labourEmployeeStatuses={labourEmployeeStatuses}
+           onRefreshLabour={() => void labourMasterQuery.refetch()}
            keyNames={keyNames}
            driverNames={driverFieldOptions}
            driverPhones={driverPhones}
@@ -1077,10 +1141,318 @@ const trainingDurationMinutes = (values: Record<string, unknown>) => {
   return durations.length ? durations.reduce((total, duration) => total + duration, 0) : undefined;
 };
 
+function AddEmployeeModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (name: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [fatherName, setFatherName] = useState('');
+  const [workLocation, setWorkLocation] = useState('');
+  const [supervisor, setSupervisor] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError('Please enter the employee name.');
+      return;
+    }
+    setPending(true);
+    setError('');
+    try {
+      const res = await fetch('/api/labour/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: name.trim(),
+          father_name: fatherName.trim(),
+          work_location: workLocation.trim(),
+          supervisor: supervisor.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to add employee');
+      }
+      onSuccess(name.trim());
+      setName('');
+      setFatherName('');
+      setWorkLocation('');
+      setSupervisor('');
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to add employee');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="flex items-start justify-between border-b border-border pb-4">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <UserPlus size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-foreground">Add New Employee</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">Register labour employee for Training Register</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="mt-4 space-y-3.5">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-foreground">
+              Labour Name <span className="text-destructive">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Full name (e.g. RAMESH KUMAR)"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-foreground">
+              Father's Name <span className="text-destructive">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={fatherName}
+              onChange={(e) => setFatherName(e.target.value)}
+              placeholder="Father's name"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-foreground">
+              Working Area <span className="text-destructive">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={workLocation}
+              onChange={(e) => setWorkLocation(e.target.value)}
+              placeholder="e.g. Foundry, Unit 1, Campus"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-foreground">
+              Supervisor Name <span className="text-destructive">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={supervisor}
+              onChange={(e) => setSupervisor(e.target.value)}
+              placeholder="Supervisor name"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+            />
+          </div>
+
+          <div className="mt-6 flex items-center justify-end gap-2.5 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={pending}
+              className="rounded-lg border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {pending ? (
+                <>
+                  <RefreshCw size={13} className="animate-spin" /> Adding...
+                </>
+              ) : (
+                <>
+                  <UserPlus size={13} /> Add Employee
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmCloseModal({
+  employee,
+  isOpen,
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  employee: LabourEmployeeStatus | null;
+  isOpen: boolean;
+  pending: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!isOpen || !employee) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="flex items-center gap-3 text-destructive">
+          <div className="grid size-10 place-items-center rounded-xl bg-destructive/10">
+            <AlertTriangle size={20} />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-foreground">Close Employee</h3>
+            <p className="text-xs text-muted-foreground">Confirmation required</p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm leading-relaxed text-foreground">
+          <p>
+            Are you sure you want to close employee <strong>{employee.name}</strong>?
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            • <strong>For 3 days</strong>, this name will remain visible in the dropdown with an option to unclose.
+            <br />
+            • <strong>After 3 days</strong>, this name will no longer appear in the Labour Name list.
+          </p>
+        </div>
+
+        <div className="mt-6 flex items-center justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            className="rounded-lg border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground hover:opacity-90 disabled:opacity-50"
+          >
+            {pending ? (
+              <>
+                <RefreshCw size={13} className="animate-spin" /> Closing...
+              </>
+            ) : (
+              <>
+                <UserX size={13} /> Confirm Close
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmUncloseModal({
+  employee,
+  isOpen,
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  employee: LabourEmployeeStatus | null;
+  isOpen: boolean;
+  pending: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!isOpen || !employee) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
+          <div className="grid size-10 place-items-center rounded-xl bg-emerald-500/10">
+            <RotateCcw size={20} />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-foreground">Unclose Employee</h3>
+            <p className="text-xs text-muted-foreground">Restore employee to active status</p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm leading-relaxed text-foreground">
+          <p>
+            Do you want to unclose employee <strong>{employee.name}</strong>?
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            This will mark them as active again in Labour Master, and keep them visible indefinitely.
+          </p>
+        </div>
+
+        <div className="mt-6 flex items-center justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            className="rounded-lg border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {pending ? (
+              <>
+                <RefreshCw size={13} className="animate-spin" /> Restoring...
+              </>
+            ) : (
+              <>
+                <RotateCcw size={13} /> Confirm Unclose
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RecordDialog({
   definition,
   fields,
   labourNames,
+  labourEmployeeStatuses,
+  onRefreshLabour,
   keyNames,
   driverNames,
   driverPhones,
@@ -1103,6 +1475,8 @@ function RecordDialog({
   definition: RegisterDefinition;
   fields: FieldDefinition[];
   labourNames: string[];
+  labourEmployeeStatuses?: LabourEmployeeStatus[];
+  onRefreshLabour?: () => void;
   keyNames: string[];
   driverNames: string[];
   driverPhones: Record<string, string>;
@@ -1123,6 +1497,75 @@ function RecordDialog({
   onSubmit: (data: { data: Record<string, unknown> }, editing: RegisterRecord | undefined, onError: (message: string) => void) => void;
 }) {
   const role = definition.slug === 'key-movement' ? undefined : userRole;
+  const queryClient = useQueryClient();
+  const [addEmployeeModalOpen, setAddEmployeeModalOpen] = useState(false);
+  const [closeEmployeeConfirm, setCloseEmployeeConfirm] = useState<LabourEmployeeStatus | null>(null);
+  const [uncloseEmployeeConfirm, setUncloseEmployeeConfirm] = useState<LabourEmployeeStatus | null>(null);
+  const [labourActionPending, setLabourActionPending] = useState(false);
+  const [labourNotice, setLabourNotice] = useState('');
+
+  const handleConfirmClose = async () => {
+    if (!closeEmployeeConfirm) return;
+    setLabourActionPending(true);
+    try {
+      const endpoint = closeEmployeeConfirm.id
+        ? `/api/labour/employees/${encodeURIComponent(closeEmployeeConfirm.id)}/toggle-close`
+        : `/api/labour/employees/toggle-close-by-name`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          closed: true,
+          name: closeEmployeeConfirm.name,
+        }),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to close employee');
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/registers/labour-master/records'] });
+      onRefreshLabour?.();
+      setLabourNotice(`Employee "${closeEmployeeConfirm.name}" marked as closed. Visible for 3 days to unclose.`);
+      setCloseEmployeeConfirm(null);
+    } catch (err: any) {
+      alert(err.message || 'Failed to close employee');
+    } finally {
+      setLabourActionPending(false);
+    }
+  };
+
+  const handleConfirmUnclose = async () => {
+    if (!uncloseEmployeeConfirm) return;
+    setLabourActionPending(true);
+    try {
+      const endpoint = uncloseEmployeeConfirm.id
+        ? `/api/labour/employees/${encodeURIComponent(uncloseEmployeeConfirm.id)}/toggle-close`
+        : `/api/labour/employees/toggle-close-by-name`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          closed: false,
+          name: uncloseEmployeeConfirm.name,
+        }),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to unclose employee');
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/registers/labour-master/records'] });
+      onRefreshLabour?.();
+      setLabourNotice(`Employee "${uncloseEmployeeConfirm.name}" has been unclosed and restored to active.`);
+      setUncloseEmployeeConfirm(null);
+    } catch (err: any) {
+      alert(err.message || 'Failed to unclose employee');
+    } finally {
+      setLabourActionPending(false);
+    }
+  };
+
   const updateRecord = useUpdateRegisterRecord();
   const todayDate = indiaDateKey(new Date());
   const initialValues = useMemo(() => {
@@ -1511,6 +1954,14 @@ function RecordDialog({
             <X size={18} />
           </button>
         </div>
+        {labourNotice && (
+          <div className="mx-6 mt-4 flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+            <span>{labourNotice}</span>
+            <button type="button" onClick={() => setLabourNotice('')} className="p-1 hover:opacity-70">
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <div className="grid gap-4 p-6 sm:grid-cols-2">
           {orderedFields.map((field) => (
             <FieldInput
@@ -1518,6 +1969,10 @@ function RecordDialog({
               field={field}
               value={displayValues[field.key]}
               labourNames={labourNames}
+              labourEmployeeStatuses={labourEmployeeStatuses}
+              onOpenAddEmployee={() => setAddEmployeeModalOpen(true)}
+              onRequestCloseEmployee={(emp) => setCloseEmployeeConfirm(emp)}
+              onRequestUncloseEmployee={(emp) => setUncloseEmployeeConfirm(emp)}
               keyNames={keyNames}
               driverNames={driverNames}
               securityNames={securityNames}
@@ -1572,6 +2027,33 @@ function RecordDialog({
           </button>
         </div>
       </div>
+
+      <AddEmployeeModal
+        isOpen={addEmployeeModalOpen}
+        onClose={() => setAddEmployeeModalOpen(false)}
+        onSuccess={(name) => {
+          queryClient.invalidateQueries({ queryKey: ['/api/registers/labour-master/records'] });
+          onRefreshLabour?.();
+          setValue('labour_name', name);
+          setLabourNotice(`Employee "${name}" added successfully.`);
+        }}
+      />
+
+      <ConfirmCloseModal
+        employee={closeEmployeeConfirm}
+        isOpen={Boolean(closeEmployeeConfirm)}
+        pending={labourActionPending}
+        onClose={() => setCloseEmployeeConfirm(null)}
+        onConfirm={handleConfirmClose}
+      />
+
+      <ConfirmUncloseModal
+        employee={uncloseEmployeeConfirm}
+        isOpen={Boolean(uncloseEmployeeConfirm)}
+        pending={labourActionPending}
+        onClose={() => setUncloseEmployeeConfirm(null)}
+        onConfirm={handleConfirmUnclose}
+      />
     </div>
   );
 }
@@ -1580,6 +2062,10 @@ function FieldInput({
   field,
   value,
   labourNames,
+  labourEmployeeStatuses,
+  onOpenAddEmployee,
+  onRequestCloseEmployee,
+  onRequestUncloseEmployee,
   keyNames,
   driverNames,
   securityNames,
@@ -1601,6 +2087,10 @@ function FieldInput({
   field: FieldDefinition;
   value: unknown;
   labourNames: string[];
+  labourEmployeeStatuses?: LabourEmployeeStatus[];
+  onOpenAddEmployee?: () => void;
+  onRequestCloseEmployee?: (emp: LabourEmployeeStatus) => void;
+  onRequestUncloseEmployee?: (emp: LabourEmployeeStatus) => void;
   keyNames: string[];
   driverNames: string[];
   securityNames: string[];
@@ -1663,11 +2153,24 @@ function FieldInput({
 
   return (
     <label className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
-      <span className="mb-1.5 block text-xs font-semibold">
-        {field.label}
-        {field.required && <span className="ml-1 text-destructive">*</span>}
-        {field.derived && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Auto-filled</span>}
-        {!editable && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Locked</span>}
+      <span className="mb-1.5 flex items-center justify-between text-xs font-semibold">
+        <span>
+          {field.label}
+          {field.required && <span className="ml-1 text-destructive">*</span>}
+          {field.derived && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Auto-filled</span>}
+          {!editable && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Locked</span>}
+        </span>
+        {field.key === 'labour_name' && onOpenAddEmployee && editable && (
+          <button
+            type="button"
+            onClick={onOpenAddEmployee}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+            title="Add new labour employee"
+          >
+            <UserPlus size={12} />
+            + Add employee
+          </button>
+        )}
       </span>
       {field.type === 'textarea' ? (
         <textarea {...common} className={inputClass} readOnly={field.derived || !editable} rows={3} data-testid={`input-field-${field.key}`} />
@@ -1678,6 +2181,14 @@ function FieldInput({
             className={inputClass}
             disabled={field.derived || !editable}
             data-testid={`input-field-${field.key}`}
+            onChange={(e) => {
+              if (field.key === 'labour_name' && e.target.value === '__add_new_employee__') {
+                e.target.value = displayValue;
+                onOpenAddEmployee?.();
+                return;
+              }
+              common.onChange(e);
+            }}
           >
             <option value="">
               {isOutgoingVehicleDriver && isAttendanceLoading
@@ -1688,12 +2199,107 @@ function FieldInput({
                     ? 'No drivers marked present on this date'
                     : isOutgoingVehicleDriver && attendingDrivers && attendingDrivers.length === 0
                       ? 'No drivers available (all on trip or logged out)'
-                      : 'Select driver…'}
+                      : field.key === 'labour_name'
+                        ? 'Select labour name…'
+                        : isDriverField
+                          ? 'Select driver…'
+                          : `Select ${field.label.toLowerCase()}…`}
             </option>
-            {selectOptions.map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
+            {field.key === 'labour_name' && labourEmployeeStatuses && labourEmployeeStatuses.length > 0 ? (
+              <>
+                {labourEmployeeStatuses.filter((e) => !e.is_closed).map((emp) => (
+                  <option key={emp.name} value={emp.name}>{emp.name}</option>
+                ))}
+                {labourEmployeeStatuses.filter((e) => e.is_closed && e.shouldShow).length > 0 && (
+                  <optgroup label="Closed Employees (Can unclose within 3 days)">
+                    {labourEmployeeStatuses.filter((e) => e.is_closed && e.shouldShow).map((emp) => (
+                      <option key={emp.name} value={emp.name}>{emp.name} (Closed)</option>
+                    ))}
+                  </optgroup>
+                )}
+                {currentValue && !labourEmployeeStatuses.some((e) => e.name.toLowerCase() === currentValue.toLowerCase()) && (
+                  <option value={currentValue}>{currentValue}</option>
+                )}
+                {onOpenAddEmployee && editable && (
+                  <option value="__add_new_employee__" className="font-bold text-primary">
+                    ➕ + Add new employee…
+                  </option>
+                )}
+              </>
+            ) : (
+              <>
+                {selectOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+                {field.key === 'labour_name' && onOpenAddEmployee && editable && (
+                  <option value="__add_new_employee__" className="font-bold text-primary">
+                    ➕ + Add new employee…
+                  </option>
+                )}
+              </>
+            )}
           </select>
+          {field.key === 'labour_name' && (() => {
+            const selectedLabour = (labourEmployeeStatuses ?? []).find(
+              (e) => e.name.toLowerCase() === currentValue.toLowerCase()
+            ) || (currentValue ? {
+              id: '',
+              name: currentValue,
+              father_name: '',
+              work_location: '',
+              supervisor: '',
+              is_closed: false,
+              closed_at: null,
+              daysSinceClosed: undefined,
+              canUnclose: false,
+              shouldShow: true,
+            } : null);
+            if (!selectedLabour) return null;
+            if (selectedLabour.is_closed) {
+              return (
+                <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>
+                        <strong>{selectedLabour.name}</strong> was closed{selectedLabour.closed_at ? ` on ${formatDate(selectedLabour.closed_at)}` : ''}.
+                        <span className="ml-1 text-[11px] opacity-80">(Visible for 3 days)</span>
+                      </span>
+                    </div>
+                    {onRequestUncloseEmployee && editable && (
+                      <button
+                        type="button"
+                        onClick={() => onRequestUncloseEmployee(selectedLabour)}
+                        className="inline-flex items-center gap-1 rounded bg-amber-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-amber-700 shadow-sm shrink-0 cursor-pointer"
+                      >
+                        <RotateCcw size={12} />
+                        Unclose Employee
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-xs">
+                <span className="text-[11px] text-muted-foreground">
+                  {selectedLabour.work_location ? `Area: ${selectedLabour.work_location}` : ''}
+                  {selectedLabour.supervisor ? ` • Supervisor: ${selectedLabour.supervisor}` : ''}
+                </span>
+                {onRequestCloseEmployee && editable && (
+                  <button
+                    type="button"
+                    onClick={() => onRequestCloseEmployee(selectedLabour)}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive hover:underline cursor-pointer"
+                    title="Close this employee (hidden after 3 days)"
+                  >
+                    <UserX size={12} />
+                    Close this employee
+                  </button>
+                )}
+              </div>
+            );
+          })()}
           {isOutgoingVehicleDriver && (
             <div className="mt-1.5 text-[11px] leading-tight space-y-1.5">
               {isAttendanceLoading ? (

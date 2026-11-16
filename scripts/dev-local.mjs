@@ -91,7 +91,6 @@ console.log("📦 Compiling API server...");
 const buildResult = spawn("node", ["artifacts/api-server/build.mjs"], {
   cwd: rootDir,
   stdio: "inherit",
-  shell: true,
 });
 await new Promise((resolve) => buildResult.on("close", resolve));
 
@@ -99,7 +98,6 @@ await new Promise((resolve) => buildResult.on("close", resolve));
 const apiProcess = spawn("node", ["artifacts/api-server/dist/index.mjs"], {
   cwd: rootDir,
   stdio: "inherit",
-  shell: true,
   env: {
     ...process.env,
     PORT: apiPort,
@@ -121,7 +119,7 @@ const findViteBin = () => {
     ),
   ];
   for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
+    if (fs.existsSync(c)) return path.relative(rootDir, c);
   }
   // Search .pnpm store as fallback
   const pnpmDir = path.join(rootDir, "node_modules/.pnpm");
@@ -131,7 +129,7 @@ const findViteBin = () => {
       for (const entry of entries) {
         if (entry.startsWith("vite@")) {
           const p = path.join(pnpmDir, entry, "node_modules/vite/bin/vite.js");
-          if (fs.existsSync(p)) return p;
+          if (fs.existsSync(p)) return path.relative(rootDir, p);
         }
       }
     } catch {}
@@ -158,7 +156,6 @@ if (isFullDev) {
       {
         cwd: rootDir,
         stdio: "inherit",
-        shell: true,
         env: {
           ...process.env,
           VITE_PORT: "3000",
@@ -186,7 +183,6 @@ if (isFullDev) {
       {
         cwd: rootDir,
         stdio: "inherit",
-        shell: true,
       },
     );
     await new Promise((resolve) => buildWeb.on("close", resolve));

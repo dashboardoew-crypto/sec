@@ -330,6 +330,13 @@ const carBreakdownsFields: FieldDefinition[] = [
   { key: "remark", label: "REMARK", type: "textarea" },
 ];
 
+const cameraBreakdownFields: FieldDefinition[] = [
+  { key: "date", label: "Date", type: "date", required: true },
+  { key: "time", label: "Time", type: "time", required: true },
+  { key: "camera_location", label: "Camera Location", type: "text", required: true },
+  { key: "issue", label: "Issue", type: "textarea", required: true },
+];
+
 const serviceBillFields: FieldDefinition[] = [
   { key: "date", label: "DATE", type: "date", required: true },
   { key: "party_name", label: "PARTY NAME", type: "text", required: true },
@@ -459,12 +466,25 @@ const labourMasterFields: FieldDefinition[] = [
     key: "wages_per_day",
     label: "WAGES PER DAY",
     type: "number",
-    required: true,
+    required: false,
   },
   {
     key: "overtime_wages_per_hours",
     label: "OVERTIME WAGES PER HOURS",
     type: "text",
+    required: false,
+  },
+  {
+    key: "is_closed",
+    label: "IS CLOSED",
+    type: "checkbox",
+    required: false,
+  },
+  {
+    key: "closed_at",
+    label: "CLOSED AT",
+    type: "text",
+    required: false,
   },
 ];
 
@@ -610,6 +630,16 @@ export const REGISTER_DEFINITIONS: RegisterDefinition[] = [
       "Track car breakdowns, service out/in times, and total service duration.",
     ),
     fields: carBreakdownsFields,
+  },
+  {
+    ...register(
+      "camera-breakdown",
+      "Camera Breakdown",
+      "security",
+      [],
+      "Track camera breakdown logs, camera locations, and reported issues.",
+    ),
+    fields: cameraBreakdownFields,
   },
   {
     ...register(
@@ -843,8 +873,10 @@ export const getRegister = (slug: string) => {
       ? "fork-lifter"
       : slug === "car-breakdown"
         ? "car-breakdowns"
-        : slug === "outgoing-vehicle-log"
-          ? "outgoing-vehicles"
-          : slug;
+        : slug === "camera-breakdowns"
+          ? "camera-breakdown"
+          : slug === "outgoing-vehicle-log"
+            ? "outgoing-vehicles"
+            : slug;
   return REGISTERS_BY_SLUG.get(normalizedSlug);
 };
