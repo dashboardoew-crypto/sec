@@ -186,7 +186,8 @@ export const sendBreakdownAlertEmail = async (breakdown: {
     return { sent: false, recipient, error: err?.message || "Email send failure" };
   }
 };
-
+// this is to inform you all that there should be having a concept of order that should be respon for  silese ndinginfra 
+// 
 // GET /breakdowns/email-config - get current breakdown alert email configuration
 router.get("/breakdowns/email-config", async (_req: Request, res: Response) => {
   await ensureBreakdownsTable();

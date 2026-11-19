@@ -20,7 +20,7 @@ import {
 import { canAccessModule, canCreateRegisterRecord, requireAuth, requireRole } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
-router.use(["/dashboard", "/activity", "/registers", "/hr", "/admin", "/payments", "/labour"], requireAuth);
+router.use(["/dashboard", "/activity", "/registers", "/hr", "/admin", "/payments", "/labour", "/keys"], requireAuth);
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
@@ -398,6 +398,8 @@ const inputDataForRole = (
       for (const field of definition.fields) {
         if (isNameField(field.key) && preservedData[field.key] !== undefined) sanitized[field.key] = preservedData[field.key];
       }
+      if (preservedData.date !== undefined) sanitized.date = preservedData.date;
+      if (preservedData.date_of_in_time !== undefined) sanitized.date_of_in_time = preservedData.date_of_in_time;
     }
     return sanitized;
   }
@@ -407,6 +409,15 @@ const inputDataForRole = (
     for (const field of definition.fields) {
       if (isNameField(field.key) && preservedData[field.key] !== undefined) sanitized[field.key] = preservedData[field.key];
     }
+    if (preservedData.date !== undefined) sanitized.date = preservedData.date;
+    if (preservedData.date_of_in_time !== undefined) sanitized.date_of_in_time = preservedData.date_of_in_time;
+    return sanitized;
+  }
+
+  if (preservedData) {
+    const sanitized = { ...data };
+    if (preservedData.date !== undefined) sanitized.date = preservedData.date;
+    if (preservedData.date_of_in_time !== undefined) sanitized.date_of_in_time = preservedData.date_of_in_time;
     return sanitized;
   }
 
@@ -1677,23 +1688,19 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     });
   }
   const existingDate = existingRecordDate
-    ?? existing[0].recordDate
+    ?? (typeof existing[0].recordDate === "string" ? calendarDate(existing[0].recordDate) : null)
+    ?? calendarDate(existing[0].createdAt)
     ?? dateInIndia(new Date());
-  const selectedDate = body.data?.date === undefined
-    ? existingDate
-    : calendarDate(body.data.date as string | undefined);
-  if (!selectedDate || (body.data?.date !== undefined && selectedDate !== existingDate && !isEntryDate(selectedDate, req.user?.role))) {
-    const errorMsg = req.user?.role === "manager"
-      ? "Managers can only set dates from today or up to 7 days prior. Future dates are not allowed."
-      : req.user?.role === "security"
-        ? "Security staff can only set dates from today or up to 3 days prior. Future dates are not allowed."
-        : "Future dates are not allowed.";
-    return res.status(400).json({ error: errorMsg });
-  }
+  // Date is permanently locked after entry creation - strictly preserve original record date
+  const selectedDate = existingDate;
   const data = applyDerivedValues(
     definition,
     inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: selectedDate }, existing[0].data),
   );
+  data.date = selectedDate;
+  if (slug === "driver-attendance" && existing[0].data.date_of_in_time) {
+    data.date_of_in_time = existing[0].data.date_of_in_time;
+  }
   if (slug === "jack-register") {
     if (existing[0].data.serial_number === undefined) delete data.serial_number;
     else data.serial_number = existing[0].data.serial_number;
@@ -1749,6 +1756,7 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     }
   }
   const row = await db.update(registerRecordsTable).set({
+    recordDate: selectedDate,
     data,
     updatedAt: new Date(),
   }).where(eq(registerRecordsTable.id, id)).returning();
@@ -1953,6 +1961,59 @@ router.post("/labour/employees/toggle-close-by-name", async (req: Request, res: 
   return res.json({
     success: true,
     record: toResponse(updated[0], updated[0].data),
+  });
+});
+
+// POST /keys/locations - add new location to key-master from key movement register
+router.post("/keys/locations", async (req: Request, res: Response) => {
+  const { location } = req.body ?? {};
+  if (!location || typeof location !== "string" || !location.trim()) {
+    return res.status(400).json({ error: "Location name is required" });
+  }
+  const cleanLocation = location.trim();
+
+  // Check if location already exists in key-master (case-insensitive)
+  const existing = await db
+    .select()
+    .from(registerRecordsTable)
+    .where(
+      and(
+        eq(registerRecordsTable.registerSlug, "key-master"),
+        sql`LOWER(data->>'location') = ${cleanLocation.toLowerCase()}`
+      )
+    )
+    .limit(1);
+
+  if (existing[0]) {
+    return res.status(200).json({
+      success: true,
+      record: toResponse(existing[0], existing[0].data),
+      alreadyExists: true,
+    });
+  }
+
+  const createdAt = new Date();
+  const recordDate = createdAt.toISOString();
+
+  const data = {
+    location: cleanLocation,
+  };
+
+  const inserted = await db
+    .insert(registerRecordsTable)
+    .values({
+      id: randomUUID(),
+      registerSlug: "key-master",
+      recordDate,
+      createdAt,
+      updatedAt: createdAt,
+      data,
+    })
+    .returning();
+
+  return res.status(201).json({
+    success: true,
+    record: toResponse(inserted[0], inserted[0].data),
   });
 });
 

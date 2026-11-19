@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, CalendarDays, Car, Check, CheckCircle2, ChevronDown, Clock, Download, Edit3, ExternalLink, FilePlus2, LockKeyhole, LogOut, RefreshCw, RotateCcw, Search, Send, SlidersHorizontal, Trash2, UserPlus, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CalendarDays, Car, Check, CheckCircle2, ChevronDown, Clock, Download, Edit3, ExternalLink, FilePlus2, Key, LockKeyhole, LogOut, Plus, RefreshCw, RotateCcw, Search, Send, SlidersHorizontal, Trash2, UserPlus, UserX, X } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { getListRegisterRecordsQueryKey, getListRegistersQueryKey, useCreateRegisterRecord, useDeleteRegisterRecord, useListRegisterRecords, useListRegisters, useUpdateRegisterRecord } from '@workspace/api-client-react';
@@ -559,6 +559,14 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
         onError('Payment done: this attendance record cannot be edited or deleted.');
         return;
       }
+      const recordOriginalDate =
+        toInputDate(editing.data?.date) ||
+        toInputDate(editing.data?.date_of_in_time) ||
+        toInputDate((editing as any)?.recordDate) ||
+        toInputDate(editing.createdAt);
+      if (recordOriginalDate) {
+        data.data.date = recordOriginalDate;
+      }
       update.mutate(
         { slug: definition.slug, id: editing.id, data },
         { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record updated'); }, onError: showMutationError },
@@ -925,6 +933,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
            labourEmployeeStatuses={labourEmployeeStatuses}
            onRefreshLabour={() => void labourMasterQuery.refetch()}
            keyNames={keyNames}
+           onRefreshKeys={() => void keyMasterQuery.refetch()}
            driverNames={driverFieldOptions}
            driverPhones={driverPhones}
            securityNames={securityNames}
@@ -1447,6 +1456,123 @@ function ConfirmUncloseModal({
   );
 }
 
+function AddKeyLocationModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (location: string) => void;
+}) {
+  const [locationName, setLocationName] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!locationName.trim()) {
+      setError('Please enter the location name.');
+      return;
+    }
+    setPending(true);
+    setError('');
+    try {
+      const res = await fetch('/api/keys/locations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          location: locationName.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to add key location');
+      }
+      onSuccess(locationName.trim());
+      setLocationName('');
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to add key location');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="flex items-start justify-between border-b border-border pb-4">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <Key size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-foreground">Add New Key Location</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">Add location for Key Movement Register</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-foreground">
+              Location Name <span className="text-destructive">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={locationName}
+              onChange={(e) => setLocationName(e.target.value)}
+              placeholder="e.g. Server Room, DG Yard, Main Office"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              autoFocus
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={pending}
+              className="rounded-lg border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {pending ? (
+                <>
+                  <RefreshCw size={13} className="animate-spin" /> Adding...
+                </>
+              ) : (
+                <>
+                  <Plus size={13} /> Add Location
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function RecordDialog({
   definition,
   fields,
@@ -1454,6 +1580,7 @@ function RecordDialog({
   labourEmployeeStatuses,
   onRefreshLabour,
   keyNames,
+  onRefreshKeys,
   driverNames,
   driverPhones,
   securityNames,
@@ -1478,6 +1605,7 @@ function RecordDialog({
   labourEmployeeStatuses?: LabourEmployeeStatus[];
   onRefreshLabour?: () => void;
   keyNames: string[];
+  onRefreshKeys?: () => void;
   driverNames: string[];
   driverPhones: Record<string, string>;
   securityNames: string[];
@@ -1499,6 +1627,7 @@ function RecordDialog({
   const role = definition.slug === 'key-movement' ? undefined : userRole;
   const queryClient = useQueryClient();
   const [addEmployeeModalOpen, setAddEmployeeModalOpen] = useState(false);
+  const [addKeyLocationModalOpen, setAddKeyLocationModalOpen] = useState(false);
   const [closeEmployeeConfirm, setCloseEmployeeConfirm] = useState<LabourEmployeeStatus | null>(null);
   const [uncloseEmployeeConfirm, setUncloseEmployeeConfirm] = useState<LabourEmployeeStatus | null>(null);
   const [labourActionPending, setLabourActionPending] = useState(false);
@@ -1576,15 +1705,33 @@ function RecordDialog({
           ? normalizeOutgoingVehicleValues(initial?.data ?? {})
           : { ...(initial?.data ?? {}) };
 
-    // Auto-select date by current date for all date fields across all registers
+    const recordOriginalDate = initial
+      ? (toInputDate(raw.date) ||
+         toInputDate(initial.data?.date) ||
+         toInputDate(initial.data?.date_of_in_time) ||
+         toInputDate((initial as any)?.recordDate) ||
+         toInputDate(initial.createdAt) ||
+         todayDate)
+      : todayDate;
+
+    // For date fields across all registers:
+    // When editing an existing record (initial is defined):
+    // - The primary date field ('date', and 'date_of_in_time' for driver-attendance) MUST be locked to the record's original date (recordOriginalDate)
+    // - It must NOT auto-fetch or default to today's date
+    // - Other date fields (e.g. car_in_date, bill_handover_date, date_of_out_time) preserve their existing value, or remain empty ('') if not yet filled
+    // When creating a new record (!initial):
+    // - The primary date field is autofetched and defaults to todayDate
     fields.forEach((field) => {
-      if (field.type === 'date' || field.key === 'date') {
-        const val = raw[field.key];
-        if (isBlankValue(val) || !initial) {
-          raw[field.key] = todayDate;
+      const isPrimaryDateField = field.key === 'date' || (definition.slug === 'driver-attendance' && field.key === 'date_of_in_time');
+      if (isPrimaryDateField) {
+        if (initial) {
+          raw[field.key] = recordOriginalDate;
         } else {
-          raw[field.key] = toInputDate(val);
+          raw[field.key] = isBlankValue(raw[field.key]) ? todayDate : toInputDate(raw[field.key]);
         }
+      } else if (field.type === 'date' || field.key.includes('date')) {
+        const val = raw[field.key];
+        raw[field.key] = isBlankValue(val) ? '' : toInputDate(val);
       }
     });
 
@@ -1592,10 +1739,15 @@ function RecordDialog({
       raw.has_gate_pass = raw.has_gate_pass ?? 'No';
     }
 
-    if (definition.slug === 'driver-attendance' && !initial) {
-      raw.date_of_out_time = '';
-      if (isBlankValue(raw.date_of_in_time)) {
-        raw.date_of_in_time = raw.date || todayDate;
+    if (definition.slug === 'driver-attendance') {
+      if (!initial) {
+        raw.date_of_out_time = '';
+        if (isBlankValue(raw.date_of_in_time)) {
+          raw.date_of_in_time = raw.date || todayDate;
+        }
+      } else {
+        raw.date = recordOriginalDate;
+        raw.date_of_in_time = toInputDate(raw.date_of_in_time) || recordOriginalDate;
       }
     }
 
@@ -1838,18 +1990,27 @@ function RecordDialog({
     const missing = formFields.filter((field) => field.required && !field.derived && (displayValues[field.key] === undefined || displayValues[field.key] === '')).map((field) => field.label);
     if (missing.length) { setError(`Enter the required fields: ${missing.join(', ')}`); return; }
     const data = { ...displayValues };
-    fields.forEach((field) => {
-      if ((field.type === 'date' || field.key === 'date') && (!data[field.key] || isBlankValue(data[field.key]))) {
-        data[field.key] = todayDate;
-      }
-    });
+    const recordOriginalDate = initial
+      ? (toInputDate(initial.data?.date) ||
+         toInputDate(initial.data?.date_of_in_time) ||
+         toInputDate((initial as any)?.recordDate) ||
+         toInputDate(initial.createdAt) ||
+         todayDate)
+      : todayDate;
 
-    if (definition.slug === 'driver-attendance') {
-      if (!data.date_of_in_time && data.date) {
-        data.date_of_in_time = data.date;
+    if (initial) {
+      // Date must strictly remain the previous date when editing an existing record
+      data.date = recordOriginalDate;
+      if (definition.slug === 'driver-attendance') {
+        data.date_of_in_time = toInputDate(initial.data?.date_of_in_time) || recordOriginalDate;
       }
-      if (!data.date && data.date_of_in_time) {
-        data.date = data.date_of_in_time;
+    } else {
+      // New record defaults date to todayDate
+      if (!data.date || isBlankValue(data.date)) {
+        data.date = todayDate;
+      }
+      if (definition.slug === 'driver-attendance' && (!data.date_of_in_time || isBlankValue(data.date_of_in_time))) {
+        data.date_of_in_time = data.date || todayDate;
       }
     }
 
@@ -1947,6 +2108,7 @@ function RecordDialog({
             <h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2>
             <p className="mt-2 text-xs text-muted-foreground">
               Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated or assigned automatically.
+              {initial && <span> Date is locked to original entry date.</span>}
               {initial && ['manager', 'security'].includes(role ?? '') && <span> Name fields are locked after entry.</span>}
             </p>
           </div>
@@ -1963,35 +2125,41 @@ function RecordDialog({
           </div>
         )}
         <div className="grid gap-4 p-6 sm:grid-cols-2">
-          {orderedFields.map((field) => (
-            <FieldInput
-              key={field.key}
-              field={field}
-              value={displayValues[field.key]}
-              labourNames={labourNames}
-              labourEmployeeStatuses={labourEmployeeStatuses}
-              onOpenAddEmployee={() => setAddEmployeeModalOpen(true)}
-              onRequestCloseEmployee={(emp) => setCloseEmployeeConfirm(emp)}
-              onRequestUncloseEmployee={(emp) => setUncloseEmployeeConfirm(emp)}
-              keyNames={keyNames}
-              driverNames={driverNames}
-              securityNames={securityNames}
-              nameOptions={nameOptions}
-              editable={!initial || !['manager', 'security'].includes(role ?? '') || !isNameField(field)}
-              onChange={(v) => setValue(field.key, v)}
-              attendingDrivers={overrideAttendance ? driverNames : attendingDrivers}
-              allAttendingDrivers={allAttendingDrivers}
-              busyDriversOnDate={busyDriversOnDate}
-              loggedOutDrivers={loggedOutDrivers}
-              isAttendanceLoading={isAttendanceLoading}
-              attendanceError={attendanceError}
-              onRetryAttendance={onRetryAttendance}
-              selectedDateFormatted={selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw}
-              role={role}
-              overrideAttendance={overrideAttendance}
-              onToggleOverride={() => setOverrideAttendance((prev) => !prev)}
-            />
-          ))}
+          {orderedFields.map((field) => {
+            const isDateFieldLocked = Boolean(initial) && (field.key === 'date' || (definition.slug === 'driver-attendance' && field.key === 'date_of_in_time'));
+            const isNameFieldLocked = Boolean(initial) && ['manager', 'security'].includes(role ?? '') && isNameField(field);
+            const isFieldLocked = isDateFieldLocked || isNameFieldLocked;
+            return (
+              <FieldInput
+                key={field.key}
+                field={field}
+                value={displayValues[field.key]}
+                labourNames={labourNames}
+                labourEmployeeStatuses={labourEmployeeStatuses}
+                onOpenAddEmployee={() => setAddEmployeeModalOpen(true)}
+                onRequestCloseEmployee={(emp) => setCloseEmployeeConfirm(emp)}
+                onRequestUncloseEmployee={(emp) => setUncloseEmployeeConfirm(emp)}
+                onOpenAddKeyLocation={() => setAddKeyLocationModalOpen(true)}
+                keyNames={keyNames}
+                driverNames={driverNames}
+                securityNames={securityNames}
+                nameOptions={nameOptions}
+                editable={!isFieldLocked}
+                onChange={(v) => setValue(field.key, v)}
+                attendingDrivers={overrideAttendance ? driverNames : attendingDrivers}
+                allAttendingDrivers={allAttendingDrivers}
+                busyDriversOnDate={busyDriversOnDate}
+                loggedOutDrivers={loggedOutDrivers}
+                isAttendanceLoading={isAttendanceLoading}
+                attendanceError={attendanceError}
+                onRetryAttendance={onRetryAttendance}
+                selectedDateFormatted={selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw}
+                role={role}
+                overrideAttendance={overrideAttendance}
+                onToggleOverride={() => setOverrideAttendance((prev) => !prev)}
+              />
+            );
+          })}
         </div>
         {isReturningTrip && (
           <div className="mx-6 mb-4 rounded-xl border border-primary/25 bg-primary/5 p-3.5 shadow-sm">
@@ -2054,6 +2222,17 @@ function RecordDialog({
         onClose={() => setUncloseEmployeeConfirm(null)}
         onConfirm={handleConfirmUnclose}
       />
+
+      <AddKeyLocationModal
+        isOpen={addKeyLocationModalOpen}
+        onClose={() => setAddKeyLocationModalOpen(false)}
+        onSuccess={(loc) => {
+          queryClient.invalidateQueries({ queryKey: ['/api/registers/key-master/records'] });
+          onRefreshKeys?.();
+          setValue('location', loc);
+          setLabourNotice(`Key location "${loc}" added successfully.`);
+        }}
+      />
     </div>
   );
 }
@@ -2066,6 +2245,7 @@ function FieldInput({
   onOpenAddEmployee,
   onRequestCloseEmployee,
   onRequestUncloseEmployee,
+  onOpenAddKeyLocation,
   keyNames,
   driverNames,
   securityNames,
@@ -2091,6 +2271,7 @@ function FieldInput({
   onOpenAddEmployee?: () => void;
   onRequestCloseEmployee?: (emp: LabourEmployeeStatus) => void;
   onRequestUncloseEmployee?: (emp: LabourEmployeeStatus) => void;
+  onOpenAddKeyLocation?: () => void;
   keyNames: string[];
   driverNames: string[];
   securityNames: string[];
@@ -2112,7 +2293,7 @@ function FieldInput({
   const isDateField = field.type === 'date' || field.key === 'date';
   const todayDate = indiaDateKey(new Date());
   const rawDate = isDateField ? toInputDate(value) : '';
-  const dateValue = isDateField ? (rawDate || todayDate) : '';
+  const dateValue = isDateField ? rawDate : '';
   const displayValue = isDateField ? dateValue : String(value ?? '');
 
   const common = {
@@ -2137,7 +2318,7 @@ function FieldInput({
         ? baseDriverOptions
         : isSecuritySignField(field) && securityNames.length
           ? securityNames
-      : field.key === 'location' && keyNames.length
+      : field.key === 'location'
         ? keyNames
         : field.key === 'name' && nameOptions.length
           ? nameOptions
@@ -2171,6 +2352,17 @@ function FieldInput({
             + Add employee
           </button>
         )}
+        {field.key === 'location' && onOpenAddKeyLocation && editable && (
+          <button
+            type="button"
+            onClick={onOpenAddKeyLocation}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+            title="Add new key location"
+          >
+            <Key size={12} />
+            + Add location
+          </button>
+        )}
       </span>
       {field.type === 'textarea' ? (
         <textarea {...common} className={inputClass} readOnly={field.derived || !editable} rows={3} data-testid={`input-field-${field.key}`} />
@@ -2187,6 +2379,11 @@ function FieldInput({
                 onOpenAddEmployee?.();
                 return;
               }
+              if (field.key === 'location' && e.target.value === '__add_new_location__') {
+                e.target.value = displayValue;
+                onOpenAddKeyLocation?.();
+                return;
+              }
               common.onChange(e);
             }}
           >
@@ -2201,9 +2398,11 @@ function FieldInput({
                       ? 'No drivers available (all on trip or logged out)'
                       : field.key === 'labour_name'
                         ? 'Select labour name…'
-                        : isDriverField
-                          ? 'Select driver…'
-                          : `Select ${field.label.toLowerCase()}…`}
+                        : field.key === 'location'
+                          ? 'Select location…'
+                          : isDriverField
+                            ? 'Select driver…'
+                            : `Select ${field.label.toLowerCase()}…`}
             </option>
             {field.key === 'labour_name' && labourEmployeeStatuses && labourEmployeeStatuses.length > 0 ? (
               <>
@@ -2234,6 +2433,11 @@ function FieldInput({
                 {field.key === 'labour_name' && onOpenAddEmployee && editable && (
                   <option value="__add_new_employee__" className="font-bold text-primary">
                     ➕ + Add new employee…
+                  </option>
+                )}
+                {field.key === 'location' && onOpenAddKeyLocation && editable && (
+                  <option value="__add_new_location__" className="font-bold text-primary">
+                    ➕ + Add new location…
                   </option>
                 )}
               </>
@@ -2425,7 +2629,15 @@ function FieldInput({
       ) : field.type === 'checkbox' ? (
         <input type="checkbox" checked={Boolean(value)} disabled={field.derived || !editable} onChange={(e) => onChange(e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" data-testid={`input-field-${field.key}`} />
       ) : (
-        <input {...common} {...dateBounds} className={inputClass} readOnly={field.derived || !editable} type={field.type} data-testid={`input-field-${field.key}`} />
+        <input
+          {...common}
+          {...dateBounds}
+          className={`${inputClass} ${(!editable || field.derived) ? 'cursor-not-allowed opacity-80 bg-muted/40 font-medium' : ''}`}
+          readOnly={field.derived || !editable}
+          disabled={!editable && isDateField}
+          type={field.type}
+          data-testid={`input-field-${field.key}`}
+        />
       )}
     </label>
   );
