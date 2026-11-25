@@ -1599,6 +1599,29 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
       }
     }
   }
+  if (slug === "driver-attendance") {
+    const driverName = String(data.name ?? data.driver_name ?? "").trim().toLowerCase();
+    if (driverName) {
+      const activeAttendance = await db.select().from(registerRecordsTable)
+        .where(
+          and(
+            eq(registerRecordsTable.registerSlug, "driver-attendance"),
+            sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`,
+            sql`(data->>'out_time' IS NULL OR TRIM(data->>'out_time') = '')`
+          )
+        )
+        .limit(1);
+      if (activeAttendance.length > 0) {
+        const activeData = (activeAttendance[0].data ?? {}) as Record<string, unknown>;
+        const inDate = activeData.date_of_in_time || activeData.date || activeAttendance[0].recordDate || "";
+        const inDateFormatted = inDate ? ` on ${calendarDate(String(inDate)) || String(inDate)}` : "";
+        const inTimeStr = activeData.in_time ? ` at ${String(activeData.in_time)}` : "";
+        return res.status(400).json({
+          error: `Driver "${String(data.name ?? data.driver_name)}" already has an active attendance session without punch-out (punched in${inTimeStr}${inDateFormatted}). They must punch out before a new attendance can be recorded.`
+        });
+      }
+    }
+  }
   if (slug === "chowk-labour-master") {
     const existing = await db.select().from(registerRecordsTable)
       .where(eq(registerRecordsTable.registerSlug, slug))
@@ -1752,6 +1775,31 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
             }
           }
         }
+      }
+    }
+  }
+  if (slug === "driver-attendance") {
+    const driverName = String(data.name ?? data.driver_name ?? "").trim().toLowerCase();
+    const isOutTimeBlank = !data.out_time || String(data.out_time).trim() === "";
+    if (driverName && isOutTimeBlank) {
+      const activeOther = await db.select().from(registerRecordsTable)
+        .where(
+          and(
+            eq(registerRecordsTable.registerSlug, "driver-attendance"),
+            sql`id != ${id}`,
+            sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`,
+            sql`(data->>'out_time' IS NULL OR TRIM(data->>'out_time') = '')`
+          )
+        )
+        .limit(1);
+      if (activeOther.length > 0) {
+        const activeData = (activeOther[0].data ?? {}) as Record<string, unknown>;
+        const inDate = activeData.date_of_in_time || activeData.date || activeOther[0].recordDate || "";
+        const inDateFormatted = inDate ? ` on ${calendarDate(String(inDate)) || String(inDate)}` : "";
+        const inTimeStr = activeData.in_time ? ` at ${String(activeData.in_time)}` : "";
+        return res.status(400).json({
+          error: `Driver "${String(data.name ?? data.driver_name)}" already has another active attendance session without punch-out (punched in${inTimeStr}${inDateFormatted}). They must punch out before this attendance can be active.`
+        });
       }
     }
   }

@@ -256,7 +256,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const driverAttendanceParams = useMemo(() => ({ limit: 500 }), []);
   const driverAttendanceQuery = useListRegisterRecords('driver-attendance', driverAttendanceParams, {
     query: {
-      enabled: ['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug),
+      enabled: ['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug),
       queryKey: getListRegisterRecordsQueryKey('driver-attendance', driverAttendanceParams),
       staleTime: 0,
     },
@@ -272,9 +272,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   });
 
   useEffect(() => {
-    if (dialog && ['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
+    if (dialog && ['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug)) {
       void driverAttendanceQuery.refetch();
-      void activeVehiclesQuery.refetch();
+      if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
+        void activeVehiclesQuery.refetch();
+      }
     }
   }, [dialog, definition.slug]);
 
@@ -948,7 +950,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
            isAttendanceLoading={driverAttendanceQuery.isLoading || driverAttendanceQuery.isFetching}
            attendanceError={driverAttendanceQuery.isError ? ((driverAttendanceQuery.error as Error)?.message || 'Could not load driver attendance') : undefined}
            onRetryAttendance={() => void driverAttendanceQuery.refetch()}
-           driverAttendanceRecords={driverAttendanceQuery.data?.records ?? []}
+           driverAttendanceRecords={
+             definition.slug === 'driver-attendance'
+               ? (driverAttendanceQuery.data?.records ?? recordsQuery.data?.records ?? [])
+               : (driverAttendanceQuery.data?.records ?? [])
+           }
            onClose={() => setDialog(null)}
            onSubmit={onSubmit}
          />
@@ -1986,6 +1992,30 @@ function RecordDialog({
     });
   }, [activeAttendingDrivers, activeDriverTrips, initial]);
 
+  // Set of drivers who currently have an active attendance session without punch-out across any date
+  const currentlyPunchedInDrivers = useMemo(() => {
+    if (definition.slug !== 'driver-attendance') return new Set<string>();
+    const set = new Set<string>();
+    (driverAttendanceRecords ?? []).forEach((rec) => {
+      if (initial && rec.id === initial.id) return;
+      const driver = String(rec.data.name ?? rec.data.driver_name ?? '').trim().toLowerCase();
+      if (driver && isBlankValue(rec.data.out_time)) {
+        set.add(driver);
+      }
+    });
+    return set;
+  }, [definition.slug, driverAttendanceRecords, initial]);
+
+  const selectedDriverName = String(values.name ?? '').trim().toLowerCase();
+  const activeDriverAttendanceSession = useMemo(() => {
+    if (definition.slug !== 'driver-attendance' || !selectedDriverName) return null;
+    return (driverAttendanceRecords ?? []).find((rec) => {
+      if (initial && rec.id === initial.id) return false;
+      const recDriver = String(rec.data.name ?? rec.data.driver_name ?? '').trim().toLowerCase();
+      return recDriver === selectedDriverName && isBlankValue(rec.data.out_time);
+    });
+  }, [definition.slug, selectedDriverName, driverAttendanceRecords, initial]);
+
   const submit = () => {
     const missing = formFields.filter((field) => field.required && !field.derived && (displayValues[field.key] === undefined || displayValues[field.key] === '')).map((field) => field.label);
     if (missing.length) { setError(`Enter the required fields: ${missing.join(', ')}`); return; }
@@ -2011,6 +2041,28 @@ function RecordDialog({
       }
       if (definition.slug === 'driver-attendance' && (!data.date_of_in_time || isBlankValue(data.date_of_in_time))) {
         data.date_of_in_time = data.date || todayDate;
+      }
+    }
+
+    if (definition.slug === 'driver-attendance') {
+      const chosenDriver = String(data.name ?? data.driver_name ?? '').trim().toLowerCase();
+      const isOutTimeBlank = isBlankValue(data.out_time);
+      if (chosenDriver && (!initial || isOutTimeBlank)) {
+        const existingOpenRecord = (driverAttendanceRecords ?? []).find((rec) => {
+          if (initial && rec.id === initial.id) return false;
+          const recDriver = String(rec.data.name ?? rec.data.driver_name ?? '').trim().toLowerCase();
+          return recDriver === chosenDriver && isBlankValue(rec.data.out_time);
+        });
+
+        if (existingOpenRecord) {
+          const openDate = existingOpenRecord.data.date_of_in_time || existingOpenRecord.data.date || (existingOpenRecord as any).recordDate || existingOpenRecord.createdAt;
+          const openDateFormatted = formatDate(openDate) || String(openDate);
+          const openInTime = existingOpenRecord.data.in_time ? ` at ${existingOpenRecord.data.in_time}` : '';
+          setError(
+            `Cannot record attendance: Driver "${String(data.name ?? data.driver_name)}" already has an active attendance session without punch-out (punched in${openInTime} on ${openDateFormatted}). They must punch out before a new attendance can be recorded.`
+          );
+          return;
+        }
       }
     }
 
@@ -2157,6 +2209,7 @@ function RecordDialog({
                 role={role}
                 overrideAttendance={overrideAttendance}
                 onToggleOverride={() => setOverrideAttendance((prev) => !prev)}
+                currentlyPunchedInDrivers={currentlyPunchedInDrivers}
               />
             );
           })}
@@ -2179,6 +2232,20 @@ function RecordDialog({
                 </p>
               </div>
             </label>
+          </div>
+        )}
+        {activeDriverAttendanceSession && !initial && (
+          <div className="mx-6 mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-900 dark:text-amber-200">
+            <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300">
+              <AlertTriangle size={15} className="shrink-0" />
+              <span>Driver is already punched in (Active Attendance)</span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed">
+              Driver <strong>{String(values.name)}</strong> already has an active attendance session without punch-out (punched in on{' '}
+              <strong>{formatDate(activeDriverAttendanceSession.data.date_of_in_time || activeDriverAttendanceSession.data.date || (activeDriverAttendanceSession as any).recordDate || activeDriverAttendanceSession.createdAt)}</strong>
+              {activeDriverAttendanceSession.data.in_time ? ` at ${activeDriverAttendanceSession.data.in_time}` : ''}).
+              A new attendance cannot be recorded until this driver punches out.
+            </p>
           </div>
         )}
         {error && (
@@ -2263,6 +2330,7 @@ function FieldInput({
   role,
   overrideAttendance,
   onToggleOverride,
+  currentlyPunchedInDrivers,
 }: {
   field: FieldDefinition;
   value: unknown;
@@ -2289,6 +2357,7 @@ function FieldInput({
   role?: string;
   overrideAttendance?: boolean;
   onToggleOverride?: () => void;
+  currentlyPunchedInDrivers?: Set<string>;
 }) {
   const isDateField = field.type === 'date' || field.key === 'date';
   const todayDate = indiaDateKey(new Date());
@@ -2427,9 +2496,14 @@ function FieldInput({
               </>
             ) : (
               <>
-                {selectOptions.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
+                {selectOptions.map((option) => {
+                  const isPunchedIn = isDriverField && currentlyPunchedInDrivers?.has(option.toLowerCase());
+                  return (
+                    <option key={option} value={option}>
+                      {option}{isPunchedIn ? ' ⚠️ (Already Punched In)' : ''}
+                    </option>
+                  );
+                })}
                 {field.key === 'labour_name' && onOpenAddEmployee && editable && (
                   <option value="__add_new_employee__" className="font-bold text-primary">
                     ➕ + Add new employee…

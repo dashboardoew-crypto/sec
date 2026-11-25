@@ -6,6 +6,7 @@ import adminDataRouter from "./admin-data";
 import reportsVehicleRouter from "./reports-vehicle";
 import reportsSolarRouter from "./reports-solar";
 import reportsCarBreakdownsRouter from "./reports-car-breakdowns";
+import reportsKothiRouter from "./reports-kothi";
 import breakdownsRouter from "./breakdowns";
 
 const router: IRouter = Router();
@@ -15,6 +16,7 @@ router.use(authRouter);
 router.use(reportsVehicleRouter);
 router.use(reportsSolarRouter);
 router.use(reportsCarBreakdownsRouter);
+router.use(reportsKothiRouter);
 router.use(breakdownsRouter);
 router.use(operationsRouter);
 router.use(adminDataRouter);

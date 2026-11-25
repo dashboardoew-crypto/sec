@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, BarChart3, CalendarRange, Car, Download, FileText, RefreshCw, Search, Sun, Users, Wrench } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BarChart3, CalendarRange, Car, Download, FileText, Home, RefreshCw, Search, Sun, Users, Wrench } from 'lucide-react';
 import { Link } from 'wouter';
 import { PageIntro } from '@/components/ops-ui';
 import { VehicleReportModule } from '@/components/vehicle-report-module';
@@ -7,6 +7,7 @@ import { SolarReportModule } from '@/components/solar-report-module';
 import { BreakdownReportView } from '@/components/breakdown-report-view';
 import { CarBreakdownReportModule } from '@/components/car-breakdown-report-module';
 import { DriverComprehensiveReportView } from '@/components/driver-comprehensive-report';
+import { KothiReportModule } from '@/components/kothi-report-module';
 import { downloadCsv } from '@/lib/date-utils';
 import {
   displayDate,
@@ -44,7 +45,7 @@ const amount = (value: number) => `₹${value.toFixed(2)}`;
 const reportLabel = (source: string) => reportOptions.find((option) => option.source === source)?.label ?? source;
 
 export default function ReportsPage() {
-  const [reportVersion, setReportVersion] = useState<'v4' | 'v3' | 'v2' | 'v1' | 'breakdowns' | 'driver-360'>('driver-360');
+  const [reportVersion, setReportVersion] = useState<'driver-360' | 'kothi' | 'v4' | 'v3' | 'v2' | 'v1' | 'breakdowns'>('driver-360');
   const [source, setSource] = useState<ReportSource>('driver-attendance');
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
@@ -212,6 +213,27 @@ export default function ReportsPage() {
           </button>
 
           <button
+            onClick={() => setReportVersion('kothi')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition sm:text-sm ${
+              reportVersion === 'kothi'
+                ? 'bg-emerald-600 text-white shadow-md dark:bg-emerald-500'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            data-testid="button-report-kothi"
+          >
+            <Home size={16} /> 🏡 Kothi Attendance & Day Count Report
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+                reportVersion === 'kothi'
+                  ? 'bg-white/25 text-white'
+                  : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+              }`}
+            >
+              Staff
+            </span>
+          </button>
+
+          <button
             onClick={() => setReportVersion('v4')}
             className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition sm:text-sm ${
               reportVersion === 'v4'
@@ -308,20 +330,24 @@ export default function ReportsPage() {
         <div className="hidden px-2 font-mono text-[11px] text-muted-foreground lg:block">
           {reportVersion === 'driver-360'
             ? 'Complete Driver Summary (All Drivers & Individual): 0-Trip Idle Days, 1-Trip, 2-Trip, Multi-Trip & Full Manifest'
-            : reportVersion === 'v4'
-              ? 'Car Breakdown Service Logs, Monthly Downtime & Vehicle Reliability Analytics'
-              : reportVersion === 'breakdowns'
-                ? 'Tubewell 1 & 2 Breakdown Incident Reports, Live Status & Dispatches'
-                : reportVersion === 'v3'
-                  ? 'Solar Panel Cleaning Register & Monthly Man Power Calculations'
-                  : reportVersion === 'v2'
-                    ? 'Outgoing Vehicle Log (Local) & Out of Station KM Analytics'
-                    : 'Driver Attendance, Chowk Labour & Training Reports'}
+            : reportVersion === 'kothi'
+              ? 'Kothi Household Staff Attendance, Day Counts, Shift Logs (Morning & Evening) & Total Hours'
+              : reportVersion === 'v4'
+                ? 'Car Breakdown Service Logs, Monthly Downtime & Vehicle Reliability Analytics'
+                : reportVersion === 'breakdowns'
+                  ? 'Tubewell 1 & 2 Breakdown Incident Reports, Live Status & Dispatches'
+                  : reportVersion === 'v3'
+                    ? 'Solar Panel Cleaning Register & Monthly Man Power Calculations'
+                    : reportVersion === 'v2'
+                      ? 'Outgoing Vehicle Log (Local) & Out of Station KM Analytics'
+                      : 'Driver Attendance, Chowk Labour & Training Reports'}
         </div>
       </div>
 
       {reportVersion === 'driver-360' ? (
         <DriverComprehensiveReportView />
+      ) : reportVersion === 'kothi' ? (
+        <KothiReportModule />
       ) : reportVersion === 'v4' ? (
         <CarBreakdownReportModule />
       ) : reportVersion === 'breakdowns' ? (

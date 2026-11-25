@@ -1,10 +1,10 @@
 # ERP System Test Execution & Verification Report
 
 <!-- AUTO-GENERATED TEST RUN HEADER -->
-> **Last Automated Run:** 19 Nov 2026, 5:11:44 pm (IST)  
+> **Last Automated Run:** 25 Nov 2026, 8:58:20 am (IST)  
 > **Status:** ✅ PASSED (All tests passed)  
-> **Total Tests:** 36 | **Passed:** 36 | **Failed:** 0  
-> **Execution Duration:** 406ms  
+> **Total Tests:** 45 | **Passed:** 45 | **Failed:** 0  
+> **Execution Duration:** 516ms  
 <!-- /AUTO-GENERATED TEST RUN HEADER -->
 
 ---
@@ -28,7 +28,7 @@ When you run `pnpm test`, the results are displayed in **two places**:
 
 ---
 
-## 2. Complete 32-Point Test Matrix
+## 2. Complete 45-Point Test Matrix
 
 ### Suite 1: Authentication & Password Security
 **File:** [tests/auth-security.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/auth-security.test.mjs)  
@@ -96,6 +96,21 @@ When you run `pnpm test`, the results are displayed in **two places**:
 - `✔` **Date Field Locking**: The primary date field is marked locked (`editable: false`, disabled, with "Locked" badge) when editing existing records.
 - `✔` **Backend Preservation**: Backend `PATCH` endpoint strictly retains the original record date even if request payloads contain today's date.
 - `✔` **Optional Date Fields Safeguard**: Optional secondary date fields (e.g. `car_in_date`) remain blank until filled and are not falsely overwritten with today's date.
+
+### Suite 11: Driver Attendance Active Session & Punch-Out Enforcement
+**File:** [tests/driver-attendance-session.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/driver-attendance-session.test.mjs)  
+- `✔` **Same-Date Duplicate Block**: Blocks recording a new attendance if the driver already has an active session on the same date without punch-out.
+- `✔` **Cross-Date Duplicate Block**: Blocks recording a new attendance on a subsequent date (e.g. 20 Nov) if the driver has an open punch-in from a previous date (e.g. 18 Nov) without punch-out.
+- `✔` **Punch-Out Resolution**: Once the driver's previous attendance record has an `out_time` recorded, creating a new attendance session is permitted.
+- `✔` **Multi-Driver Independent Sessions**: Drivers operate independently; one driver's active status does not impede attendance creation for other drivers.
+- `✔` **Active Shift Punch-Out Update**: Updating an existing active attendance to log its punch-out time is allowed without self-collision.
+
+### Suite 12: Kothi Attendance & Day Count Analytics Report
+**File:** [tests/kothi-attendance-report.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/kothi-attendance-report.test.mjs)  
+- `✔` **Shift Duration Calculation**: Accurately computes Morning Shift duration (`morning_in_time` to `morning_out_time`), Evening Shift duration (`evening_in_time` to `evening_out_time`), and total daily minutes and formatted hours.
+- `✔` **Distinct Day Count per Person**: Accurately computes the distinct attended days (`totalDays`) for every staff member in Kothi Attendance Register, correctly de-duplicating same-date entries.
+- `✔` **Shift Classification**: Distinguishes between `"Morning Only"`, `"Evening Only"`, `"Both Shifts (Full Day)"`, and incomplete punch sessions.
+- `✔` **Multi-Dimensional Filters**: Validates date range filtering (`from`/`to`), month-wise filtering, and individual staff member filtering.
 
 ---
 
