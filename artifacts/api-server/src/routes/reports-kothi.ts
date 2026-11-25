@@ -38,6 +38,13 @@ export const getMonthInfo = (dateStr: string): { key: string; label: string } =>
   return { key: "Unknown", label: "Unknown" };
 };
 
+export const formatDays = (days: number): string => {
+  if (Number.isInteger(days)) {
+    return `${days} Days`;
+  }
+  return `${days.toFixed(1)} Days`;
+};
+
 export type KothiAttendanceRecordItem = {
   id: string;
   date: string;
@@ -55,7 +62,9 @@ export type KothiAttendanceRecordItem = {
   totalMinutes: number;
   totalHoursFormatted: string;
   totalHours: number;
-  shiftStatus: "Both Shifts (Full Day)" | "Morning Only" | "Evening Only" | "Morning Incomplete" | "Evening Incomplete" | "Incomplete" | "Present";
+  dayValue: number; // 1.0 (both shifts), 0.5 (one shift), 0.0 (none)
+  dayLabel: string; // "1.0 Day" | "0.5 Day" | "0 Days"
+  attendanceType: "Full Day (1.0)" | "Half Day (0.5)" | "Incomplete";
   signOfSecurity: string;
   hasMorning: boolean;
   hasEvening: boolean;
@@ -64,18 +73,14 @@ export type KothiAttendanceRecordItem = {
 
 export type KothiPersonSummary = {
   name: string;
-  totalDays: number;
+  totalDays: number; // e.g. 14.5
+  totalDaysFormatted: string; // e.g. "14.5 Days"
+  fullDays: number; // count of 1.0 days
+  halfDays: number; // count of 0.5 days
   totalEntries: number;
-  morningShifts: number;
-  eveningShifts: number;
-  bothShifts: number;
-  singleShiftDays: number;
   totalMinutes: number;
   totalHoursFormatted: string;
   totalHours: number;
-  avgMinutesPerDay: number;
-  avgHoursPerDayFormatted: string;
-  avgHoursPerDay: number;
   firstDate: string;
   lastDate: string;
   activeMonths: string[];
@@ -85,30 +90,30 @@ export type KothiMonthlySummary = {
   monthKey: string;
   monthLabel: string;
   totalRecords: number;
-  totalPersonDays: number;
+  totalDays: number;
+  totalDaysFormatted: string;
   uniquePersons: number;
-  morningShiftsCount: number;
-  eveningShiftsCount: number;
+  fullDaysCount: number;
+  halfDaysCount: number;
   totalMinutes: number;
   totalHoursFormatted: string;
   totalHours: number;
-  avgHoursPerPerson: number;
+};
+
+export type KothiOverallMetrics = {
+  totalRecords: number;
+  uniquePersons: number;
+  totalDays: number;
+  totalDaysFormatted: string;
+  totalFullDays: number;
+  totalHalfDays: number;
+  totalMinutes: number;
+  totalHoursFormatted: string;
+  totalHours: number;
 };
 
 export type KothiAttendanceReportResponse = {
-  overall: {
-    totalRecords: number;
-    uniquePersons: number;
-    totalPersonDays: number;
-    totalMorningShifts: number;
-    totalEveningShifts: number;
-    totalBothShiftsDays: number;
-    totalMinutes: number;
-    totalHoursFormatted: string;
-    totalHours: number;
-    avgHoursPerDay: number;
-    avgHoursPerDayFormatted: string;
-  };
+  overall: KothiOverallMetrics;
   personSummaries: KothiPersonSummary[];
   monthlySummaries: KothiMonthlySummary[];
   records: KothiAttendanceRecordItem[];
@@ -178,20 +183,21 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
 
     const totalMinutes = morningMinutes + eveningMinutes;
 
-    // Determine status
-    let shiftStatus: KothiAttendanceRecordItem["shiftStatus"] = "Present";
+    // Day attendance calculation:
+    // Morning + Evening shift = 1 day
+    // Any day any shift is there other is not there = 0.5 days
+    let dayValue = 0;
+    let dayLabel = "0 Days";
+    let attendanceType: KothiAttendanceRecordItem["attendanceType"] = "Incomplete";
+
     if (hasMorningCompleted && hasEveningCompleted) {
-      shiftStatus = "Both Shifts (Full Day)";
-    } else if (hasMorningCompleted && !eIn && !eOut) {
-      shiftStatus = "Morning Only";
-    } else if (hasEveningCompleted && !mIn && !mOut) {
-      shiftStatus = "Evening Only";
-    } else if (mIn !== undefined && mOut === undefined) {
-      shiftStatus = "Morning Incomplete";
-    } else if (eIn !== undefined && eOut === undefined) {
-      shiftStatus = "Evening Incomplete";
-    } else if (totalMinutes === 0 && (morningInTime || eveningInTime)) {
-      shiftStatus = "Incomplete";
+      dayValue = 1.0;
+      dayLabel = "1.0 Day";
+      attendanceType = "Full Day (1.0)";
+    } else if (hasMorningCompleted || hasEveningCompleted) {
+      dayValue = 0.5;
+      dayLabel = "0.5 Day";
+      attendanceType = "Half Day (0.5)";
     }
 
     allRecords.push({
@@ -211,10 +217,12 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
       totalMinutes,
       totalHoursFormatted: formatDuration(totalMinutes),
       totalHours: Math.round((totalMinutes / 60) * 10) / 10,
-      shiftStatus,
+      dayValue,
+      dayLabel,
+      attendanceType,
       signOfSecurity,
-      hasMorning: hasMorningCompleted || Boolean(morningInTime),
-      hasEvening: hasEveningCompleted || Boolean(eveningInTime),
+      hasMorning: hasMorningCompleted,
+      hasEvening: hasEveningCompleted,
       createdAt: row.createdAt.toISOString(),
     });
   }
@@ -229,7 +237,8 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
       const matchSearch =
         rec.name.toLowerCase().includes(filterSearch) ||
         rec.date.toLowerCase().includes(filterSearch) ||
-        rec.shiftStatus.toLowerCase().includes(filterSearch) ||
+        rec.dayLabel.toLowerCase().includes(filterSearch) ||
+        rec.attendanceType.toLowerCase().includes(filterSearch) ||
         rec.signOfSecurity.toLowerCase().includes(filterSearch);
       if (!matchSearch) return false;
     }
@@ -237,16 +246,13 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
   });
 
   // Calculate Person-wise summary (Day Count & Hours)
+  // Per person per date: determine whether that date has morning and evening
   const personMap = new Map<
     string,
     {
       name: string;
-      dates: Set<string>;
       totalEntries: number;
-      morningShifts: number;
-      eveningShifts: number;
-      bothShiftsDates: Set<string>;
-      totalMinutes: number;
+      datesMap: Map<string, { hasMorning: boolean; hasEvening: boolean; minutes: number }>;
       firstDate: string;
       lastDate: string;
       activeMonths: Set<string>;
@@ -259,12 +265,8 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
     if (!summary) {
       summary = {
         name: personName,
-        dates: new Set<string>(),
         totalEntries: 0,
-        morningShifts: 0,
-        eveningShifts: 0,
-        bothShiftsDates: new Set<string>(),
-        totalMinutes: 0,
+        datesMap: new Map(),
         firstDate: rec.date,
         lastDate: rec.date,
         activeMonths: new Set<string>(),
@@ -274,48 +276,49 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
 
     summary.totalEntries += 1;
     if (rec.date) {
-      summary.dates.add(rec.date);
       if (!summary.firstDate || rec.date < summary.firstDate) summary.firstDate = rec.date;
       if (!summary.lastDate || rec.date > summary.lastDate) summary.lastDate = rec.date;
+
+      let dateObj = summary.datesMap.get(rec.date);
+      if (!dateObj) {
+        dateObj = { hasMorning: false, hasEvening: false, minutes: 0 };
+        summary.datesMap.set(rec.date, dateObj);
+      }
+      if (rec.hasMorning) dateObj.hasMorning = true;
+      if (rec.hasEvening) dateObj.hasEvening = true;
+      dateObj.minutes += rec.totalMinutes;
     }
     if (rec.monthLabel) summary.activeMonths.add(rec.monthLabel);
-
-    if (rec.morningInTime && rec.morningOutTime) {
-      summary.morningShifts += 1;
-    }
-    if (rec.eveningInTime && rec.eveningOutTime) {
-      summary.eveningShifts += 1;
-    }
-    if (rec.morningInTime && rec.morningOutTime && rec.eveningInTime && rec.eveningOutTime) {
-      summary.bothShiftsDates.add(rec.date);
-    }
-
-    summary.totalMinutes += rec.totalMinutes;
   }
 
   const personSummaries: KothiPersonSummary[] = Array.from(personMap.values())
     .map((item) => {
-      const totalDays = item.dates.size;
-      const bothShifts = item.bothShiftsDates.size;
-      const singleShiftDays = Math.max(0, totalDays - bothShifts);
-      const totalHours = Math.round((item.totalMinutes / 60) * 10) / 10;
-      const avgMinutesPerDay = totalDays > 0 ? Math.round(item.totalMinutes / totalDays) : 0;
-      const avgHoursPerDay = Math.round((avgMinutesPerDay / 60) * 10) / 10;
+      let fullDays = 0;
+      let halfDays = 0;
+      let totalMinutes = 0;
+
+      for (const dateObj of item.datesMap.values()) {
+        totalMinutes += dateObj.minutes;
+        if (dateObj.hasMorning && dateObj.hasEvening) {
+          fullDays += 1; // 1.0 day
+        } else if (dateObj.hasMorning || dateObj.hasEvening) {
+          halfDays += 1; // 0.5 day
+        }
+      }
+
+      const totalDays = fullDays * 1.0 + halfDays * 0.5;
+      const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
 
       return {
         name: item.name,
-        totalDays, // The crucial Day Count!
+        totalDays, // Sum of 1.0 days + 0.5 days
+        totalDaysFormatted: formatDays(totalDays),
+        fullDays,
+        halfDays,
         totalEntries: item.totalEntries,
-        morningShifts: item.morningShifts,
-        eveningShifts: item.eveningShifts,
-        bothShifts,
-        singleShiftDays,
-        totalMinutes: item.totalMinutes,
-        totalHoursFormatted: formatDuration(item.totalMinutes),
+        totalMinutes,
+        totalHoursFormatted: formatDuration(totalMinutes),
         totalHours,
-        avgMinutesPerDay,
-        avgHoursPerDayFormatted: formatDuration(avgMinutesPerDay),
-        avgHoursPerDay,
         firstDate: item.firstDate,
         lastDate: item.lastDate,
         activeMonths: Array.from(item.activeMonths).sort(),
@@ -330,9 +333,7 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
       monthKey: string;
       monthLabel: string;
       totalRecords: number;
-      personDatesMap: Map<string, Set<string>>;
-      morningShiftsCount: number;
-      eveningShiftsCount: number;
+      personDatesMap: Map<string, Map<string, { hasMorning: boolean; hasEvening: boolean; minutes: number }>>;
       totalMinutes: number;
     }
   >();
@@ -345,8 +346,6 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
         monthLabel: rec.monthLabel,
         totalRecords: 0,
         personDatesMap: new Map(),
-        morningShiftsCount: 0,
-        eveningShiftsCount: 0,
         totalMinutes: 0,
       };
       monthMap.set(rec.monthKey, mSummary);
@@ -355,65 +354,74 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
     mSummary.totalRecords += 1;
     mSummary.totalMinutes += rec.totalMinutes;
 
-    if (rec.morningInTime && rec.morningOutTime) mSummary.morningShiftsCount += 1;
-    if (rec.eveningInTime && rec.eveningOutTime) mSummary.eveningShiftsCount += 1;
-
     if (rec.name && rec.date) {
-      let dates = mSummary.personDatesMap.get(rec.name);
-      if (!dates) {
-        dates = new Set<string>();
-        mSummary.personDatesMap.set(rec.name, dates);
+      let pDates = mSummary.personDatesMap.get(rec.name);
+      if (!pDates) {
+        pDates = new Map();
+        mSummary.personDatesMap.set(rec.name, pDates);
       }
-      dates.add(rec.date);
+      let dObj = pDates.get(rec.date);
+      if (!dObj) {
+        dObj = { hasMorning: false, hasEvening: false, minutes: 0 };
+        pDates.set(rec.date, dObj);
+      }
+      if (rec.hasMorning) dObj.hasMorning = true;
+      if (rec.hasEvening) dObj.hasEvening = true;
+      dObj.minutes += rec.totalMinutes;
     }
   }
 
   const monthlySummaries: KothiMonthlySummary[] = Array.from(monthMap.values())
     .map((m) => {
-      let totalPersonDays = 0;
-      for (const dates of m.personDatesMap.values()) {
-        totalPersonDays += dates.size;
+      let fullDaysCount = 0;
+      let halfDaysCount = 0;
+
+      for (const pDates of m.personDatesMap.values()) {
+        for (const dObj of pDates.values()) {
+          if (dObj.hasMorning && dObj.hasEvening) {
+            fullDaysCount += 1;
+          } else if (dObj.hasMorning || dObj.hasEvening) {
+            halfDaysCount += 1;
+          }
+        }
       }
+
+      const totalDays = fullDaysCount * 1.0 + halfDaysCount * 0.5;
       const uniquePersons = m.personDatesMap.size;
       const totalHours = Math.round((m.totalMinutes / 60) * 10) / 10;
-      const avgHoursPerPerson = uniquePersons > 0 ? Math.round((totalHours / uniquePersons) * 10) / 10 : 0;
 
       return {
         monthKey: m.monthKey,
         monthLabel: m.monthLabel,
         totalRecords: m.totalRecords,
-        totalPersonDays,
+        totalDays,
+        totalDaysFormatted: formatDays(totalDays),
         uniquePersons,
-        morningShiftsCount: m.morningShiftsCount,
-        eveningShiftsCount: m.eveningShiftsCount,
+        fullDaysCount,
+        halfDaysCount,
         totalMinutes: m.totalMinutes,
         totalHoursFormatted: formatDuration(m.totalMinutes),
         totalHours,
-        avgHoursPerPerson,
       };
     })
     .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
 
   // Overall Statistics
   const totalRecords = filtered.length;
-  let totalPersonDays = 0;
-  let totalBothShiftsDays = 0;
-  let totalMorningShifts = 0;
-  let totalEveningShifts = 0;
+  let totalDays = 0;
+  let totalFullDays = 0;
+  let totalHalfDays = 0;
   let totalMinutes = 0;
 
   for (const s of personSummaries) {
-    totalPersonDays += s.totalDays;
-    totalBothShiftsDays += s.bothShifts;
-    totalMorningShifts += s.morningShifts;
-    totalEveningShifts += s.eveningShifts;
+    totalDays += s.totalDays;
+    totalFullDays += s.fullDays;
+    totalHalfDays += s.halfDays;
     totalMinutes += s.totalMinutes;
   }
 
   const uniquePersons = personSummaries.length;
   const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
-  const avgMinutesPerDay = totalPersonDays > 0 ? Math.round(totalMinutes / totalPersonDays) : 0;
-  const avgHoursPerDay = Math.round((avgMinutesPerDay / 60) * 10) / 10;
 
   const availableMonths = Array.from(allMonthsMap.entries())
     .sort((a, b) => b[0].localeCompare(a[0]))
@@ -425,15 +433,13 @@ router.get("/reports/kothi-attendance", async (req: Request, res: Response) => {
     overall: {
       totalRecords,
       uniquePersons,
-      totalPersonDays,
-      totalMorningShifts,
-      totalEveningShifts,
-      totalBothShiftsDays,
+      totalDays,
+      totalDaysFormatted: formatDays(totalDays),
+      totalFullDays,
+      totalHalfDays,
       totalMinutes,
       totalHoursFormatted: formatDuration(totalMinutes),
       totalHours,
-      avgHoursPerDay,
-      avgHoursPerDayFormatted: formatDuration(avgMinutesPerDay),
     },
     personSummaries,
     monthlySummaries,

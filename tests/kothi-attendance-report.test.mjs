@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-// Helper logic mirroring the Kothi Attendance Report calculations
+// Helper logic mirroring the updated Kothi Attendance calculation
 const parseTimeMinutes = (val) => {
   if (typeof val !== 'string' && typeof val !== 'number') return undefined;
   const str = String(val).trim();
@@ -39,6 +39,13 @@ const normalizeToIsoDate = (dateVal) => {
   return str.slice(0, 10);
 };
 
+const formatDays = (days) => {
+  if (Number.isInteger(days)) {
+    return `${days} Days`;
+  }
+  return `${days.toFixed(1)} Days`;
+};
+
 const computeKothiAttendanceAnalytics = (records, filters = {}) => {
   const { filterMonth, filterPerson, filterFrom, filterTo, filterSearch } = filters;
 
@@ -69,19 +76,20 @@ const computeKothiAttendanceAnalytics = (records, filters = {}) => {
 
     const totalMinutes = morningMinutes + eveningMinutes;
 
-    let shiftStatus = 'Present';
+    // Morning + Evening shift = 1 day (1.0)
+    // Any single shift is there = 0.5 days
+    let dayValue = 0;
+    let dayLabel = '0 Days';
+    let attendanceType = 'Incomplete';
+
     if (hasMorning && hasEvening) {
-      shiftStatus = 'Both Shifts (Full Day)';
-    } else if (hasMorning && !eIn && !eOut) {
-      shiftStatus = 'Morning Only';
-    } else if (hasEvening && !mIn && !mOut) {
-      shiftStatus = 'Evening Only';
-    } else if (mIn !== undefined && mOut === undefined) {
-      shiftStatus = 'Morning Incomplete';
-    } else if (eIn !== undefined && eOut === undefined) {
-      shiftStatus = 'Evening Incomplete';
-    } else if (totalMinutes === 0 && (morningIn || eveningIn)) {
-      shiftStatus = 'Incomplete';
+      dayValue = 1.0;
+      dayLabel = '1.0 Day';
+      attendanceType = 'Full Day (1.0)';
+    } else if (hasMorning || hasEvening) {
+      dayValue = 0.5;
+      dayLabel = '0.5 Day';
+      attendanceType = 'Half Day (0.5)';
     }
 
     const monthKey = date.slice(0, 7);
@@ -102,7 +110,9 @@ const computeKothiAttendanceAnalytics = (records, filters = {}) => {
       totalMinutes,
       totalHoursFormatted: formatDuration(totalMinutes),
       totalHours: Math.round((totalMinutes / 60) * 10) / 10,
-      shiftStatus,
+      dayValue,
+      dayLabel,
+      attendanceType,
       signOfSecurity,
       hasMorning,
       hasEvening,
@@ -121,7 +131,7 @@ const computeKothiAttendanceAnalytics = (records, filters = {}) => {
     return true;
   });
 
-  // Person-wise aggregation (Day count of every person)
+  // Person-wise aggregation: Total Days = 1.0 for (morning + evening), 0.5 for single shift
   const personMap = new Map();
   for (const rec of filtered) {
     const personName = rec.name || 'Unknown';
@@ -129,12 +139,8 @@ const computeKothiAttendanceAnalytics = (records, filters = {}) => {
     if (!summary) {
       summary = {
         name: personName,
-        dates: new Set(),
+        datesMap: new Map(),
         totalEntries: 0,
-        morningShifts: 0,
-        eveningShifts: 0,
-        bothShiftsDates: new Set(),
-        totalMinutes: 0,
         firstDate: rec.date,
         lastDate: rec.date,
       };
@@ -143,38 +149,54 @@ const computeKothiAttendanceAnalytics = (records, filters = {}) => {
 
     summary.totalEntries += 1;
     if (rec.date) {
-      summary.dates.add(rec.date);
       if (!summary.firstDate || rec.date < summary.firstDate) summary.firstDate = rec.date;
       if (!summary.lastDate || rec.date > summary.lastDate) summary.lastDate = rec.date;
+
+      let dateObj = summary.datesMap.get(rec.date);
+      if (!dateObj) {
+        dateObj = { hasMorning: false, hasEvening: false, minutes: 0 };
+        summary.datesMap.set(rec.date, dateObj);
+      }
+      if (rec.hasMorning) dateObj.hasMorning = true;
+      if (rec.hasEvening) dateObj.hasEvening = true;
+      dateObj.minutes += rec.totalMinutes;
     }
-    if (rec.hasMorning) summary.morningShifts += 1;
-    if (rec.hasEvening) summary.eveningShifts += 1;
-    if (rec.hasMorning && rec.hasEvening) summary.bothShiftsDates.add(rec.date);
-    summary.totalMinutes += rec.totalMinutes;
   }
 
   const personSummaries = Array.from(personMap.values()).map((p) => {
-    const totalDays = p.dates.size;
-    const bothShifts = p.bothShiftsDates.size;
-    const avgMinutes = totalDays > 0 ? Math.round(p.totalMinutes / totalDays) : 0;
+    let fullDays = 0;
+    let halfDays = 0;
+    let totalMinutes = 0;
+
+    for (const dObj of p.datesMap.values()) {
+      totalMinutes += dObj.minutes;
+      if (dObj.hasMorning && dObj.hasEvening) {
+        fullDays += 1; // 1.0 day
+      } else if (dObj.hasMorning || dObj.hasEvening) {
+        halfDays += 1; // 0.5 day
+      }
+    }
+
+    const totalDays = fullDays * 1.0 + halfDays * 0.5;
+
     return {
       name: p.name,
-      totalDays, // Day count of the person
+      totalDays, // Sum of 1.0 days + 0.5 days
+      totalDaysFormatted: formatDays(totalDays),
+      fullDays,
+      halfDays,
       totalEntries: p.totalEntries,
-      morningShifts: p.morningShifts,
-      eveningShifts: p.eveningShifts,
-      bothShifts,
-      singleShiftDays: Math.max(0, totalDays - bothShifts),
-      totalMinutes: p.totalMinutes,
-      totalHoursFormatted: formatDuration(p.totalMinutes),
-      totalHours: Math.round((p.totalMinutes / 60) * 10) / 10,
-      avgHoursPerDayFormatted: formatDuration(avgMinutes),
+      totalMinutes,
+      totalHoursFormatted: formatDuration(totalMinutes),
+      totalHours: Math.round((totalMinutes / 60) * 10) / 10,
       firstDate: p.firstDate,
       lastDate: p.lastDate,
     };
   });
 
-  const totalPersonDays = personSummaries.reduce((acc, p) => acc + p.totalDays, 0);
+  const totalDays = personSummaries.reduce((acc, p) => acc + p.totalDays, 0);
+  const totalFullDays = personSummaries.reduce((acc, p) => acc + p.fullDays, 0);
+  const totalHalfDays = personSummaries.reduce((acc, p) => acc + p.halfDays, 0);
   const totalMinutes = personSummaries.reduce((acc, p) => acc + p.totalMinutes, 0);
 
   return {
@@ -183,14 +205,17 @@ const computeKothiAttendanceAnalytics = (records, filters = {}) => {
     overall: {
       totalRecords: filtered.length,
       uniquePersons: personSummaries.length,
-      totalPersonDays,
+      totalDays,
+      totalDaysFormatted: formatDays(totalDays),
+      totalFullDays,
+      totalHalfDays,
       totalMinutes,
       totalHoursFormatted: formatDuration(totalMinutes),
     },
   };
 };
 
-test('Kothi Attendance: calculate shift durations accurately', () => {
+test('Kothi Attendance: morning + evening shift = 1 day (1.0)', () => {
   const sample = [
     {
       date: '2026-11-20',
@@ -199,7 +224,6 @@ test('Kothi Attendance: calculate shift durations accurately', () => {
       morning_out_time: '12:30',
       evening_in_time: '16:00',
       evening_out_time: '20:00',
-      sign_of_security: 'Guard Singh',
     },
   ];
 
@@ -207,71 +231,91 @@ test('Kothi Attendance: calculate shift durations accurately', () => {
   assert.equal(result.records.length, 1);
   const rec = result.records[0];
 
-  assert.equal(rec.morningMinutes, 270); // 4h 30m
-  assert.equal(rec.morningDurationFormatted, '4h 30m');
-  assert.equal(rec.eveningMinutes, 240); // 4h
-  assert.equal(rec.eveningDurationFormatted, '4h');
-  assert.equal(rec.totalMinutes, 510); // 8h 30m
-  assert.equal(rec.totalHoursFormatted, '8h 30m');
-  assert.equal(rec.shiftStatus, 'Both Shifts (Full Day)');
+  assert.equal(rec.dayValue, 1.0, 'Both shifts should equal 1.0 day');
+  assert.equal(rec.dayLabel, '1.0 Day');
+  assert.equal(rec.attendanceType, 'Full Day (1.0)');
+
+  const ramesh = result.personSummaries[0];
+  assert.equal(ramesh.totalDays, 1.0);
+  assert.equal(ramesh.fullDays, 1);
+  assert.equal(ramesh.halfDays, 0);
 });
 
-test('Kothi Attendance: accurately compute distinct day count for every person', () => {
+test('Kothi Attendance: single shift on any day = 0.5 days', () => {
+  const sample = [
+    // Morning only -> 0.5 days
+    {
+      date: '2026-11-20',
+      name: 'Sunita Cook',
+      morning_in_time: '08:00',
+      morning_out_time: '12:00',
+    },
+    // Evening only -> 0.5 days
+    {
+      date: '2026-11-21',
+      name: 'Sunita Cook',
+      evening_in_time: '16:00',
+      evening_out_time: '20:00',
+    },
+  ];
+
+  const result = computeKothiAttendanceAnalytics(sample);
+  assert.equal(result.records[0].dayValue, 0.5);
+  assert.equal(result.records[0].dayLabel, '0.5 Day');
+  assert.equal(result.records[1].dayValue, 0.5);
+  assert.equal(result.records[1].dayLabel, '0.5 Day');
+
+  const sunita = result.personSummaries[0];
+  assert.equal(sunita.fullDays, 0);
+  assert.equal(sunita.halfDays, 2);
+  assert.equal(sunita.totalDays, 1.0, 'Two 0.5 days should total 1.0 day');
+});
+
+test('Kothi Attendance: combined calculation (morning + evening = 1 day, single shift = 0.5 days)', () => {
   const records = [
-    // Ramesh: 3 distinct dates (Nov 18, 19, 20) with 4 entries
-    { date: '2026-11-18', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00' },
-    { date: '2026-11-19', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00' },
+    // Ramesh:
+    // Day 1 (Nov 18): Both shifts -> 1.0 day
+    { date: '2026-11-18', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00', evening_in_time: '16:00', evening_out_time: '20:00' },
+    // Day 2 (Nov 19): Both shifts -> 1.0 day
+    { date: '2026-11-19', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00', evening_in_time: '16:00', evening_out_time: '20:00' },
+    // Day 3 (Nov 20): Morning only -> 0.5 day
     { date: '2026-11-20', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00' },
-    { date: '2026-11-20', name: 'Ramesh Mali', evening_in_time: '16:00', evening_out_time: '20:00' }, // same date entry
+    // Total for Ramesh = 1.0 + 1.0 + 0.5 = 2.5 days
 
-    // Sunita: 2 distinct dates (Nov 18, 20)
-    { date: '2026-11-18', name: 'Sunita Cook', morning_in_time: '07:30', morning_out_time: '11:30' },
-    { date: '2026-11-20', name: 'Sunita Cook', morning_in_time: '07:30', morning_out_time: '11:30' },
-
-    // Rajesh: 1 date (Nov 19)
-    { date: '2026-11-19', name: 'Rajesh Helper', evening_in_time: '14:00', evening_out_time: '18:00' },
+    // Rajesh:
+    // Day 1 (Nov 18): Evening only -> 0.5 day
+    { date: '2026-11-18', name: 'Rajesh Helper', evening_in_time: '14:00', evening_out_time: '18:00' },
+    // Day 2 (Nov 19): Morning only -> 0.5 day
+    { date: '2026-11-19', name: 'Rajesh Helper', morning_in_time: '08:00', morning_out_time: '12:00' },
+    // Total for Rajesh = 0.5 + 0.5 = 1.0 day
   ];
 
   const result = computeKothiAttendanceAnalytics(records);
-  assert.equal(result.overall.uniquePersons, 3);
-  assert.equal(result.overall.totalPersonDays, 6); // 3 (Ramesh) + 2 (Sunita) + 1 (Rajesh) = 6
+  assert.equal(result.overall.uniquePersons, 2);
+  assert.equal(result.overall.totalDays, 3.5); // 2.5 + 1.0 = 3.5
+  assert.equal(result.overall.totalFullDays, 2);
+  assert.equal(result.overall.totalHalfDays, 3);
 
-  const rameshSummary = result.personSummaries.find((p) => p.name === 'Ramesh Mali');
-  assert.ok(rameshSummary);
-  assert.equal(rameshSummary.totalDays, 3, 'Ramesh should have 3 distinct days attended');
-  assert.equal(rameshSummary.totalEntries, 4);
+  const ramesh = result.personSummaries.find((p) => p.name === 'Ramesh Mali');
+  assert.equal(ramesh.fullDays, 2);
+  assert.equal(ramesh.halfDays, 1);
+  assert.equal(ramesh.totalDays, 2.5, 'Ramesh should have exactly 2.5 days');
 
-  const sunitaSummary = result.personSummaries.find((p) => p.name === 'Sunita Cook');
-  assert.ok(sunitaSummary);
-  assert.equal(sunitaSummary.totalDays, 2, 'Sunita should have 2 distinct days attended');
+  const rajesh = result.personSummaries.find((p) => p.name === 'Rajesh Helper');
+  assert.equal(rajesh.fullDays, 0);
+  assert.equal(rajesh.halfDays, 2);
+  assert.equal(rajesh.totalDays, 1.0, 'Rajesh should have exactly 1.0 day');
 
-  const rajeshSummary = result.personSummaries.find((p) => p.name === 'Rajesh Helper');
-  assert.ok(rajeshSummary);
-  assert.equal(rajeshSummary.totalDays, 1, 'Rajesh should have 1 distinct day attended');
-});
-
-test('Kothi Attendance: classify single shift vs full day shifts', () => {
-  const records = [
-    { date: '2026-11-21', name: 'Mohan Guard', morning_in_time: '08:00', morning_out_time: '14:00' },
-    { date: '2026-11-21', name: 'Sohan Night', evening_in_time: '16:00', evening_out_time: '22:00' },
-    { date: '2026-11-21', name: 'Geeta Cleaner', morning_in_time: '08:00', morning_out_time: '12:00', evening_in_time: '15:00', evening_out_time: '19:00' },
-  ];
-
-  const result = computeKothiAttendanceAnalytics(records);
-  const mohan = result.records.find((r) => r.name === 'Mohan Guard');
-  const sohan = result.records.find((r) => r.name === 'Sohan Night');
-  const geeta = result.records.find((r) => r.name === 'Geeta Cleaner');
-
-  assert.equal(mohan.shiftStatus, 'Morning Only');
-  assert.equal(sohan.shiftStatus, 'Evening Only');
-  assert.equal(geeta.shiftStatus, 'Both Shifts (Full Day)');
+  // Verify average time is not present in summary
+  assert.equal(ramesh.avgMinutesPerDay, undefined);
+  assert.equal(ramesh.avgHoursPerDay, undefined);
 });
 
 test('Kothi Attendance: filter by date range and person name', () => {
   const records = [
-    { date: '2026-11-10', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00' },
+    { date: '2026-11-10', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00', evening_in_time: '16:00', evening_out_time: '20:00' },
     { date: '2026-11-15', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00' },
-    { date: '2026-11-20', name: 'Ramesh Mali', morning_in_time: '08:00', morning_out_time: '12:00' },
+    { date: '2026-11-20', name: 'Ramesh Mali', evening_in_time: '16:00', evening_out_time: '20:00' },
     { date: '2026-11-15', name: 'Sunita Cook', morning_in_time: '08:00', morning_out_time: '12:00' },
   ];
 
@@ -288,5 +332,5 @@ test('Kothi Attendance: filter by date range and person name', () => {
   });
   assert.equal(personResult.records.length, 1);
   assert.equal(personResult.personSummaries[0].name, 'Sunita Cook');
-  assert.equal(personResult.personSummaries[0].totalDays, 1);
+  assert.equal(personResult.personSummaries[0].totalDays, 0.5, 'Single shift should equal 0.5 days');
 });

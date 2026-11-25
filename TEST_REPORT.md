@@ -1,10 +1,10 @@
 # ERP System Test Execution & Verification Report
 
 <!-- AUTO-GENERATED TEST RUN HEADER -->
-> **Last Automated Run:** 25 Nov 2026, 8:58:20 am (IST)  
+> **Last Automated Run:** 25 Nov 2026, 9:15:18 am (IST)  
 > **Status:** ✅ PASSED (All tests passed)  
 > **Total Tests:** 45 | **Passed:** 45 | **Failed:** 0  
-> **Execution Duration:** 516ms  
+> **Execution Duration:** 491ms  
 <!-- /AUTO-GENERATED TEST RUN HEADER -->
 
 ---
@@ -105,11 +105,11 @@ When you run `pnpm test`, the results are displayed in **two places**:
 - `✔` **Multi-Driver Independent Sessions**: Drivers operate independently; one driver's active status does not impede attendance creation for other drivers.
 - `✔` **Active Shift Punch-Out Update**: Updating an existing active attendance to log its punch-out time is allowed without self-collision.
 
-### Suite 12: Kothi Attendance & Day Count Analytics Report
+### Suite 12: Kothi Attendance & Total Days Analytics Report
 **File:** [tests/kothi-attendance-report.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/kothi-attendance-report.test.mjs)  
-- `✔` **Shift Duration Calculation**: Accurately computes Morning Shift duration (`morning_in_time` to `morning_out_time`), Evening Shift duration (`evening_in_time` to `evening_out_time`), and total daily minutes and formatted hours.
-- `✔` **Distinct Day Count per Person**: Accurately computes the distinct attended days (`totalDays`) for every staff member in Kothi Attendance Register, correctly de-duplicating same-date entries.
-- `✔` **Shift Classification**: Distinguishes between `"Morning Only"`, `"Evening Only"`, `"Both Shifts (Full Day)"`, and incomplete punch sessions.
+- `✔` **Morning + Evening Shift = 1.0 Day**: Accurately computes 1.0 day for days when both morning and evening shifts are attended.
+- `✔` **Single Shift = 0.5 Days**: Accurately computes 0.5 days for days when only one shift (morning or evening) is attended.
+- `✔` **Combined Total Days Calculation**: Aggregates `(Full Days × 1.0) + (Half Days × 0.5)` for each person without arbitrary average time metrics.
 - `✔` **Multi-Dimensional Filters**: Validates date range filtering (`from`/`to`), month-wise filtering, and individual staff member filtering.
 
 ---

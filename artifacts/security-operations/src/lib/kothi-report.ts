@@ -1,3 +1,10 @@
+export const formatDays = (days: number): string => {
+  if (Number.isInteger(days)) {
+    return `${days} Days`;
+  }
+  return `${days.toFixed(1)} Days`;
+};
+
 export type KothiAttendanceRecordItem = {
   id: string;
   date: string;
@@ -15,7 +22,9 @@ export type KothiAttendanceRecordItem = {
   totalMinutes: number;
   totalHoursFormatted: string;
   totalHours: number;
-  shiftStatus: 'Both Shifts (Full Day)' | 'Morning Only' | 'Evening Only' | 'Morning Incomplete' | 'Evening Incomplete' | 'Incomplete' | 'Present';
+  dayValue: number; // 1.0 (both shifts), 0.5 (single shift), 0.0 (incomplete)
+  dayLabel: string; // "1.0 Day" | "0.5 Day" | "0 Days"
+  attendanceType: 'Full Day (1.0)' | 'Half Day (0.5)' | 'Incomplete';
   signOfSecurity: string;
   hasMorning: boolean;
   hasEvening: boolean;
@@ -24,18 +33,14 @@ export type KothiAttendanceRecordItem = {
 
 export type KothiPersonSummary = {
   name: string;
-  totalDays: number; // Day count of distinct dates attended
+  totalDays: number; // Sum of 1.0 days + 0.5 days (e.g. 14.5)
+  totalDaysFormatted: string; // e.g. "14.5 Days"
+  fullDays: number; // Count of 1.0 days (morning + evening)
+  halfDays: number; // Count of 0.5 days (single shift)
   totalEntries: number;
-  morningShifts: number;
-  eveningShifts: number;
-  bothShifts: number;
-  singleShiftDays: number;
   totalMinutes: number;
   totalHoursFormatted: string;
   totalHours: number;
-  avgMinutesPerDay: number;
-  avgHoursPerDayFormatted: string;
-  avgHoursPerDay: number;
   firstDate: string;
   lastDate: string;
   activeMonths: string[];
@@ -45,28 +50,26 @@ export type KothiMonthlySummary = {
   monthKey: string;
   monthLabel: string;
   totalRecords: number;
-  totalPersonDays: number;
+  totalDays: number;
+  totalDaysFormatted: string;
   uniquePersons: number;
-  morningShiftsCount: number;
-  eveningShiftsCount: number;
+  fullDaysCount: number;
+  halfDaysCount: number;
   totalMinutes: number;
   totalHoursFormatted: string;
   totalHours: number;
-  avgHoursPerPerson: number;
 };
 
 export type KothiOverallMetrics = {
   totalRecords: number;
   uniquePersons: number;
-  totalPersonDays: number;
-  totalMorningShifts: number;
-  totalEveningShifts: number;
-  totalBothShiftsDays: number;
+  totalDays: number;
+  totalDaysFormatted: string;
+  totalFullDays: number;
+  totalHalfDays: number;
   totalMinutes: number;
   totalHoursFormatted: string;
   totalHours: number;
-  avgHoursPerDay: number;
-  avgHoursPerDayFormatted: string;
 };
 
 export type KothiAttendanceReportResponse = {

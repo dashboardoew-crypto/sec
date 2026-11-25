@@ -57,15 +57,6 @@ test('Active labour employee is shown and cannot be unclosed', () => {
   assert.strictEqual(status.is_closed, false);
 });
 
-
-
-
-
-
-
-
-
-
 test('Employee closed 1 day ago remains visible for 3 days and can be unclosed', () => {
   const now = Date.now();
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;

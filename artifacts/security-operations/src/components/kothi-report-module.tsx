@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Calendar,
   CalendarDays,
@@ -6,21 +6,17 @@ import {
   Download,
   Filter,
   Home,
-  Moon,
   RefreshCw,
   Search,
-  Sun,
-  User,
   Users,
   XCircle,
   CheckCircle2,
   AlertCircle,
-  Briefcase,
+  Award,
 } from 'lucide-react';
 import {
   fetchKothiAttendanceReport,
   type KothiAttendanceReportResponse,
-  type KothiPersonSummary,
   type KothiAttendanceRecordItem,
 } from '@/lib/kothi-report';
 import { downloadCsv } from '@/lib/date-utils';
@@ -90,15 +86,12 @@ export function KothiReportModule() {
     if (!data?.personSummaries.length) return;
     const headers = [
       'Person Name',
-      'Total Days Worked (Day Count)',
+      'Total Days',
+      'Full Days (1.0 Day - Morning + Evening)',
+      'Half Days (0.5 Day - Single Shift)',
       'Total Entries',
-      'Morning Shifts',
-      'Evening Shifts',
-      'Both Shifts (Full Days)',
-      'Single Shift Days',
       'Total Working Duration',
       'Total Working Hours',
-      'Avg Hours / Day',
       'First Date',
       'Last Date',
       'Active Months',
@@ -106,19 +99,16 @@ export function KothiReportModule() {
     const rows = data.personSummaries.map((p) => [
       p.name,
       p.totalDays.toString(),
+      p.fullDays.toString(),
+      p.halfDays.toString(),
       p.totalEntries.toString(),
-      p.morningShifts.toString(),
-      p.eveningShifts.toString(),
-      p.bothShifts.toString(),
-      p.singleShiftDays.toString(),
       p.totalHoursFormatted,
       p.totalHours.toString(),
-      p.avgHoursPerDayFormatted,
       p.firstDate,
       p.lastDate,
       p.activeMonths.join('; '),
     ]);
-    downloadCsv(`Kothi_Attendance_Person_Day_Counts_${new Date().toISOString().slice(0, 10)}.csv`, [
+    downloadCsv(`Kothi_Attendance_Total_Days_${new Date().toISOString().slice(0, 10)}.csv`, [
       headers,
       ...rows,
     ]);
@@ -137,9 +127,10 @@ export function KothiReportModule() {
       'Evening In-Time',
       'Evening Out-Time',
       'Evening Duration',
-      'Total Day Duration',
-      'Total Day Hours',
-      'Shift Status',
+      'Total Duration',
+      'Total Hours',
+      'Day Attendance (Days)',
+      'Attendance Type',
       'Security Sign',
     ];
     const rows = data.records.map((r) => [
@@ -154,7 +145,8 @@ export function KothiReportModule() {
       r.eveningDurationFormatted,
       r.totalHoursFormatted,
       r.totalHours.toString(),
-      r.shiftStatus,
+      r.dayValue.toString(),
+      r.attendanceType,
       r.signOfSecurity,
     ]);
     downloadCsv(`Kothi_Attendance_Detailed_Log_${new Date().toISOString().slice(0, 10)}.csv`, [
@@ -163,41 +155,26 @@ export function KothiReportModule() {
     ]);
   };
 
-  const getShiftBadge = (status: KothiAttendanceRecordItem['shiftStatus']) => {
-    switch (status) {
-      case 'Both Shifts (Full Day)':
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-            <CheckCircle2 size={12} /> Full Day (Both Shifts)
-          </span>
-        );
-      case 'Morning Only':
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
-            <Sun size={12} /> Morning Only
-          </span>
-        );
-      case 'Evening Only':
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/15 px-2.5 py-0.5 text-xs font-semibold text-purple-700 dark:text-purple-300">
-            <Moon size={12} /> Evening Only
-          </span>
-        );
-      case 'Morning Incomplete':
-      case 'Evening Incomplete':
-      case 'Incomplete':
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
-            <AlertCircle size={12} /> {status}
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
-            {status}
-          </span>
-        );
+  const getAttendanceBadge = (rec: KothiAttendanceRecordItem) => {
+    if (rec.dayValue === 1.0) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+          <CheckCircle2 size={12} /> 1.0 Day (Full Day)
+        </span>
+      );
     }
+    if (rec.dayValue === 0.5) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-300">
+          ⚡ 0.5 Day (Half Day)
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+        <AlertCircle size={12} /> 0 Days
+      </span>
+    );
   };
 
   return (
@@ -209,10 +186,10 @@ export function KothiReportModule() {
             <Home size={15} /> Kothi Household Operations
           </div>
           <h2 className="text-xl font-black tracking-tight text-foreground sm:text-2xl">
-            Kothi Attendance & Day Count Report
+            Kothi Attendance & Total Days Report
           </h2>
           <p className="text-sm text-muted-foreground">
-            Complete details of Kothi attendance, distinct day count of every household staff member, shift timings, and total hours worked.
+            Person-wise total days calculation: Morning + Evening shift = 1 day (1.0), single shift = 0.5 days.
           </p>
         </div>
 
@@ -221,10 +198,10 @@ export function KothiReportModule() {
             onClick={exportPersonSummaryCsv}
             disabled={!data?.personSummaries?.length}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-bold text-foreground shadow-sm hover:bg-muted disabled:opacity-50 transition"
-            title="Export person day count summary as CSV"
+            title="Export person total days summary as CSV"
             data-testid="export-person-summary-csv"
           >
-            <Download size={14} /> Export Day Counts (CSV)
+            <Download size={14} /> Export Total Days (CSV)
           </button>
           <button
             onClick={exportRecordsCsv}
@@ -349,21 +326,21 @@ export function KothiReportModule() {
       {/* KPI Cards */}
       {data && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm" data-testid="kpi-total-person-days">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm" data-testid="kpi-total-days">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Total Day Count
+                Total Days
               </span>
               <div className="flex size-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <CalendarDays size={16} />
               </div>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-foreground">{data.overall.totalPersonDays}</span>
-              <span className="text-xs font-semibold text-muted-foreground">Person-Days</span>
+              <span className="text-2xl font-black text-foreground">{data.overall.totalDays}</span>
+              <span className="text-xs font-semibold text-muted-foreground">Days</span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Distinct attended days across all {data.overall.uniquePersons} staff members
+              Both shifts = 1.0 day | Single shift = 0.5 days
             </p>
           </div>
 
@@ -381,7 +358,7 @@ export function KothiReportModule() {
               <span className="text-xs font-semibold text-muted-foreground">Staff recorded</span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Avg {data.overall.avgHoursPerDayFormatted} worked per attended day
+              Total {data.overall.totalRecords} attendance entries logged
             </p>
           </div>
 
@@ -399,29 +376,27 @@ export function KothiReportModule() {
               <span className="text-xs font-semibold text-muted-foreground">({data.overall.totalHours} hrs)</span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Combined morning and evening shift hours
+              Combined working hours across all staff
             </p>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm" data-testid="kpi-shifts-breakdown">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm" data-testid="kpi-days-breakdown">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Shifts Completed
+                Days Breakdown
               </span>
               <div className="flex size-8 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                <Briefcase size={16} />
+                <Award size={16} />
               </div>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-foreground">{data.overall.totalRecords}</span>
-              <span className="text-xs font-semibold text-muted-foreground">Entries</span>
+              <span className="text-2xl font-black text-foreground">{data.overall.totalFullDays}</span>
+              <span className="text-xs font-semibold text-muted-foreground">Full Days</span>
             </div>
             <div className="mt-1 flex items-center gap-2 text-[11px] font-semibold text-muted-foreground">
-              <span className="text-blue-600 dark:text-blue-400">☀️ {data.overall.totalMorningShifts} Morn</span>
+              <span className="text-emerald-600 dark:text-emerald-400">🌟 {data.overall.totalFullDays} Full (1.0)</span>
               <span>•</span>
-              <span className="text-purple-600 dark:text-purple-400">🌙 {data.overall.totalEveningShifts} Eve</span>
-              <span>•</span>
-              <span className="text-emerald-600 dark:text-emerald-400">🌟 {data.overall.totalBothShiftsDays} Full</span>
+              <span className="text-blue-600 dark:text-blue-400">⚡ {data.overall.totalHalfDays} Half (0.5)</span>
             </div>
           </div>
         </div>
@@ -438,7 +413,7 @@ export function KothiReportModule() {
           }`}
           data-testid="tab-kothi-person-summary"
         >
-          <Users size={15} /> Person Summary & Day Counts ({data?.personSummaries?.length ?? 0})
+          <Users size={15} /> Person Summary & Total Days ({data?.personSummaries?.length ?? 0})
         </button>
 
         <button
@@ -480,15 +455,15 @@ export function KothiReportModule() {
         </div>
       )}
 
-      {/* Tab 1: Person Summary & Day Counts */}
+      {/* Tab 1: Person Summary & Total Days */}
       {!loading && activeTab === 'summary' && (
         <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
           <div className="border-b border-border bg-muted/40 px-5 py-3.5">
             <h3 className="text-sm font-bold text-foreground">
-              Household Staff Day Count & Working Hours Summary
+              Household Staff Total Days & Working Hours Summary
             </h3>
             <p className="text-xs text-muted-foreground">
-              Total distinct days present, shift counts (morning & evening), total hours, and average daily hours per staff member.
+              Total Days calculated as: Both Shifts (Morning + Evening) = 1.0 Day | Single Shift = 0.5 Days.
             </p>
           </div>
 
@@ -497,12 +472,11 @@ export function KothiReportModule() {
               <thead>
                 <tr className="border-b border-border bg-muted/20 text-muted-foreground">
                   <th className="px-4 py-3 font-bold">Staff Member</th>
-                  <th className="px-4 py-3 font-bold text-center">Day Count (Days Present)</th>
-                  <th className="px-4 py-3 font-bold text-center">Morning Shifts</th>
-                  <th className="px-4 py-3 font-bold text-center">Evening Shifts</th>
-                  <th className="px-4 py-3 font-bold text-center">Full Days (Both Shifts)</th>
+                  <th className="px-4 py-3 font-bold text-center">Total Days</th>
+                  <th className="px-4 py-3 font-bold text-center">Full Days (1.0)</th>
+                  <th className="px-4 py-3 font-bold text-center">Half Days (0.5)</th>
+                  <th className="px-4 py-3 font-bold text-center">Total Entries</th>
                   <th className="px-4 py-3 font-bold text-right">Total Duration</th>
-                  <th className="px-4 py-3 font-bold text-right">Avg Hours / Day</th>
                   <th className="px-4 py-3 font-bold">Period Active</th>
                   <th className="px-4 py-3 font-bold text-center">Actions</th>
                 </tr>
@@ -510,7 +484,7 @@ export function KothiReportModule() {
               <tbody className="divide-y divide-border">
                 {(!data?.personSummaries || data.personSummaries.length === 0) ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                       No Kothi attendance records found matching current filters.
                     </td>
                   </tr>
@@ -534,21 +508,18 @@ export function KothiReportModule() {
                           <CheckCircle2 size={12} /> {person.totalDays} Days
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">
-                        {person.morningShifts}
-                      </td>
-                      <td className="px-4 py-3 text-center font-semibold text-purple-600 dark:text-purple-400">
-                        {person.eveningShifts}
-                      </td>
                       <td className="px-4 py-3 text-center font-semibold text-emerald-600 dark:text-emerald-400">
-                        {person.bothShifts}
+                        {person.fullDays}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">
+                        {person.halfDays}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-muted-foreground">
+                        {person.totalEntries}
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-foreground">
                         <div>{person.totalHoursFormatted}</div>
                         <div className="text-[10px] font-normal text-muted-foreground">({person.totalHours} hrs)</div>
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-muted-foreground">
-                        {person.avgHoursPerDayFormatted}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <div className="font-mono text-[11px]">{person.firstDate} to {person.lastDate}</div>
@@ -581,7 +552,7 @@ export function KothiReportModule() {
                 Detailed Kothi Attendance Register Logs
               </h3>
               <p className="text-xs text-muted-foreground">
-                Individual attendance punches with morning and evening shift in/out times and calculated daily durations.
+                Punches with morning and evening shift timings, total duration, and calculated day attendance (1.0 vs 0.5 Days).
               </p>
             </div>
             {selectedPerson !== 'all' && (
@@ -603,11 +574,11 @@ export function KothiReportModule() {
                   <th className="px-4 py-3 font-bold">Morning Shift</th>
                   <th className="px-4 py-3 font-bold">Evening Shift</th>
                   <th className="px-4 py-3 font-bold text-right">Total Duration</th>
-                  <th className="px-4 py-3 font-bold text-center">Status</th>
+                  <th className="px-4 py-3 font-bold text-center">Day Attendance</th>
                   <th className="px-4 py-3 font-bold">Security Sign</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="divide-y border-border">
                 {(!data?.records || data.records.length === 0) ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
@@ -660,7 +631,7 @@ export function KothiReportModule() {
                         <div className="text-[10px] font-normal text-muted-foreground">({rec.totalHours} hrs)</div>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {getShiftBadge(rec.shiftStatus)}
+                        {getAttendanceBadge(rec)}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {rec.signOfSecurity || '—'}
@@ -679,10 +650,10 @@ export function KothiReportModule() {
         <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
           <div className="border-b border-border bg-muted/40 px-5 py-3.5">
             <h3 className="text-sm font-bold text-foreground">
-              Monthly Attendance & Manpower Analytics
+              Monthly Attendance Analytics
             </h3>
             <p className="text-xs text-muted-foreground">
-              Month-over-month person-day totals, staff counts, morning vs evening shifts, and total hours logged.
+              Month-over-month total days, full days (1.0), half days (0.5), staff counts, and total hours logged.
             </p>
           </div>
 
@@ -691,18 +662,17 @@ export function KothiReportModule() {
               <thead>
                 <tr className="border-b border-border bg-muted/20 text-muted-foreground">
                   <th className="px-4 py-3 font-bold">Month</th>
-                  <th className="px-4 py-3 font-bold text-center">Person-Days Worked</th>
+                  <th className="px-4 py-3 font-bold text-center">Total Days</th>
                   <th className="px-4 py-3 font-bold text-center">Unique Staff Members</th>
-                  <th className="px-4 py-3 font-bold text-center">Morning Shifts</th>
-                  <th className="px-4 py-3 font-bold text-center">Evening Shifts</th>
+                  <th className="px-4 py-3 font-bold text-center">Full Days (1.0)</th>
+                  <th className="px-4 py-3 font-bold text-center">Half Days (0.5)</th>
                   <th className="px-4 py-3 font-bold text-right">Total Hours</th>
-                  <th className="px-4 py-3 font-bold text-right">Avg Hours / Staff</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {(!data?.monthlySummaries || data.monthlySummaries.length === 0) ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                       No monthly summary available.
                     </td>
                   </tr>
@@ -714,24 +684,21 @@ export function KothiReportModule() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
-                          {m.totalPersonDays} Person-Days
+                          {m.totalDays} Days
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center font-bold text-foreground">
                         {m.uniquePersons}
                       </td>
-                      <td className="px-4 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">
-                        {m.morningShiftsCount}
+                      <td className="px-4 py-3 text-center font-semibold text-emerald-600 dark:text-emerald-400">
+                        {m.fullDaysCount}
                       </td>
-                      <td className="px-4 py-3 text-center font-semibold text-purple-600 dark:text-purple-400">
-                        {m.eveningShiftsCount}
+                      <td className="px-4 py-3 text-center font-semibold text-blue-600 dark:text-blue-400">
+                        {m.halfDaysCount}
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-foreground">
                         <div>{m.totalHoursFormatted}</div>
                         <div className="text-[10px] font-normal text-muted-foreground">({m.totalHours} hrs)</div>
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-muted-foreground">
-                        {m.avgHoursPerPerson} hrs
                       </td>
                     </tr>
                   ))
