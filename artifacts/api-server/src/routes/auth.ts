@@ -1,14 +1,20 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { db, authSessionsTable, authUsersTable, type AuthUser } from "@workspace/db";
 import { hashSessionToken, requireRole, SESSION_COOKIE } from "../middlewares/authMiddleware";
 
-type UserRole = "admin" | "manager" | "hr" | "security";
-const USER_ROLES: UserRole[] = ["admin", "manager", "hr", "security"];
+type UserRole = "super_admin" | "admin" | "manager" | "hr" | "security";
+const USER_ROLES: UserRole[] = ["super_admin", "admin", "manager", "hr", "security"];
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
 const bootstrapUsers = [
+  {
+    email: "superadmin@gmail.com",
+    displayName: "Super Admin",
+    role: "super_admin" as const,
+    passwordHash: "scrypt$21c609dec44ad9b4da7050a556164b05$42517737f3aeb49d8488a4f35dd39962b370e634769d7ad55aa5690860eeaa57a0810a8f5cfb9edebbdd5af17c11229db328cfefa66ca69c6670afe82eb0de6b",
+  },
   {
     email: "yashgr2818@gmail.com",
     displayName: "Yash",
@@ -60,13 +66,17 @@ const verifyPassword = (password: string, stored: string) => {
 
 const normalizeEmail = (email: unknown) => typeof email === "string" ? email.trim().toLowerCase() : "";
 
+const isAdministrative = (r: string) => r === "admin" || r === "super_admin";
+
 async function ensureBootstrapUsers() {
   if (!seedPromise) {
     seedPromise = Promise.all(
       bootstrapUsers.map((user) =>
         db.insert(authUsersTable).values({ id: randomUUID(), ...user }).onConflictDoNothing({ target: authUsersTable.email }),
       ),
-    ).then(() => undefined).catch((error) => {
+    ).then(async () => {
+      await db.update(authUsersTable).set({ role: "super_admin" }).where(eq(authUsersTable.email, "superadmin@gmail.com"));
+    }).catch((error) => {
       seedPromise = undefined;
       throw error;
     });
@@ -148,13 +158,13 @@ router.patch("/auth/users/:id/role", requireRole("admin"), async (req: Request, 
   const actor = req.user;
   if (!actor) return res.status(401).json({ error: "Authentication required" });
   const role = req.body?.role as UserRole;
-  if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Choose admin, manager, HR, or Security" });
+  if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Choose Super Admin, admin, manager, HR, or Security" });
   const targetId = String(req.params.id);
-  if (targetId === actor.id && role !== "admin") {
-    return res.status(400).json({ error: "You cannot remove your own admin access" });
+  if (targetId === actor.id && !isAdministrative(role)) {
+    return res.status(400).json({ error: "You cannot remove your own administrative access" });
   }
-  if (role !== "admin") {
-    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(eq(authUsersTable.role, "admin"));
+  if (!isAdministrative(role)) {
+    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(or(eq(authUsersTable.role, "admin"), eq(authUsersTable.role, "super_admin")));
     if (admins.length === 1 && admins[0].id === targetId) {
       return res.status(400).json({ error: "The workspace must keep at least one admin" });
     }
@@ -184,11 +194,11 @@ router.patch("/auth/users/:id", requireRole("admin"), async (req: Request, res: 
   if (input.password !== undefined && password.length < 8) {
     return res.status(400).json({ error: "Password must be at least 8 characters" });
   }
-  if (targetId === actor.id && role !== "admin") {
-    return res.status(400).json({ error: "You cannot remove your own admin access" });
+  if (targetId === actor.id && !isAdministrative(role)) {
+    return res.status(400).json({ error: "You cannot remove your own administrative access" });
   }
-  if (role !== "admin") {
-    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(eq(authUsersTable.role, "admin"));
+  if (!isAdministrative(role)) {
+    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(or(eq(authUsersTable.role, "admin"), eq(authUsersTable.role, "super_admin")));
     if (admins.length === 1 && admins[0].id === targetId) {
       return res.status(400).json({ error: "The workspace must keep at least one admin" });
     }
@@ -217,8 +227,8 @@ router.delete("/auth/users/:id", requireRole("admin"), async (req: Request, res:
 
   const target = await db.select().from(authUsersTable).where(eq(authUsersTable.id, targetId)).limit(1);
   if (!target[0]) return res.status(404).json({ error: "User not found" });
-  if (target[0].role === "admin") {
-    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(eq(authUsersTable.role, "admin"));
+  if (isAdministrative(target[0].role)) {
+    const admins = await db.select({ id: authUsersTable.id }).from(authUsersTable).where(or(eq(authUsersTable.role, "admin"), eq(authUsersTable.role, "super_admin")));
     if (admins.length === 1) return res.status(400).json({ error: "The workspace must keep at least one admin" });
   }
 

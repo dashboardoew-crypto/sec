@@ -24,6 +24,8 @@ router.use(["/dashboard", "/activity", "/registers", "/hr", "/admin", "/payments
 const canAccessDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessModule(req.user?.role, definition.module);
 
+const isBlankValue = (val: unknown) => val === undefined || val === null || String(val).trim() === "";
+
 const referenceMasterSlugs = ["labour-master", "driver-master", "security-master", "key-master", "kothi-master"];
 const canReadDefinition = (req: Request, definition: RegisterDefinition) =>
   canAccessDefinition(req, definition) ||
@@ -390,6 +392,10 @@ const inputDataForRole = (
   data: Record<string, unknown>,
   preservedData?: Record<string, unknown>,
 ) => {
+  if (req.user?.role === "super_admin") {
+    return data;
+  }
+
   if (req.user?.role === "security" && ["daily-attendance", "chowk-labour"].includes(definition.slug)) {
     const sanitized = { ...data };
     delete sanitized.payment_status;
@@ -893,10 +899,15 @@ const dateInIndia = (value: Date) => {
 };
 
 const editWindowForRole = (role: string | undefined, definition?: RegisterDefinition) => {
-  if (role === "hr" || role === "admin") return null;
+  if (role === "super_admin" || role === "hr" || role === "admin") return null;
   if (definition?.module === "master" && role === "manager") return null;
   if (role === "manager") return 7;
-  if (role === "security") return 3;
+  if (role === "security") {
+    if (definition?.slug === "outgoing-vehicles" || definition?.slug === "outgoing-vehicle-log") {
+      return 30; // Security can edit outgoing vehicles after 10 days (up to 30 days)
+    }
+    return 3;
+  }
   return undefined;
 };
 
@@ -904,6 +915,7 @@ const isEntryDate = (value: string | null, role?: string) => {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return false;
+  if (role === "super_admin") return true; // Super admin has no restrictions
   const today = dateInIndia(new Date());
   // Strictly no future dates allowed
   if (value > today) return false;
@@ -920,9 +932,16 @@ const canEditRecord = (
   role: string | undefined,
   definition?: RegisterDefinition,
   recordDate?: string | null,
+  recordData?: Record<string, unknown>,
 ) => {
-  if (role === "hr" || role === "admin") return true;
+  if (role === "super_admin" || role === "hr" || role === "admin") return true;
   if (definition?.module === "master" && role === "manager") return true;
+  const isVehicle = definition?.slug === "outgoing-vehicles" || definition?.slug === "outgoing-vehicle-log";
+  if (isVehicle && role === "security") {
+    // If outgoing vehicle trip is pending return (no in_time or final_reading), allow editing anytime
+    const isTripOpen = !recordData?.in_time || !recordData?.final_reading;
+    if (isTripOpen) return true;
+  }
   const today = dateInIndia(new Date());
   const windowDays = editWindowForRole(role, definition);
   if (windowDays === null) return true;
@@ -1147,7 +1166,7 @@ router.get("/registers/:slug/records/export", async (req: Request, res: Response
 });
 
 router.get("/hr/report", async (req: Request, res: Response) => {
-  if (!["admin", "manager", "hr"].includes(req.user?.role ?? "")) {
+  if (!["super_admin", "admin", "manager", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR, managers, and admins can view HR reports" });
   }
   const from = typeof req.query.from === "string" ? req.query.from : "";
@@ -1165,14 +1184,14 @@ router.get("/hr/report", async (req: Request, res: Response) => {
 });
 
 router.get("/hr/driver-wages", async (req: Request, res: Response) => {
-  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+  if (!["super_admin", "admin", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR and admins can view driver wage options" });
   }
   return res.json(await driverWageOptions());
 });
 
 router.post("/hr/attendance-inclusion", async (req: Request, res: Response) => {
-  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+  if (!["super_admin", "admin", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR and admins can change payment attendance inclusion" });
   }
   const body = req.body as Record<string, unknown>;
@@ -1250,7 +1269,7 @@ router.put("/admin/bill-signatories", requireRole("admin"), async (req: Request,
 });
 
 router.get("/payments/bills", async (req: Request, res: Response) => {
-  if (!["admin", "manager", "hr"].includes(req.user?.role ?? "")) {
+  if (!["super_admin", "admin", "manager", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR, managers, and admins can view payment history" });
   }
   const rows = await db.select().from(paymentBillsTable).orderBy(desc(paymentBillsTable.updatedAt));
@@ -1267,7 +1286,7 @@ router.get("/payments/bills", async (req: Request, res: Response) => {
 });
 
 router.get("/payments/transactions", async (req: Request, res: Response) => {
-  if (!["admin", "manager", "hr"].includes(req.user?.role ?? "")) {
+  if (!["super_admin", "admin", "manager", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR, managers, and admins can view payment transactions" });
   }
   const rows = await db.select().from(paymentTransactionsTable).orderBy(desc(paymentTransactionsTable.paidAt));
@@ -1322,7 +1341,7 @@ router.get("/payments/transactions", async (req: Request, res: Response) => {
 });
 
 router.post("/payments/bills", async (req: Request, res: Response) => {
-  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+  if (!["super_admin", "admin", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR and admins can change payment status" });
   }
   const body = req.body as Record<string, unknown>;
@@ -1438,7 +1457,7 @@ router.post("/payments/bills", async (req: Request, res: Response) => {
 });
 
 router.post("/payments/driver-days", async (req: Request, res: Response) => {
-  if (!["admin", "hr"].includes(req.user?.role ?? "")) {
+  if (!["super_admin", "admin", "hr"].includes(req.user?.role ?? "")) {
     return res.status(403).json({ error: "Only HR and admins can record driver day payments" });
   }
   const body = req.body as Record<string, unknown>;
@@ -1536,6 +1555,7 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
+  const isSuperAdmin = req.user?.role === "super_admin";
   const selectedDate = calendarDate(body.data.date as string | undefined);
   if (!isEntryDate(selectedDate, req.user?.role)) {
     const errorMsg = req.user?.role === "manager"
@@ -1599,27 +1619,59 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
       }
     }
   }
-  if (slug === "driver-attendance") {
+  if (!isSuperAdmin && slug === "driver-attendance") {
     const driverName = String(data.name ?? data.driver_name ?? "").trim().toLowerCase();
+    const isOutTimeBlank = !data.out_time || String(data.out_time).trim() === "";
     if (driverName) {
-      const activeAttendance = await db.select().from(registerRecordsTable)
-        .where(
-          and(
-            eq(registerRecordsTable.registerSlug, "driver-attendance"),
-            sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`,
-            sql`(data->>'out_time' IS NULL OR TRIM(data->>'out_time') = '')`
+      if (isOutTimeBlank) {
+        const activeAttendance = await db.select().from(registerRecordsTable)
+          .where(
+            and(
+              eq(registerRecordsTable.registerSlug, "driver-attendance"),
+              sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`,
+              sql`(data->>'out_time' IS NULL OR TRIM(data->>'out_time') = '')`
+            )
           )
-        )
-        .limit(1);
-      if (activeAttendance.length > 0) {
-        const activeData = (activeAttendance[0].data ?? {}) as Record<string, unknown>;
-        const inDate = activeData.date_of_in_time || activeData.date || activeAttendance[0].recordDate || "";
-        const inDateFormatted = inDate ? ` on ${calendarDate(String(inDate)) || String(inDate)}` : "";
-        const inTimeStr = activeData.in_time ? ` at ${String(activeData.in_time)}` : "";
-        return res.status(400).json({
-          error: `Driver "${String(data.name ?? data.driver_name)}" already has an active attendance session without punch-out (punched in${inTimeStr}${inDateFormatted}). They must punch out before a new attendance can be recorded.`
-        });
+          .limit(1);
+        if (activeAttendance.length > 0) {
+          const activeData = (activeAttendance[0].data ?? {}) as Record<string, unknown>;
+          const inDate = activeData.date_of_in_time || activeData.date || activeAttendance[0].recordDate || "";
+          const inDateFormatted = inDate ? ` on ${calendarDate(String(inDate)) || String(inDate)}` : "";
+          const inTimeStr = activeData.in_time ? ` at ${String(activeData.in_time)}` : "";
+          return res.status(400).json({
+            error: `Driver "${String(data.name ?? data.driver_name)}" already has an active attendance session without punch-out (punched in${inTimeStr}${inDateFormatted}). They must punch out before a new attendance can be recorded.`
+          });
+        }
+      } else {
+        // Driver is entering out_time: check if driver is currently outside on an incomplete outgoing vehicle trip
+        const activeVehicleTrips = await db.select().from(registerRecordsTable)
+          .where(
+            and(
+              inArray(registerRecordsTable.registerSlug, ["outgoing-vehicles", "outgoing-vehicle-log"]),
+              sql`LOWER(COALESCE(data->>'driver_name', data->>'driver', '')) = ${driverName}`,
+              sql`(data->>'in_time' IS NULL OR TRIM(data->>'in_time') = '' OR data->>'final_reading' IS NULL OR TRIM(data->>'final_reading') = '')`
+            )
+          )
+          .limit(1);
+        if (activeVehicleTrips.length > 0) {
+          const tripData = (activeVehicleTrips[0].data ?? {}) as Record<string, unknown>;
+          const carName = String(tripData.car_name ?? tripData.vehicle_name ?? "vehicle").trim();
+          return res.status(400).json({
+            error: `Cannot enter out-time: Driver "${String(data.name ?? data.driver_name)}" is currently outside the company with ${carName}. The outgoing vehicle entry is not fully filled (In-Time and Final Reading missing). Please complete that entry first before punching out.`,
+            incompleteRecordId: activeVehicleTrips[0].id,
+            registerSlug: activeVehicleTrips[0].registerSlug || "outgoing-vehicles"
+          });
+        }
       }
+    }
+  }
+  if (slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log") {
+    // On new record creation for outgoing vehicle, out_date is not auto-filled (remains empty)
+    if (isBlankValue(data.out_date)) {
+      data.out_date = "";
+    }
+    if (isBlankValue(data.in_date)) {
+      data.in_date = "";
     }
   }
   if (slug === "chowk-labour-master") {
@@ -1692,19 +1744,22 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     : eq(registerRecordsTable.registerSlug, slug);
   const existing = await db.select().from(registerRecordsTable).where(and(eq(registerRecordsTable.id, id), slugFilter)).limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
+  const isSuperAdmin = req.user?.role === "super_admin";
   const isHrSlug = hrRegisterSlugs.includes(slug as typeof hrRegisterSlugs[number]);
-  if (isHrSlug && paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
+  if (!isSuperAdmin && isHrSlug && paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
     return res.status(409).json({ error: "Payment done: this attendance record cannot be edited or deleted." });
   }
   const editWindowDays = editWindowForRole(req.user?.role, definition);
-  if (editWindowDays === undefined) {
+  if (!isSuperAdmin && editWindowDays === undefined) {
     return res.status(403).json({ error: "This role cannot edit records" });
   }
   const existingRecordDate = calendarDate(typeof existing[0].data.date === "string" ? existing[0].data.date : undefined);
-  if (!canEditRecord(existing[0].createdAt, req.user?.role, definition, existingRecordDate)) {
+  if (!isSuperAdmin && !canEditRecord(existing[0].createdAt, req.user?.role, definition, existingRecordDate, existing[0].data)) {
     return res.status(403).json({
       error: req.user?.role === "security"
-        ? "Security staff can only edit records from the last 3 days."
+        ? (isVehicleSlug
+            ? "Security staff can only edit outgoing vehicle records from the last 30 days."
+            : "Security staff can only edit records from the last 3 days.")
         : req.user?.role === "admin"
           ? "This record cannot be edited"
           : `This record can no longer be edited. Managers can edit records for ${editWindowDays} days after entry.`,
@@ -1714,15 +1769,30 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     ?? (typeof existing[0].recordDate === "string" ? calendarDate(existing[0].recordDate) : null)
     ?? calendarDate(existing[0].createdAt)
     ?? dateInIndia(new Date());
-  // Date is permanently locked after entry creation - strictly preserve original record date
-  const selectedDate = existingDate;
+  // Super admin can edit the record date freely; others have date permanently locked to original entry date
+  const selectedDate = isSuperAdmin && typeof body.data?.date === "string"
+    ? (calendarDate(body.data.date) || existingDate)
+    : existingDate;
   const data = applyDerivedValues(
     definition,
     inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: selectedDate }, existing[0].data),
   );
   data.date = selectedDate;
-  if (slug === "driver-attendance" && existing[0].data.date_of_in_time) {
+  if (!isSuperAdmin && slug === "driver-attendance" && existing[0].data.date_of_in_time) {
     data.date_of_in_time = existing[0].data.date_of_in_time;
+  }
+  if (isVehicleSlug) {
+    const editInDate = body.data?.in_date ?? body.data?.out_date;
+    if (editInDate && typeof editInDate === "string" && editInDate.trim()) {
+      data.in_date = calendarDate(editInDate) || dateInIndia(new Date());
+    } else if (existing[0].data?.in_date || existing[0].data?.out_date) {
+      data.in_date = existing[0].data.in_date ?? existing[0].data.out_date;
+    } else if (data.in_time || data.final_reading) {
+      data.in_date = dateInIndia(new Date());
+    }
+    if (data.in_date) {
+      data.out_date = data.in_date;
+    }
   }
   if (slug === "jack-register") {
     if (existing[0].data.serial_number === undefined) delete data.serial_number;
@@ -1778,28 +1848,50 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
       }
     }
   }
-  if (slug === "driver-attendance") {
+  if (!isSuperAdmin && slug === "driver-attendance") {
     const driverName = String(data.name ?? data.driver_name ?? "").trim().toLowerCase();
     const isOutTimeBlank = !data.out_time || String(data.out_time).trim() === "";
-    if (driverName && isOutTimeBlank) {
-      const activeOther = await db.select().from(registerRecordsTable)
-        .where(
-          and(
-            eq(registerRecordsTable.registerSlug, "driver-attendance"),
-            sql`id != ${id}`,
-            sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`,
-            sql`(data->>'out_time' IS NULL OR TRIM(data->>'out_time') = '')`
+    if (driverName) {
+      if (isOutTimeBlank) {
+        const activeOther = await db.select().from(registerRecordsTable)
+          .where(
+            and(
+              eq(registerRecordsTable.registerSlug, "driver-attendance"),
+              sql`id != ${id}`,
+              sql`LOWER(COALESCE(data->>'name', data->>'driver_name', '')) = ${driverName}`,
+              sql`(data->>'out_time' IS NULL OR TRIM(data->>'out_time') = '')`
+            )
           )
-        )
-        .limit(1);
-      if (activeOther.length > 0) {
-        const activeData = (activeOther[0].data ?? {}) as Record<string, unknown>;
-        const inDate = activeData.date_of_in_time || activeData.date || activeOther[0].recordDate || "";
-        const inDateFormatted = inDate ? ` on ${calendarDate(String(inDate)) || String(inDate)}` : "";
-        const inTimeStr = activeData.in_time ? ` at ${String(activeData.in_time)}` : "";
-        return res.status(400).json({
-          error: `Driver "${String(data.name ?? data.driver_name)}" already has another active attendance session without punch-out (punched in${inTimeStr}${inDateFormatted}). They must punch out before this attendance can be active.`
-        });
+          .limit(1);
+        if (activeOther.length > 0) {
+          const activeData = (activeOther[0].data ?? {}) as Record<string, unknown>;
+          const inDate = activeData.date_of_in_time || activeData.date || activeOther[0].recordDate || "";
+          const inDateFormatted = inDate ? ` on ${calendarDate(String(inDate)) || String(inDate)}` : "";
+          const inTimeStr = activeData.in_time ? ` at ${String(activeData.in_time)}` : "";
+          return res.status(400).json({
+            error: `Driver "${String(data.name ?? data.driver_name)}" already has another active attendance session without punch-out (punched in${inTimeStr}${inDateFormatted}). They must punch out before this attendance can be active.`
+          });
+        }
+      } else {
+        // Driver is entering out_time: check if driver is currently outside on an incomplete outgoing vehicle trip
+        const activeVehicleTrips = await db.select().from(registerRecordsTable)
+          .where(
+            and(
+              inArray(registerRecordsTable.registerSlug, ["outgoing-vehicles", "outgoing-vehicle-log"]),
+              sql`LOWER(COALESCE(data->>'driver_name', data->>'driver', '')) = ${driverName}`,
+              sql`(data->>'in_time' IS NULL OR TRIM(data->>'in_time') = '' OR data->>'final_reading' IS NULL OR TRIM(data->>'final_reading') = '')`
+            )
+          )
+          .limit(1);
+        if (activeVehicleTrips.length > 0) {
+          const tripData = (activeVehicleTrips[0].data ?? {}) as Record<string, unknown>;
+          const carName = String(tripData.car_name ?? tripData.vehicle_name ?? "vehicle").trim();
+          return res.status(400).json({
+            error: `Cannot enter out-time: Driver "${String(data.name ?? data.driver_name)}" is currently outside the company with ${carName}. The outgoing vehicle entry is not fully filled (In-Time and Final Reading missing). Please complete that entry first before punching out.`,
+            incompleteRecordId: activeVehicleTrips[0].id,
+            registerSlug: activeVehicleTrips[0].registerSlug || "outgoing-vehicles"
+          });
+        }
       }
     }
   }
@@ -1816,7 +1908,7 @@ router.delete("/registers/:slug/records/:id", async (req: Request, res: Response
   const definition = getRegister(slug);
   if (!definition) return res.status(404).json({ error: "Register not found" });
   if (!canAccessDefinition(req, definition)) return res.status(403).json({ error: "This role cannot access that module" });
-  if (req.user?.role !== "admin" && req.user?.role !== "manager") {
+  if (req.user?.role !== "super_admin" && req.user?.role !== "admin" && req.user?.role !== "manager") {
     return res.status(403).json({ error: "Only managers and admins can delete records" });
   }
 
@@ -1831,11 +1923,12 @@ router.delete("/registers/:slug/records/:id", async (req: Request, res: Response
     .where(and(eq(registerRecordsTable.id, id), slugFilter))
     .limit(1);
   if (!existing[0]) return res.status(404).json({ error: "Record not found" });
+  const isSuperAdmin = req.user?.role === "super_admin";
   const isHrDeleteSlug = hrRegisterSlugs.includes(slug as typeof hrRegisterSlugs[number]);
-  if (isHrDeleteSlug && paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
+  if (!isSuperAdmin && isHrDeleteSlug && paymentStatusForRegisterRecord(existing[0], await paidAttendanceReferences()) === "paid") {
     return res.status(409).json({ error: "Payment done: this attendance record cannot be edited or deleted." });
   }
-  if (!canEditRecord(existing[0].createdAt, req.user?.role, definition)) {
+  if (!isSuperAdmin && !canEditRecord(existing[0].createdAt, req.user?.role, definition)) {
     return res.status(403).json({
       error: "Managers can delete records only within 7 days of entry. Admins can delete records at any time.",
     });

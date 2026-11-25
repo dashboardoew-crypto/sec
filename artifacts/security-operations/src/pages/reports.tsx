@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowLeft, BarChart3, CalendarRange, Car, Download, FileText, Home, RefreshCw, Search, Sun, Users, Wrench } from 'lucide-react';
 import { Link } from 'wouter';
 import { PageIntro } from '@/components/ops-ui';
+import { ModuleNavBar } from '@/components/module-nav-bar';
 import { VehicleReportModule } from '@/components/vehicle-report-module';
 import { SolarReportModule } from '@/components/solar-report-module';
 import { BreakdownReportView } from '@/components/breakdown-report-view';
@@ -168,6 +169,7 @@ export default function ReportsPage() {
 
   return (
     <div className="ops-grid min-h-[100dvh] px-3 py-5 sm:px-5 sm:py-8 md:px-8 lg:px-10">
+      <ModuleNavBar currentModule="reports" />
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <Link href="/" className="flex items-center gap-2 text-sm font-semibold">
           <ArrowLeft size={16} /> Back to modules

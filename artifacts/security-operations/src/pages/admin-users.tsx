@@ -6,6 +6,7 @@ import { useAuth, type AuthUser, type UserRole } from '@/lib/auth';
 import { BreakdownReportView } from '@/components/breakdown-report-view';
 
 const roles: Array<{ value: UserRole; label: string }> = [
+  { value: 'super_admin', label: 'Super Admin (Unrestricted)' },
   { value: 'admin', label: 'Admin' },
   { value: 'manager', label: 'Manager' },
   { value: 'hr', label: 'HR' },
@@ -109,7 +110,7 @@ export default function AdminUsersPage() {
   };
 
   useEffect(() => {
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'super_admin') {
       void loadUsers();
       fetch('/api/admin/data/backup', { credentials: 'include' })
         .then(async (response) => {

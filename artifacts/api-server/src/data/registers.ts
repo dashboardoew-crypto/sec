@@ -452,6 +452,7 @@ const outgoingVehicleFields: FieldDefinition[] = [
   { key: "final_reading", label: "Final reading", type: "number" },
   { key: "total_km_car_run", label: "Total km car run", type: "number", derived: true },
   { key: "in_time", label: "In Time", type: "time" },
+  { key: "in_date", label: "In Time Date", type: "date" },
   { key: "name_of_the_person_in_car", label: "Name of the Person in Car", type: "text", required: true },
   { key: "requested_by_whom", label: "Requested By Whom", type: "text" },
   { key: "sign", label: "Sign", type: "select" },

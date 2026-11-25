@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-export type UserRole = 'admin' | 'manager' | 'hr' | 'security';
+export type UserRole = 'super_admin' | 'admin' | 'manager' | 'hr' | 'security';
 export type WorkspaceSlug = 'security' | 'main-gate' | 'master' | 'hr' | 'reports' | 'payments' | 'payment-report' | 'driver-board';
 export type AuthUser = {
   id: string;
@@ -11,16 +11,17 @@ export type AuthUser = {
 };
 
 export const canCreateRegisterRecord = (role?: UserRole | null) =>
-  role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
+  role === 'super_admin' || role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
 
 export const canAccessWorkspace = (role: UserRole | undefined | null, workspace: WorkspaceSlug) => {
+  if (role === 'super_admin') return true;
   if (workspace === 'driver-board') return true;
   if (workspace === 'master' || workspace === 'hr' || workspace === 'payments' || workspace === 'reports' || workspace === 'payment-report') return role === 'admin' || role === 'manager' || role === 'hr';
   return role === 'admin' || role === 'manager' || role === 'hr' || role === 'security';
 };
 
 export const canEditPayments = (role: UserRole | undefined | null) =>
-  role === 'admin' || role === 'hr';
+  role === 'super_admin' || role === 'admin' || role === 'hr';
 
 type AuthContextValue = {
   user: AuthUser | null;

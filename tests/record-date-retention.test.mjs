@@ -63,12 +63,27 @@ const computeInitialValues = ({ fields, initial, todayDate, slug }) => {
     }
   });
 
+  if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(slug)) {
+    if (!initial) {
+      // First time (create): in_date / out_date is not auto-filled, remains empty
+      raw.in_date = '';
+      raw.out_date = '';
+    } else {
+      // Edit mode: In Time Date autoselects on which date edit option open and should be saved
+      raw.date = recordOriginalDate;
+      const existingInDate = toInputDate(raw.in_date) || toInputDate(raw.out_date);
+      raw.in_date = existingInDate || todayDate;
+      raw.out_date = raw.in_date;
+    }
+  }
+
   return raw;
 };
 
 // Mirror field locking logic
 const isFieldLocked = ({ field, initial, role, isNameField }) => {
   if (!initial) return false;
+  if (role === 'super_admin') return false; // Super admin has no locked fields
   // Primary date field is locked after record creation across all registers
   if (field.key === 'date' || field.key === 'date_of_in_time') {
     return true;
@@ -81,11 +96,14 @@ const isFieldLocked = ({ field, initial, role, isNameField }) => {
 };
 
 // Mirror backend PATCH record update date retention
-const computeBackendUpdatedData = ({ existingRecord, payloadData }) => {
+const computeBackendUpdatedData = ({ existingRecord, payloadData, role }) => {
+  const isSuperAdmin = role === 'super_admin';
   const existingRecordDate = toInputDate(existingRecord.data?.date) ||
     toInputDate(existingRecord.recordDate) ||
     toInputDate(existingRecord.createdAt);
-  const selectedDate = existingRecordDate;
+  const selectedDate = isSuperAdmin && payloadData?.date
+    ? (toInputDate(payloadData.date) || existingRecordDate)
+    : existingRecordDate;
 
   const data = { ...(payloadData ?? existingRecord.data) };
   data.date = selectedDate;
@@ -202,4 +220,137 @@ test('Optional date fields like car_in_date remain empty on existing records and
 
   assert.equal(initialValues.date, '2026-11-18', 'Entry date must be 18 Nov');
   assert.equal(initialValues.car_in_date, '', 'car_in_date must remain empty until filled, not todayDate');
+});
+
+test('Outgoing vehicles: in_date (In Time Date) is empty on new record creation and not auto-filled first time', () => {
+  const fields = [
+    { key: 'date', label: 'Date', type: 'date' },
+    { key: 'car_name', label: 'Car Name', type: 'text' },
+    { key: 'out_time', label: 'Out Time', type: 'time' },
+    { key: 'in_date', label: 'In Time Date', type: 'date' },
+  ];
+
+  const initialValues = computeInitialValues({
+    fields,
+    initial: null,
+    todayDate: '2026-11-18',
+    slug: 'outgoing-vehicles',
+  });
+
+  assert.equal(initialValues.date, '2026-11-18', 'Departure date defaults to current date on creation');
+  assert.equal(initialValues.in_date, '', 'in_date (In Time Date) must remain empty / blank on initial creation');
+});
+
+test('Outgoing vehicles: in_date (In Time Date) is auto-selected to current date when opened for edit on a later date', () => {
+  const fields = [
+    { key: 'date', label: 'Date', type: 'date' },
+    { key: 'car_name', label: 'Car Name', type: 'text' },
+    { key: 'out_time', label: 'Out Time', type: 'time' },
+    { key: 'in_time', label: 'In Time', type: 'time' },
+    { key: 'in_date', label: 'In Time Date', type: 'date' },
+  ];
+
+  const existingTrip = {
+    id: 'trip-101',
+    registerSlug: 'outgoing-vehicles',
+    recordDate: '2026-11-18',
+    createdAt: '2026-11-18T09:00:00.000Z',
+    data: {
+      date: '2026-11-18',
+      car_name: 'Swift Dzire',
+      out_time: '09:00',
+      in_date: '',
+    },
+  };
+
+  // Guard opens edit 10 days later on 28 Nov
+  const initialValues = computeInitialValues({
+    fields,
+    initial: existingTrip,
+    todayDate: '2026-11-28',
+    slug: 'outgoing-vehicles',
+  });
+
+  assert.equal(initialValues.date, '2026-11-18', 'Original departure date strictly remains locked to 18 Nov');
+  assert.equal(initialValues.in_date, '2026-11-28', 'in_date (In Time Date) autoselects to 28 Nov (the date edit option is opened)');
+});
+
+test('Security role can edit outgoing vehicle records after 10 days', () => {
+  const canEditRecordHelper = (createdAtStr, role, slug, isTripOpen) => {
+    if (role === 'super_admin' || role === 'hr' || role === 'admin') return true;
+    const isVehicle = slug === 'outgoing-vehicles' || slug === 'outgoing-vehicle-log';
+    if (isVehicle && role === 'security' && isTripOpen) return true;
+    const windowDays = isVehicle && role === 'security' ? 30 : role === 'security' ? 3 : role === 'manager' ? 7 : 0;
+    const today = new Date('2026-11-28T00:00:00Z');
+    const created = new Date(`${createdAtStr}T00:00:00Z`);
+    const diffDays = Math.floor((today - created) / 86400000);
+    return diffDays <= windowDays;
+  };
+
+  // Normal register 10 days ago (18 Nov to 28 Nov) -> Security blocked
+  assert.equal(canEditRecordHelper('2026-11-18', 'security', 'key-movement', false), false);
+
+  // Outgoing vehicle 10 days ago with pending return (isTripOpen = true) -> Security allowed!
+  assert.equal(canEditRecordHelper('2026-11-18', 'security', 'outgoing-vehicles', true), true);
+
+  // Outgoing vehicle 10 days ago even if completed (within 30 days window) -> Security allowed!
+  assert.equal(canEditRecordHelper('2026-11-18', 'security', 'outgoing-vehicles', false), true);
+});
+
+test('Super admin role has no locked fields when editing any register', () => {
+  const fields = [
+    { key: 'date', label: 'DATE', type: 'date' },
+    { key: 'name', label: 'NAME', type: 'text' },
+    { key: 'in_time', label: 'IN TIME', type: 'time' },
+  ];
+  const existingRecord = {
+    id: 'rec-999',
+    registerSlug: 'driver-attendance',
+    recordDate: '2026-11-18',
+    createdAt: '2026-11-18T08:00:00.000Z',
+    data: {
+      date: '2026-11-18',
+      date_of_in_time: '2026-11-18',
+      name: 'Raju Driver',
+    },
+  };
+
+  // For regular security role, date and name are locked
+  assert.equal(isFieldLocked({ field: fields[0], initial: existingRecord, role: 'security', isNameField: () => false }), true);
+  assert.equal(isFieldLocked({ field: fields[1], initial: existingRecord, role: 'security', isNameField: () => true }), true);
+
+  // For super_admin, nothing is locked!
+  assert.equal(isFieldLocked({ field: fields[0], initial: existingRecord, role: 'super_admin', isNameField: () => false }), false, 'Date field should not be locked for super_admin');
+  assert.equal(isFieldLocked({ field: fields[1], initial: existingRecord, role: 'super_admin', isNameField: () => true }), false, 'Name field should not be locked for super_admin');
+  assert.equal(isFieldLocked({ field: fields[2], initial: existingRecord, role: 'super_admin', isNameField: () => false }), false, 'Time field should not be locked for super_admin');
+});
+
+test('Super admin role can update record date freely on existing record without restriction', () => {
+  const existingRecord = {
+    id: 'rec-123',
+    registerSlug: 'daily-attendance',
+    recordDate: '2026-11-18',
+    createdAt: '2026-11-18T08:00:00.000Z',
+    data: {
+      date: '2026-11-18',
+      name: 'Ramesh Kumar',
+    },
+  };
+
+  // Regular user attempting to edit date to 15 Nov -> Date forced back to 18 Nov
+  const normalResult = computeBackendUpdatedData({
+    existingRecord,
+    payloadData: { date: '2026-11-15', name: 'Ramesh Kumar Edited' },
+    role: 'manager',
+  });
+  assert.equal(normalResult.data.date, '2026-11-18', 'Normal users cannot alter record date on edit');
+
+  // Super admin editing date to 15 Nov -> Allowed and updated!
+  const superAdminResult = computeBackendUpdatedData({
+    existingRecord,
+    payloadData: { date: '2026-11-15', name: 'Ramesh Kumar Edited' },
+    role: 'super_admin',
+  });
+  assert.equal(superAdminResult.data.date, '2026-11-15', 'Super admin can update record date freely');
+  assert.equal(superAdminResult.recordDate, '2026-11-15', 'Super admin updates recordDate column as well');
 });

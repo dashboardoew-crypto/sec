@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 // Entry edit window rules
 const editWindowForRole = (role) => {
-  if (role === 'admin' || role === 'hr') return null; // unlimited
+  if (role === 'super_admin' || role === 'admin' || role === 'hr') return null; // unlimited
   if (role === 'manager') return 7;
   if (role === 'security') return 3;
   return undefined;
@@ -29,6 +29,7 @@ const isEntryDate = (selectedDateStr, role, todayStr = '2026-11-18') => {
 // Module access rules
 const canAccessModule = (role, module) => {
   if (!role) return false;
+  if (role === 'super_admin') return true;
   if (role === 'admin') return true;
   if (role === 'manager') return true;
   if (role === 'hr') return module === 'hr' || module === 'master';
@@ -69,4 +70,12 @@ test('canAccessModule enforces role boundaries correctly', () => {
   assert.strictEqual(canAccessModule('admin', 'security'), true);
   assert.strictEqual(canAccessModule('admin', 'master'), true);
   assert.strictEqual(canAccessModule('admin', 'hr'), true);
+});
+
+test('Super admin role has unrestricted access across all modules and registers', () => {
+  assert.strictEqual(canAccessModule('super_admin', 'security'), true);
+  assert.strictEqual(canAccessModule('super_admin', 'main-gate'), true);
+  assert.strictEqual(canAccessModule('super_admin', 'master'), true);
+  assert.strictEqual(canAccessModule('super_admin', 'hr'), true);
+  assert.strictEqual(editWindowForRole('super_admin'), null, 'Super admin has unlimited edit window');
 });

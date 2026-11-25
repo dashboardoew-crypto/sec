@@ -72,7 +72,7 @@ export default function ModuleLogin() {
             <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
             <Car size={14} /> Live Fleet Board
           </Link>
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'super_admin') && (
             <>
               <Link
                 href="/admin/users?tab=breakdowns"
@@ -110,6 +110,13 @@ export default function ModuleLogin() {
           <p className="mt-5 max-w-lg text-sm leading-7 text-white/65 sm:text-base">
             Select a module to continue. HR brings people, payroll, payment recording and the daily ledger into one workspace.
           </p>
+          {user?.role === 'super_admin' && (
+            <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3.5 py-2 text-amber-300 shadow-sm" data-testid="badge-super-admin-banner">
+              <span className="flex size-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-xs font-bold tracking-wide uppercase">Super Admin Active:</span>
+              <span className="text-xs text-amber-200/90">Unrestricted edit access across all modules & registers without date or lock limitations.</span>
+            </div>
+          )}
         </div>
 
         <div className="grid max-w-5xl gap-5 sm:grid-cols-2">

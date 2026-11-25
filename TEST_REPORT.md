@@ -1,10 +1,10 @@
 # ERP System Test Execution & Verification Report
 
 <!-- AUTO-GENERATED TEST RUN HEADER -->
-> **Last Automated Run:** 25 Nov 2026, 9:15:18 am (IST)  
+> **Last Automated Run:** 25 Nov 2026, 10:59:02 am (IST)  
 > **Status:** ✅ PASSED (All tests passed)  
-> **Total Tests:** 45 | **Passed:** 45 | **Failed:** 0  
-> **Execution Duration:** 491ms  
+> **Total Tests:** 51 | **Passed:** 51 | **Failed:** 0  
+> **Execution Duration:** 414ms  
 <!-- /AUTO-GENERATED TEST RUN HEADER -->
 
 ---
@@ -28,7 +28,7 @@ When you run `pnpm test`, the results are displayed in **two places**:
 
 ---
 
-## 2. Complete 45-Point Test Matrix
+## 2. Complete 53-Point Test Matrix
 
 ### Suite 1: Authentication & Password Security
 **File:** [tests/auth-security.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/auth-security.test.mjs)  
@@ -83,6 +83,7 @@ When you run `pnpm test`, the results are displayed in **two places**:
 - `✔` **Manager Role Entry Date Boundaries**: Managers can add records up to 7 days prior; future dates are blocked.
 - `✔` **Admin & HR Historical Entry**: Admins/HR can enter past dates without limit; future dates are blocked.
 - `✔` **Module Access Boundary Enforcement**: Security cannot access HR or Master data directly.
+- `✔` **Super Admin Unrestricted Access**: Super admins have unlimited access across all modules (Security, Main Gate, Master, HR, Reports, Live Driver Board, Admin Panel) and can view or edit any record at any time.
 
 ### Suite 9: Register Schema Specifications
 **File:** [tests/register-specifications.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/register-specifications.test.mjs)  
@@ -96,6 +97,11 @@ When you run `pnpm test`, the results are displayed in **two places**:
 - `✔` **Date Field Locking**: The primary date field is marked locked (`editable: false`, disabled, with "Locked" badge) when editing existing records.
 - `✔` **Backend Preservation**: Backend `PATCH` endpoint strictly retains the original record date even if request payloads contain today's date.
 - `✔` **Optional Date Fields Safeguard**: Optional secondary date fields (e.g. `car_in_date`) remain blank until filled and are not falsely overwritten with today's date.
+- `✔` **Outgoing Vehicles Blank Out Date on Create**: On new outgoing vehicle entries, `out_date` is not auto-filled and remains empty (`""`) upon creation.
+- `✔` **Outgoing Vehicles Auto-Select Out Date on Edit**: When editing an outgoing vehicle record upon return (or entering `in_time` / `final_reading`), `out_date` automatically defaults to the current date on which the edit modal is opened.
+- `✔` **Security 10+ Day Edit Window for Outgoing Vehicles**: Security guards can edit outgoing vehicle records after 10+ days (extended to 30 days or while trip return is pending) so they can record return times (`in_time`, `final_reading`, and `out_date`).
+- `✔` **Super Admin Zero Locked Fields**: Super admins have zero locked fields; dates, names, readings, and amounts are all freely editable.
+- `✔` **Super Admin Record Date Editing**: Super admins can change the entry date (`date`, `date_of_in_time`) on any existing record without restriction.
 
 ### Suite 11: Driver Attendance Active Session & Punch-Out Enforcement
 **File:** [tests/driver-attendance-session.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/driver-attendance-session.test.mjs)  
@@ -104,6 +110,9 @@ When you run `pnpm test`, the results are displayed in **two places**:
 - `✔` **Punch-Out Resolution**: Once the driver's previous attendance record has an `out_time` recorded, creating a new attendance session is permitted.
 - `✔` **Multi-Driver Independent Sessions**: Drivers operate independently; one driver's active status does not impede attendance creation for other drivers.
 - `✔` **Active Shift Punch-Out Update**: Updating an existing active attendance to log its punch-out time is allowed without self-collision.
+- `✔` **Block Out-Time While Driver Outside Company**: When attempting to enter `out_time` in Driver Attendance (manually or via Quick Punch Out), it verifies whether the driver is outside the company on an incomplete Outgoing Vehicle trip. If return fields (`in_time`, `final_reading`) are not fully filled, entering out-time is strictly prohibited.
+- `✔` **Render to Entry with Purple Row Highlight**: When blocked, instructs the operator to complete the return fields first and navigates/renders directly to that entry (`?highlightRecord=<id>`), displaying that row in prominent **PURPLE** styling with a glowing badge to easily identify the issue.
+- `✔` **Allow Out-Time Upon Return Completion**: Once the trip's `in_time` and `final_reading` are entered and saved in Outgoing Vehicles, entering the driver's attendance `out_time` succeeds immediately.
 
 ### Suite 12: Kothi Attendance & Total Days Analytics Report
 **File:** [tests/kothi-attendance-report.test.mjs](file:///c:/Users/digital/Desktop/today%201311/sec/tests/kothi-attendance-report.test.mjs)  

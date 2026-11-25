@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getListRegisterRecordsQueryKey, getListRegistersQueryKey, useCreateRegisterRecord, useDeleteRegisterRecord, useListRegisterRecords, useListRegisters, useUpdateRegisterRecord } from '@workspace/api-client-react';
 import type { FieldDefinition, RegisterDefinition, RegisterRecord } from '@workspace/api-client-react';
 import { EmptyState, PageIntro } from '@/components/ops-ui';
+import { ModuleNavBar } from '@/components/module-nav-bar';
 import { canCreateRegisterRecord, useAuth } from '@/lib/auth';
 import {
   calculateServiceDuration,
@@ -23,10 +24,13 @@ import {
   toInputDate,
 } from '@/lib/date-utils';
 
-const editWindowForRole = (role?: string) => {
-  if (role === 'admin' || role === 'hr') return null;
+const editWindowForRole = (role?: string, slug?: string) => {
+  if (role === 'super_admin' || role === 'admin' || role === 'hr') return null;
   if (role === 'manager') return 7;
-  if (role === 'security') return 3;
+  if (role === 'security') {
+    if (slug === 'outgoing-vehicles' || slug === 'outgoing-vehicle-log') return 30; // Security can edit outgoing vehicles after 10 days
+    return 3;
+  }
   return undefined;
 };
 
@@ -35,11 +39,18 @@ const canEditRecord = (
   role?: string,
   module?: RegisterDefinition['module'],
   recordDate?: unknown,
-  _slug?: string,
+  slug?: string,
+  recordData?: Record<string, unknown>,
 ) => {
-  if (role === 'hr' || role === 'admin') return true;
+  if (role === 'super_admin' || role === 'hr' || role === 'admin') return true;
   if (module === 'master' && ['manager'].includes(role ?? '')) return true;
-  const windowDays = editWindowForRole(role);
+  const isVehicle = slug === 'outgoing-vehicles' || slug === 'outgoing-vehicle-log';
+  if (isVehicle && role === 'security') {
+    // If outgoing vehicle trip is pending return (no in_time or final_reading), allow editing anytime
+    const isTripOpen = !recordData?.in_time || !recordData?.final_reading;
+    if (isTripOpen) return true;
+  }
+  const windowDays = editWindowForRole(role, slug);
   if (windowDays === null) return true;
   if (windowDays === undefined || !createdAt) return false;
 
@@ -58,13 +69,15 @@ const canEditRecord = (
   return true;
 };
 
-const canDeleteRecord = (createdAt?: string, role?: string) =>
-  role === 'admin' || (role === 'manager' && canEditRecord(createdAt, role));
+const canDeleteRecord = (createdAt?: string, role?: string, slug?: string) =>
+  role === 'super_admin' || role === 'admin' || (role === 'manager' && canEditRecord(createdAt, role, undefined, undefined, slug));
 
-const editWindowLabel = (role?: string, module?: RegisterDefinition['module']) => module === 'master' && ['admin', 'manager', 'hr'].includes(role ?? '')
+const editWindowLabel = (role?: string, module?: RegisterDefinition['module'], slug?: string) => role === 'super_admin'
+  ? 'anytime (unrestricted)'
+  : module === 'master' && ['admin', 'manager', 'hr'].includes(role ?? '')
   ? 'anytime'
   : role === 'hr' || role === 'admin' ? 'anytime'
-  : role === 'security' ? 'today only (current date)'
+  : role === 'security' ? (slug === 'outgoing-vehicles' || slug === 'outgoing-vehicle-log' ? '30 days (or while pending return)' : 'today only (current date)')
   : role === 'manager' ? '7 days' : 'your access window';
 const moduleLabel = (module: RegisterDefinition['module']) => module === 'security' ? 'Security operations' : module === 'main-gate' ? 'Main gate security' : 'Master data';
 const moduleTitle = (module: RegisterDefinition['module']) => module === 'security' ? 'Security registers' : module === 'main-gate' ? 'Main gate registers' : 'Master registers';
@@ -77,6 +90,11 @@ const normalizeDriverAttendanceValues = (data: Record<string, unknown>) => ({ ..
 
 const normalizeOutgoingVehicleValues = (data: Record<string, unknown>) => {
   const values = { ...data };
+  const inDateVal = values.in_date ?? values.out_date;
+  if (inDateVal !== undefined) {
+    values.in_date = inDateVal;
+    values.out_date = inDateVal;
+  }
   const rawStation = String(values.station ?? values.station_choice ?? '').trim();
   const place = String(values.station_name ?? values.location ?? '').trim();
 
@@ -126,7 +144,19 @@ export default function RegistersPage() {
 function ModuleLibrary({ module, registers, onOpen }: { module: 'security' | 'main-gate' | 'master'; registers: RegisterDefinition[]; onOpen: (slug: string) => void }) {
   const [search, setSearch] = useState('');
   const shown = registers.filter((r) => r.module === module && `${r.title} ${r.description}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="ops-grid min-h-[100dvh] bg-background px-5 py-6 md:px-10 lg:px-16"><div className="mx-auto max-w-7xl"><div className="mb-8 flex items-center justify-between border-b border-border pb-5"><Link href="/" className="flex items-center gap-3 text-sm font-semibold text-foreground" data-testid="link-back-to-modules"><span className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground"><ArrowLeft size={16} /></span><span>Watchroom <span className="font-normal text-muted-foreground">/ Modules</span></span></Link><span className="font-mono text-[10px] uppercase tracking-[.18em] text-muted-foreground">Restricted workspace</span></div><PageIntro eyebrow={module === 'security' ? 'Security' : module === 'main-gate' ? 'Main gate security' : 'Master data'} title={moduleTitle(module === 'security' ? 'security' : module === 'main-gate' ? 'main-gate' : 'master')} description={`${shown.length} registers available in this workspace. Choose a register to review records or add a new entry.`} /><div className="mb-6 flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm"><Search size={17} className="ml-2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search registers by name or purpose…" className="w-full bg-transparent text-sm outline-none" data-testid="input-search-registers" /></div>{shown.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{shown.map((reg, i) => <button key={reg.slug} onClick={() => onOpen(reg.slug)} className="animate-in group rounded-xl border border-border bg-card p-5 text-left shadow-sm hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" style={{ animationDelay: `${i * 35}ms` }} data-testid={`button-open-register-${reg.slug}`}><div className="mb-6 flex items-start justify-between"><span className="rounded bg-secondary px-2 py-1 font-mono text-[9px] uppercase tracking-[.12em] text-primary">{reg.fields.length} fields</span><span className="font-mono text-xs text-muted-foreground">{reg.recordCount.toLocaleString()}</span></div><h2 className="font-serif text-lg font-bold leading-tight">{reg.title}</h2><p className="mt-2 line-clamp-2 min-h-[40px] text-sm leading-relaxed text-muted-foreground">{reg.description}</p><div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-primary"><span>Open register</span><span className="transition-transform group-hover:translate-x-1">→</span></div></button>)}</div> : <EmptyState title="No matching registers" description="Try a different search term." />}</div></div>;
+  return (
+    <div className="ops-grid min-h-[100dvh] bg-background px-5 py-6 md:px-10 lg:px-16">
+      <div className="mx-auto max-w-7xl">
+        <ModuleNavBar currentModule={module} />
+        <div className="mb-8 flex items-center justify-between border-b border-border pb-5">
+          <Link href="/" className="flex items-center gap-3 text-sm font-semibold text-foreground" data-testid="link-back-to-modules">
+            <span className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <ArrowLeft size={16} />
+            </span>
+            <span>Watchroom <span className="font-normal text-muted-foreground">/ Modules</span></span>
+          </Link>
+          <span className="font-mono text-[10px] uppercase tracking-[.18em] text-muted-foreground">Restricted workspace</span>
+        </div><PageIntro eyebrow={module === 'security' ? 'Security' : module === 'main-gate' ? 'Main gate security' : 'Master data'} title={moduleTitle(module === 'security' ? 'security' : module === 'main-gate' ? 'main-gate' : 'master')} description={`${shown.length} registers available in this workspace. Choose a register to review records or add a new entry.`} /><div className="mb-6 flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm"><Search size={17} className="ml-2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search registers by name or purpose…" className="w-full bg-transparent text-sm outline-none" data-testid="input-search-registers" /></div>{shown.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{shown.map((reg, i) => <button key={reg.slug} onClick={() => onOpen(reg.slug)} className="animate-in group rounded-xl border border-border bg-card p-5 text-left shadow-sm hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" style={{ animationDelay: `${i * 35}ms` }} data-testid={`button-open-register-${reg.slug}`}><div className="mb-6 flex items-start justify-between"><span className="rounded bg-secondary px-2 py-1 font-mono text-[9px] uppercase tracking-[.12em] text-primary">{reg.fields.length} fields</span><span className="font-mono text-xs text-muted-foreground">{reg.recordCount.toLocaleString()}</span></div><h2 className="font-serif text-lg font-bold leading-tight">{reg.title}</h2><p className="mt-2 line-clamp-2 min-h-[40px] text-sm leading-relaxed text-muted-foreground">{reg.description}</p><div className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-primary"><span>Open register</span><span className="transition-transform group-hover:translate-x-1">→</span></div></button>)}</div> : <EmptyState title="No matching registers" description="Try a different search term." />}</div></div>);
 }
 
 function RegisterFilters({
@@ -210,6 +240,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const [location, setLocation] = useLocation();
   const editParams = useMemo(() => new URLSearchParams(location.split('?')[1] ?? ''), [location]);
   const editRecordId = editParams.get('edit');
+  const highlightRecordId = editParams.get('highlightRecord') || editParams.get('highlight');
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [from, setFrom] = useState(() => editParams.get('from') ?? '');
@@ -265,7 +296,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const outgoingVehicleParams = useMemo(() => ({ limit: 500 }), []);
   const activeVehiclesQuery = useListRegisterRecords('outgoing-vehicles', outgoingVehicleParams, {
     query: {
-      enabled: ['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug),
+      enabled: ['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug),
       queryKey: getListRegisterRecordsQueryKey('outgoing-vehicles', outgoingVehicleParams),
       staleTime: 0,
     },
@@ -274,14 +305,12 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   useEffect(() => {
     if (dialog && ['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug)) {
       void driverAttendanceQuery.refetch();
-      if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
-        void activeVehiclesQuery.refetch();
-      }
+      void activeVehiclesQuery.refetch();
     }
   }, [dialog, definition.slug]);
 
   useEffect(() => {
-    if (!['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) return;
+    if (!['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug)) return;
     const onWindowFocus = () => {
       void driverAttendanceQuery.refetch();
       void activeVehiclesQuery.refetch();
@@ -291,10 +320,10 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   }, [definition.slug]);
 
   const activeDriverTrips = useMemo(() => {
-    if (!['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
-      return new Map<string, { station: string; stationName: string; carName: string; outTime: string; date: string }>();
+    if (!['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug)) {
+      return new Map<string, { recordId: string; station: string; stationName: string; carName: string; outTime: string; date: string }>();
     }
-    const map = new Map<string, { station: string; stationName: string; carName: string; outTime: string; date: string }>();
+    const map = new Map<string, { recordId: string; station: string; stationName: string; carName: string; outTime: string; date: string }>();
     const recs = activeVehiclesQuery.data?.records ?? [];
 
     for (const rec of recs) {
@@ -307,9 +336,10 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
       const inTime = String(data.in_time ?? '').trim();
       const finalReading = Number(data.final_reading);
       const hasFinal = Number.isFinite(finalReading) && finalReading > 0;
-      const hasReturned = Boolean(inTime || hasFinal);
+      // An outgoing vehicle entry is fully filled only when BOTH in_time and final_reading are entered
+      const hasReturned = Boolean(inTime && hasFinal);
 
-      // If vehicle went out and hasn't returned to the office yet
+      // If vehicle went out and trip is not fully filled (driver is outside the company)
       if (outTime && !hasReturned) {
         if (!map.has(key)) {
           const rawStation = String(data.station ?? data.station_choice ?? 'Out of Station').trim();
@@ -317,6 +347,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
           const carName = String(data.car_name ?? data.vehicle_name ?? '').trim();
           const tripDate = String(data.date ?? rec.createdAt ?? '').trim();
           map.set(key, {
+            recordId: rec.id,
             station: rawStation,
             stationName,
             carName,
@@ -552,22 +583,25 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${definition.slug}.csv`; a.click(); URL.revokeObjectURL(url); setNotice(`CSV export ready (${payload.records.length} records)`);
   };
+  const isSuperAdmin = user?.role === 'super_admin';
   const onSubmit = (data: { data: Record<string, unknown> }, editing: RegisterRecord | undefined, onError: (message: string) => void) => {
     const showMutationError = (error: unknown) => {
       onError(error instanceof Error ? error.message.replace(/^HTTP \d+ [^:]+:\s*/, '') : 'The record could not be saved. Check the fields and try again.');
     };
     if (editing) {
-      if (editing.paymentStatus === 'paid') {
+      if (!isSuperAdmin && editing.paymentStatus === 'paid') {
         onError('Payment done: this attendance record cannot be edited or deleted.');
         return;
       }
-      const recordOriginalDate =
-        toInputDate(editing.data?.date) ||
-        toInputDate(editing.data?.date_of_in_time) ||
-        toInputDate((editing as any)?.recordDate) ||
-        toInputDate(editing.createdAt);
-      if (recordOriginalDate) {
-        data.data.date = recordOriginalDate;
+      if (!isSuperAdmin) {
+        const recordOriginalDate =
+          toInputDate(editing.data?.date) ||
+          toInputDate(editing.data?.date_of_in_time) ||
+          toInputDate((editing as any)?.recordDate) ||
+          toInputDate(editing.createdAt);
+        if (recordOriginalDate) {
+          data.data.date = recordOriginalDate;
+        }
       }
       update.mutate(
         { slug: definition.slug, id: editing.id, data },
@@ -581,7 +615,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     }
   };
   const onDelete = (record: RegisterRecord) => {
-    if (record.paymentStatus === 'paid') {
+    if (!isSuperAdmin && record.paymentStatus === 'paid') {
       setNotice('Payment done: this attendance record cannot be edited or deleted.');
       return;
     }
@@ -592,9 +626,19 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
     });
   };
   const onQuickPunchOut = (record: RegisterRecord) => {
+    const driverName = String(record.data.name ?? record.data.driver_name ?? 'Driver').trim();
+    const key = driverName.toLowerCase();
+    const activeTrip = activeDriverTrips.get(key);
+    if (!isSuperAdmin && activeTrip) {
+      const carInfo = activeTrip.carName ? ` (${activeTrip.carName})` : '';
+      alert(
+        `Cannot enter out-time: Driver "${driverName}" is currently outside the company with vehicle${carInfo}. The outgoing vehicle entry is not fully filled (In-Time and Final Reading missing). Please complete that entry first.`
+      );
+      setLocation(`/registers/outgoing-vehicles?highlightRecord=${activeTrip.recordId}`);
+      return;
+    }
     const currentTime = currentIndiaTime();
     const currentDate = indiaDateKey(new Date());
-    const driverName = String(record.data.name ?? record.data.driver_name ?? 'Driver').trim();
     if (!window.confirm(`Clock out driver ${driverName} now at ${currentTime}?`)) return;
     update.mutate(
       {
@@ -613,8 +657,14 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
           invalidate();
           setNotice(`Driver ${driverName} clocked out at ${currentTime}`);
         },
-        onError: (error) => {
-          setNotice(error instanceof Error ? error.message : 'Record could not be updated');
+        onError: (error: any) => {
+          const errData = error?.response?.data || error;
+          if (errData?.incompleteRecordId) {
+            alert(errData.error || 'Please complete the outgoing vehicle entry first.');
+            setLocation(`/registers/outgoing-vehicles?highlightRecord=${errData.incompleteRecordId}`);
+          } else {
+            setNotice(error instanceof Error ? error.message : 'Record could not be updated');
+          }
         },
       },
     );
@@ -623,20 +673,36 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const clearSearch = () => { setSearchDraft(''); setSearch(''); };
   const clearFilters = () => { clearSearch(); setFrom(''); setTo(''); setShowFilters(false); };
   useEffect(() => {
+    if (!highlightRecordId || !records.length) return;
+    const timer = window.setTimeout(() => {
+      const el = document.getElementById(`record-row-${highlightRecordId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [highlightRecordId, records]);
+  useEffect(() => {
     if (!editRecordId || dialog || !records.length) return;
     const record = records.find((item) => item.id === editRecordId);
     if (!record) return;
-    if (record.paymentStatus === 'paid') {
+    if (!isSuperAdmin && record.paymentStatus === 'paid') {
       setNotice('Payment done: this attendance record cannot be edited or deleted.');
       setLocation(`/registers/${definition.slug}`);
       return;
     }
     setDialog(record);
     setLocation(`/registers/${definition.slug}`);
-  }, [definition.slug, dialog, editRecordId, records, setLocation]);
+  }, [definition.slug, dialog, editRecordId, isSuperAdmin, records, setLocation]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 3200); return () => window.clearTimeout(timer); }, [notice]);
    const isSingletonSettings = definition.slug === 'chowk-labour-master';
-   return <div className="min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10"><Link href={`/registers/${definition.module}`} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground" data-testid="link-back-to-module"><ArrowLeft size={14} /> {moduleLabel(definition.module)}</Link><PageIntro eyebrow={moduleEyebrow(definition.module)} title={definition.title} description={definition.description} action={<div className="flex flex-wrap items-center gap-2">{['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug) && <Link href="/driver-board" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 shadow-sm transition" data-testid="button-open-driver-board" title="Open Real-time Driver & Fleet Board"><span className="size-2 rounded-full bg-emerald-500 animate-pulse" /><Car size={15} /> Live Fleet Board</Link>}{['mango-tree-meter', 'clinic-gate-meter'].includes(definition.slug) && <button type="button" onClick={() => setBreakdownModalOpen(true)} className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-500/20 dark:text-red-400 shadow-sm transition" data-testid="button-breakdown"><AlertTriangle size={16} /> Breakdown</button>}{canCreateRegisterRecord(user?.role) ? <button onClick={() => setDialog(isSingletonSettings && records[0] ? records[0] : 'create')} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90" data-testid="button-add-record"><FilePlus2 size={16} /> {isSingletonSettings && records[0] ? 'Edit settings' : 'Add record'}</button> : <span className="rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">Read-only access</span>}</div>} />
+   return (
+     <div className="min-h-[100dvh] px-5 py-8 md:px-8 lg:px-10">
+       <ModuleNavBar currentModule={definition.module} currentRegisterSlug={definition.slug} />
+       <Link href={`/registers/${definition.module}`} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground" data-testid="link-back-to-module">
+         <ArrowLeft size={14} /> {moduleLabel(definition.module)}
+       </Link>
+       <PageIntro eyebrow={moduleEyebrow(definition.module)} title={definition.title} description={definition.description} action={<div className="flex flex-wrap items-center gap-2">{['outgoing-vehicles', 'outgoing-vehicle-log', 'driver-attendance'].includes(definition.slug) && <Link href="/driver-board" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 shadow-sm transition" data-testid="button-open-driver-board" title="Open Real-time Driver & Fleet Board"><span className="size-2 rounded-full bg-emerald-500 animate-pulse" /><Car size={15} /> Live Fleet Board</Link>}{['mango-tree-meter', 'clinic-gate-meter'].includes(definition.slug) && <button type="button" onClick={() => setBreakdownModalOpen(true)} className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-500/20 dark:text-red-400 shadow-sm transition" data-testid="button-breakdown"><AlertTriangle size={16} /> Breakdown</button>}{canCreateRegisterRecord(user?.role) ? <button onClick={() => setDialog(isSingletonSettings && records[0] ? records[0] : 'create')} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90" data-testid="button-add-record"><FilePlus2 size={16} /> {isSingletonSettings && records[0] ? 'Edit settings' : 'Add record'}</button> : <span className="rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs font-semibold text-muted-foreground">Read-only access</span>}</div>} />
     {notice && <div className="mb-5 flex items-center gap-2 rounded-lg border border-[hsl(var(--chart-3))]/30 bg-[hsl(var(--chart-3))]/10 px-4 py-3 text-sm text-[hsl(var(--chart-3))]" data-testid="status-success"><Check size={16} />{notice}</div>}
         <RegisterFilters hasNameField={hasNameField} searchDraft={searchDraft} search={search} from={from} to={to} showFilters={showFilters} onSearchDraftChange={setSearchDraft} onApplySearch={applySearch} onClearSearch={clearSearch} onFromChange={setFrom} onToChange={setTo} onToggleFilters={() => setShowFilters((value) => !value)} onClearFilters={clearFilters} onExport={exportCsv} sortOrder={sortOrder} onSortChange={setSortOrder} />
         {isVehicleRegister && activeVehiclesOnRoadCount > 0 && (
@@ -656,6 +722,34 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
           </div>
         )}
         {passCounts.length > 0 && <section className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm" data-testid="section-pass-counts"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold"><span className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary"><Check size={14} /></span>Gate passes by person</div><p className="mt-1 text-xs text-muted-foreground">Auto-counted from the records currently shown.</p></div><span className="rounded-full border border-primary/20 bg-card px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">Auto-counted</span></div><div className="mt-4 flex flex-wrap gap-2">{passCounts.map(({ name, count }) => <span key={name} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs"><span className="font-semibold">{name}</span><span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-primary">{count}</span></span>)}</div></section>}
+        {highlightRecordId && isVehicleRegister && (
+          <div
+            className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-purple-500/50 bg-purple-500/15 p-4 text-purple-950 dark:text-purple-200 shadow-md"
+            data-testid="banner-highlighted-trip"
+          >
+            <div className="flex items-center gap-3">
+              <span className="relative flex size-3">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-purple-400 opacity-75"></span>
+                <span className="relative inline-flex size-3 rounded-full bg-purple-600"></span>
+              </span>
+              <div>
+                <div className="text-sm font-bold text-purple-900 dark:text-purple-100">
+                  Driver Is Outside Company — Entry Highlighted In PURPLE
+                </div>
+                <div className="text-xs text-purple-800 dark:text-purple-300">
+                  Please click <strong>Enter Return</strong> on the purple highlighted row to fill In-Time & Final Reading. After this entry is completed, the driver can enter out-time in Driver Attendance.
+                </div>
+              </div>
+            </div>
+            <Link
+              href="/registers/driver-attendance"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-purple-600/50 bg-purple-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-purple-700 shadow-sm transition"
+              data-testid="link-back-to-driver-attendance"
+            >
+              Back to Driver Attendance →
+            </Link>
+          </div>
+        )}
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {recordsQuery.isLoading ? (
             <div className="space-y-3 p-5">
@@ -709,27 +803,33 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                 <tbody className="divide-y divide-border">
                   {sortedRecords.map((record) => {
                     const paymentDone = record.paymentStatus === 'paid';
-                    const editable = !paymentDone && canEditRecord(record.createdAt, user?.role, definition.module, record.data.date, definition.slug);
-                    const deletable = !paymentDone && canDeleteRecord(record.createdAt, user?.role);
+                    const editable = isSuperAdmin || (!paymentDone && canEditRecord(record.createdAt, user?.role, definition.module, record.data.date, definition.slug, record.data));
+                    const deletable = isSuperAdmin || (!paymentDone && canDeleteRecord(record.createdAt, user?.role, definition.slug));
                     const incomplete = incompleteSet.has(record.id);
                     const isPendingVehicleReturn = isVehicleRegister && (isBlankValue(record.data.in_time) || isBlankValue(record.data.final_reading));
+                    const isHighlighted = Boolean(highlightRecordId && record.id === highlightRecordId);
 
                     return (
                       <tr
                         key={record.id}
-                        className={`group transition-colors ${
-                          isPendingVehicleReturn
-                            ? 'bg-red-500/[0.09] text-red-700 hover:bg-red-500/[0.15] dark:bg-red-950/40 dark:text-red-300 font-semibold border-l-4 border-l-red-500 shadow-[inset_0_1px_0_rgba(239,68,68,0.1)]'
-                            : incomplete
-                              ? 'bg-red-500/[0.06] text-red-800 hover:bg-red-500/10 dark:bg-red-950/25 dark:text-red-400 font-medium'
-                              : 'hover:bg-secondary/35 text-foreground'
+                        id={`record-row-${record.id}`}
+                        className={`group transition-all ${
+                          isHighlighted
+                            ? 'bg-purple-100/95 hover:bg-purple-200/90 text-purple-950 dark:bg-purple-950/70 dark:text-purple-100 font-semibold border-l-4 border-l-purple-600 ring-2 ring-purple-500 shadow-lg'
+                            : isPendingVehicleReturn
+                              ? 'bg-red-500/[0.09] text-red-700 hover:bg-red-500/[0.15] dark:bg-red-950/40 dark:text-red-300 font-semibold border-l-4 border-l-red-500 shadow-[inset_0_1px_0_rgba(239,68,68,0.1)]'
+                              : incomplete
+                                ? 'bg-red-500/[0.06] text-red-800 hover:bg-red-500/10 dark:bg-red-950/25 dark:text-red-400 font-medium'
+                                : 'hover:bg-secondary/35 text-foreground'
                         }`}
                         title={
-                          isPendingVehicleReturn
-                            ? 'Trip in progress: In-Time and Final Reading not entered yet (Vehicle on road)'
-                            : incomplete
-                              ? 'Incomplete record: data is not filled fully'
-                              : undefined
+                          isHighlighted
+                            ? 'PURPLE HIGHLIGHT: Driver is outside company. Return fields must be filled to allow driver attendance out-time.'
+                            : isPendingVehicleReturn
+                              ? 'Trip in progress: In-Time and Final Reading not entered yet (Vehicle on road)'
+                              : incomplete
+                                ? 'Incomplete record: data is not filled fully'
+                                : undefined
                         }
                         data-testid={`row-record-${record.id}`}
                       >
@@ -768,7 +868,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                             const isInBlank = isBlankValue(cellValue);
                             return (
                               <td key={field.key} className="max-w-[190px] truncate px-4 py-4 text-sm font-semibold">
-                                {isInBlank ? (
+                                {isHighlighted ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/50 bg-purple-500/20 px-2.5 py-1 text-xs font-bold text-purple-900 dark:text-purple-200 animate-pulse">
+                                    <span className="size-1.5 rounded-full bg-purple-600" /> Pending (Driver Outside)
+                                  </span>
+                                ) : isInBlank ? (
                                   <span className="inline-flex items-center gap-1.5 rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-xs font-bold text-red-700 dark:text-red-300">
                                     <span className="size-1.5 rounded-full bg-red-500 animate-pulse" /> Pending (Out)
                                   </span>
@@ -841,7 +945,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                                   <button
                                     type="button"
                                     onClick={() => setDialog(record)}
-                                    className="inline-flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/15 px-2.5 py-1.5 text-xs font-bold text-red-700 hover:bg-red-500/25 dark:text-red-300 shadow-sm transition mr-1"
+                                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-bold shadow-sm transition mr-1 ${
+                                      isHighlighted
+                                        ? 'border border-purple-600 bg-purple-600 text-white hover:bg-purple-700 ring-2 ring-purple-400 font-extrabold animate-pulse'
+                                        : 'border border-red-500/40 bg-red-500/15 text-red-700 hover:bg-red-500/25 dark:text-red-300'
+                                    }`}
                                     title="Enter In-Time and Final Reading when vehicle returns"
                                     data-testid={`button-enter-return-${record.id}`}
                                   >
@@ -866,9 +974,11 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                                     className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
                                     data-testid={`button-edit-record-${record.id}`}
                                     title={
-                                      user?.role === 'admin'
-                                        ? 'Edit record'
-                                        : `Edit within ${editWindowLabel(user?.role, definition.module)} of entry`
+                                      isSuperAdmin
+                                        ? 'Super Admin: Unrestricted Edit'
+                                        : user?.role === 'admin'
+                                          ? 'Edit record'
+                                          : `Edit within ${editWindowLabel(user?.role, definition.module)} of entry`
                                     }
                                   >
                                     <Edit3 size={14} />
@@ -881,15 +991,17 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                                     className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
                                     data-testid={`button-delete-record-${record.id}`}
                                     title={
-                                      user?.role === 'admin'
-                                        ? 'Delete record'
-                                        : 'Delete within 7 days of entry'
+                                      isSuperAdmin
+                                        ? 'Super Admin: Unrestricted Delete'
+                                        : user?.role === 'admin'
+                                          ? 'Delete record'
+                                          : 'Delete within 7 days of entry'
                                     }
                                   >
                                     <Trash2 size={14} />
                                   </button>
                                 )}
-                                {!editable && !deletable && (user?.role === 'manager' || user?.role === 'security') ? (
+                                {!editable && !deletable && !isSuperAdmin && (user?.role === 'manager' || user?.role === 'security') ? (
                                   <span
                                     className="inline-flex items-center gap-1 px-2 py-2 text-[10px] font-medium text-muted-foreground"
                                     title={`Editing and deletion are locked after ${editWindowLabel(user?.role, definition.module)}`}
@@ -898,7 +1010,8 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
                                   </span>
                                 ) : (
                                   !editable &&
-                                  !deletable && (
+                                  !deletable &&
+                                  !isSuperAdmin && (
                                     <span className="px-2 py-2 text-[10px] font-medium text-muted-foreground">
                                       View only
                                     </span>
@@ -966,7 +1079,8 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
            onSuccess={(msg) => setNotice(msg)}
          />
        )}
-  </div>;
+    </div>
+  );
 }
 
 export const isRecordIncomplete = (
@@ -1622,7 +1736,7 @@ function RecordDialog({
   activeAttendanceDriversByDate?: Record<string, string[]>;
   loggedOutDriversByDate?: Record<string, Array<{ driverName: string; outTime: string }>>;
   allAttendanceDriversByDate?: Record<string, string[]>;
-  activeDriverTrips?: Map<string, { station: string; stationName: string; carName: string; outTime: string; date: string }>;
+  activeDriverTrips?: Map<string, { recordId?: string; station: string; stationName: string; carName: string; outTime: string; date: string }>;
   isAttendanceLoading?: boolean;
   attendanceError?: string;
   onRetryAttendance?: () => void;
@@ -1630,7 +1744,10 @@ function RecordDialog({
   onClose: () => void;
   onSubmit: (data: { data: Record<string, unknown> }, editing: RegisterRecord | undefined, onError: (message: string) => void) => void;
 }) {
+  const [, setLocation] = useLocation();
+  const [blockingTripRecordId, setBlockingTripRecordId] = useState<string | null>(null);
   const role = definition.slug === 'key-movement' ? undefined : userRole;
+  const isSuperAdmin = userRole === 'super_admin';
   const queryClient = useQueryClient();
   const [addEmployeeModalOpen, setAddEmployeeModalOpen] = useState(false);
   const [addKeyLocationModalOpen, setAddKeyLocationModalOpen] = useState(false);
@@ -1757,6 +1874,22 @@ function RecordDialog({
       }
     }
 
+    if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
+      if (!initial) {
+        // Not first time it should be shown as auto filled - remains empty
+        raw.in_date = '';
+        raw.out_date = '';
+      } else {
+        // Edit mode on existing record:
+        // Original departure date remains strictly locked
+        raw.date = recordOriginalDate;
+        // In Time Date autoselects on which date edit option open and should be saved:
+        const existingInDate = toInputDate(raw.in_date) || toInputDate(raw.out_date);
+        raw.in_date = existingInDate || todayDate;
+        raw.out_date = raw.in_date;
+      }
+    }
+
     return raw;
   }, [definition.slug, fields, initial, todayDate]);
   const [values, setValues] = useState<Record<string, unknown>>(initialValues);
@@ -1772,6 +1905,14 @@ function RecordDialog({
       }
     }
     if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
+      if ((key === 'in_time' || key === 'final_reading') && value && isBlankValue(next.in_date) && isBlankValue(next.out_date)) {
+        next.in_date = todayDate;
+        next.out_date = todayDate;
+      }
+      if (key === 'in_date' || key === 'out_date') {
+        next.in_date = value;
+        next.out_date = value;
+      }
       if (key === 'station') {
         const strVal = String(value ?? '').trim().toLowerCase();
         if (strVal === 'unit 2' || strVal === 'unit-2') {
@@ -2007,6 +2148,13 @@ function RecordDialog({
   }, [definition.slug, driverAttendanceRecords, initial]);
 
   const selectedDriverName = String(values.name ?? '').trim().toLowerCase();
+  const selectedDriverKey = String(displayValues.name ?? displayValues.driver_name ?? values.name ?? values.driver_name ?? '').trim().toLowerCase();
+  const isOutTimeEntered = !isBlankValue(displayValues.out_time);
+  const blockingOutgoingTrip = useMemo(() => {
+    if (isSuperAdmin || definition.slug !== 'driver-attendance' || !selectedDriverKey || !isOutTimeEntered) return null;
+    return activeDriverTrips?.get(selectedDriverKey) ?? null;
+  }, [isSuperAdmin, definition.slug, selectedDriverKey, isOutTimeEntered, activeDriverTrips]);
+
   const activeDriverAttendanceSession = useMemo(() => {
     if (definition.slug !== 'driver-attendance' || !selectedDriverName) return null;
     return (driverAttendanceRecords ?? []).find((rec) => {
@@ -2029,10 +2177,23 @@ function RecordDialog({
       : todayDate;
 
     if (initial) {
-      // Date must strictly remain the previous date when editing an existing record
-      data.date = recordOriginalDate;
-      if (definition.slug === 'driver-attendance') {
-        data.date_of_in_time = toInputDate(initial.data?.date_of_in_time) || recordOriginalDate;
+      if (isSuperAdmin) {
+        // Super admin can edit anything without restrictions including changing the date
+        data.date = toInputDate(displayValues.date) || recordOriginalDate;
+        if (definition.slug === 'driver-attendance') {
+          data.date_of_in_time = toInputDate(displayValues.date_of_in_time) || data.date;
+        }
+      } else {
+        // Date must strictly remain the previous date when editing an existing record
+        data.date = recordOriginalDate;
+        if (definition.slug === 'driver-attendance') {
+          data.date_of_in_time = toInputDate(initial.data?.date_of_in_time) || recordOriginalDate;
+        }
+      }
+      if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
+        // Outgoing vehicle: In Time Date autoselects on which date edit option open and is saved
+        data.in_date = toInputDate(displayValues.in_date) || toInputDate(displayValues.out_date) || todayDate;
+        data.out_date = data.in_date;
       }
     } else {
       // New record defaults date to todayDate
@@ -2042,11 +2203,27 @@ function RecordDialog({
       if (definition.slug === 'driver-attendance' && (!data.date_of_in_time || isBlankValue(data.date_of_in_time))) {
         data.date_of_in_time = data.date || todayDate;
       }
+      if (['outgoing-vehicles', 'outgoing-vehicle-log'].includes(definition.slug)) {
+        // On new record, In Time Date is not auto-filled (remains empty)
+        data.in_date = isBlankValue(displayValues.in_date) ? (isBlankValue(displayValues.out_date) ? '' : toInputDate(displayValues.out_date)) : toInputDate(displayValues.in_date);
+        data.out_date = data.in_date;
+      }
     }
 
-    if (definition.slug === 'driver-attendance') {
+    if (!isSuperAdmin && definition.slug === 'driver-attendance') {
       const chosenDriver = String(data.name ?? data.driver_name ?? '').trim().toLowerCase();
       const isOutTimeBlank = isBlankValue(data.out_time);
+      if (chosenDriver && !isOutTimeBlank) {
+        const activeTrip = activeDriverTrips?.get(chosenDriver);
+        if (activeTrip) {
+          const carInfo = activeTrip.carName ? ` (${activeTrip.carName})` : '';
+          setError(
+            `Cannot enter out-time: Driver "${String(data.name ?? data.driver_name)}" is currently outside the company with vehicle${carInfo}. The outgoing vehicle entry is not fully filled (In-Time and Final Reading missing). Please complete that entry first.`
+          );
+          setBlockingTripRecordId(activeTrip.recordId ?? null);
+          return;
+        }
+      }
       if (chosenDriver && (!initial || isOutTimeBlank)) {
         const existingOpenRecord = (driverAttendanceRecords ?? []).find((rec) => {
           if (initial && rec.id === initial.id) return false;
@@ -2136,7 +2313,7 @@ function RecordDialog({
       });
       if (attendanceRec && isBlankValue(attendanceRec.data.out_time)) {
         const outTime = String(data.in_time || currentIndiaTime()).trim();
-        const outDate = String(data.date || todayDate).trim();
+        const outDate = String(data.out_date || data.date || todayDate).trim();
         updateRecord.mutate({
           slug: 'driver-attendance',
           id: attendanceRec.id,
@@ -2160,8 +2337,9 @@ function RecordDialog({
             <h2 className="mt-1 font-serif text-2xl font-bold">{definition.title}</h2>
             <p className="mt-2 text-xs text-muted-foreground">
               Fields marked <span className="font-semibold text-primary">Auto-filled</span> are calculated or assigned automatically.
-              {initial && <span> Date is locked to original entry date.</span>}
-              {initial && ['manager', 'security'].includes(role ?? '') && <span> Name fields are locked after entry.</span>}
+              {!isSuperAdmin && initial && <span> Date is locked to original entry date.</span>}
+              {!isSuperAdmin && initial && ['manager', 'security'].includes(role ?? '') && <span> Name fields are locked after entry.</span>}
+              {isSuperAdmin && <span className="font-semibold text-amber-600 dark:text-amber-400"> Super Admin: Unrestricted mode (dates, names, and all fields can be edited).</span>}
             </p>
           </div>
           <button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted" data-testid="button-close-record-dialog">
@@ -2178,8 +2356,8 @@ function RecordDialog({
         )}
         <div className="grid gap-4 p-6 sm:grid-cols-2">
           {orderedFields.map((field) => {
-            const isDateFieldLocked = Boolean(initial) && (field.key === 'date' || (definition.slug === 'driver-attendance' && field.key === 'date_of_in_time'));
-            const isNameFieldLocked = Boolean(initial) && ['manager', 'security'].includes(role ?? '') && isNameField(field);
+            const isDateFieldLocked = !isSuperAdmin && Boolean(initial) && (field.key === 'date' || (definition.slug === 'driver-attendance' && field.key === 'date_of_in_time'));
+            const isNameFieldLocked = !isSuperAdmin && Boolean(initial) && ['manager', 'security'].includes(role ?? '') && isNameField(field);
             const isFieldLocked = isDateFieldLocked || isNameFieldLocked;
             return (
               <FieldInput
@@ -2248,6 +2426,33 @@ function RecordDialog({
             </p>
           </div>
         )}
+        {(blockingOutgoingTrip || blockingTripRecordId) && (
+          <div className="mx-6 mb-4 rounded-xl border border-purple-500/50 bg-purple-500/10 p-4 text-purple-950 dark:text-purple-200 shadow-sm" data-testid="banner-driver-outside-modal">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={18} className="text-purple-600 shrink-0 mt-0.5" />
+              <div className="text-xs leading-relaxed">
+                <div className="font-bold text-sm text-purple-900 dark:text-purple-100">
+                  Driver is currently outside the company
+                </div>
+                <p className="mt-1 text-purple-800 dark:text-purple-300">
+                  This driver has an active trip with vehicle <strong>{(blockingOutgoingTrip?.carName) || 'company vehicle'}</strong>. The outgoing vehicle return fields (In-Time and Final Reading) are not fully filled. Till then, out-time cannot be entered.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const recId = blockingOutgoingTrip?.recordId || blockingTripRecordId;
+                    onClose();
+                    setLocation(`/registers/outgoing-vehicles?highlightRecord=${recId}`);
+                  }}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3.5 py-2 font-bold text-white hover:bg-purple-700 shadow-sm transition"
+                  data-testid="button-render-blocking-outgoing-trip"
+                >
+                  Render to that entry in Outgoing Vehicles →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {error && (
           <div className="mx-6 mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
             {error}
@@ -2257,7 +2462,17 @@ function RecordDialog({
           <button onClick={onClose} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted" data-testid="button-cancel-record">
             Cancel
           </button>
-          <button disabled={pending} onClick={submit} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50" data-testid="button-save-record">
+          <button
+            disabled={pending || Boolean(blockingOutgoingTrip)}
+            onClick={submit}
+            className={`rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm ${
+              blockingOutgoingTrip
+                ? 'bg-muted text-muted-foreground cursor-not-allowed border border-border opacity-70'
+                : 'bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50'
+            }`}
+            title={blockingOutgoingTrip ? 'Cannot enter out-time while driver is outside the company' : undefined}
+            data-testid="button-save-record"
+          >
             {pending ? 'Saving…' : initial ? 'Save changes' : 'Add record'}
           </button>
         </div>

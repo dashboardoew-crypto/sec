@@ -46,14 +46,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 export const requireRole = (...roles: string[]) =>
   (req: Request, res: Response, next: NextFunction) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: "You do not have permission for this action" });
-    return next();
+    if (req.user.role === "super_admin" || roles.includes(req.user.role)) return next();
+    return res.status(403).json({ error: "You do not have permission for this action" });
   };
 
 export const canCreateRegisterRecord = (role: string | undefined) =>
-  role === "admin" || role === "manager" || role === "hr" || role === "security";
+  role === "super_admin" || role === "admin" || role === "manager" || role === "hr" || role === "security";
 
 export const canAccessModule = (role: string | undefined, module: "security" | "main-gate" | "master") => {
+  if (role === "super_admin") return true;
   if (module === "master") return role === "admin" || role === "manager" || role === "hr";
   return role === "admin" || role === "manager" || role === "hr" || role === "security";
 };

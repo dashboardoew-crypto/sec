@@ -543,11 +543,11 @@ export function BreakdownReportView({
                 onChange={(e) => setBreakdownAlertEmail(e.target.value)}
                 placeholder={fallbackEmail || 'Enter recipient email (e.g. maintenance@company.com)'}
                 className="w-full rounded-xl border border-input bg-background px-3.5 py-2 text-xs outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
-                disabled={user?.role !== 'admin' || savingEmailConfig}
+                disabled={(user?.role !== 'admin' && user?.role !== 'super_admin') || savingEmailConfig}
                 data-testid="input-breakdown-alert-email"
               />
             </div>
-            {user?.role === 'admin' ? (
+            {user?.role === 'admin' || user?.role === 'super_admin' ? (
               <div className="flex items-center gap-2">
                 <button
                   type="submit"
@@ -804,7 +804,7 @@ export function BreakdownReportView({
                             <Send size={13} className={resendingId === item.id ? 'animate-spin' : ''} />
                           </button>
 
-                          {['admin', 'manager'].includes(user?.role || '') && (
+                          {['super_admin', 'admin', 'manager'].includes(user?.role || '') && (
                             <button
                               type="button"
                               onClick={() => handleDeleteBreakdown(item.id)}
