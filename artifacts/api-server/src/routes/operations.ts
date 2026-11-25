@@ -1096,7 +1096,7 @@ const fetchFilteredRegisterRecords = async (
     .select()
     .from(registerRecordsTable)
     .where(inArray(registerRecordsTable.registerSlug, slugsToQuery))
-    .orderBy(desc(registerRecordsTable.updatedAt));
+    .orderBy(desc(registerRecordsTable.recordDate), desc(registerRecordsTable.createdAt), desc(registerRecordsTable.id));
 
   const search = query.search?.trim().toLowerCase();
   if (search) {
@@ -1123,6 +1123,19 @@ const fetchFilteredRegisterRecords = async (
     const toDate = calendarDate(query.to);
     if (toDate) rows = rows.filter((row) => !dateForRecord(row) || dateForRecord(row)! <= toDate);
   }
+
+  // All registers are automatically sorted in descending order according to date
+  rows.sort((a, b) => {
+    const dateA = dateForRecord(a) || calendarDate(a.recordDate) || calendarDate(a.createdAt) || "";
+    const dateB = dateForRecord(b) || calendarDate(b.recordDate) || calendarDate(b.createdAt) || "";
+    const dateComp = dateB.localeCompare(dateA); // descending
+    if (dateComp !== 0) return dateComp;
+    const timeA = String((a.data as Record<string, unknown>).in_time || (a.data as Record<string, unknown>).out_time || (a.data as Record<string, unknown>).time || a.createdAt || "");
+    const timeB = String((b.data as Record<string, unknown>).in_time || (b.data as Record<string, unknown>).out_time || (b.data as Record<string, unknown>).time || b.createdAt || "");
+    const timeComp = timeB.localeCompare(timeA);
+    if (timeComp !== 0) return timeComp;
+    return String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? ""));
+  });
 
   return rows;
 };
@@ -1573,7 +1586,7 @@ router.post("/registers/:slug/records", async (req: Request, res: Response) => {
   );
   const missing = validateRequiredFields(definition, recordDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
-  if (slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log") {
+  if (!isSuperAdmin && (slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log")) {
     const driverName = String(data.driver_name ?? "").trim().toLowerCase();
     if (driverName) {
       const activeRows = await db.select().from(registerRecordsTable)
@@ -1770,15 +1783,17 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
     ?? calendarDate(existing[0].createdAt)
     ?? dateInIndia(new Date());
   // Super admin can edit the record date freely; others have date permanently locked to original entry date
-  const selectedDate = isSuperAdmin && typeof body.data?.date === "string"
-    ? (calendarDate(body.data.date) || existingDate)
+  const selectedDate = isSuperAdmin && (body.data?.date || (slug === "driver-attendance" && body.data?.date_of_in_time))
+    ? (calendarDate(String(body.data?.date || body.data?.date_of_in_time)) || existingDate)
     : existingDate;
   const data = applyDerivedValues(
     definition,
     inputDataForRole(req, definition, { ...(body.data ?? existing[0].data), date: selectedDate }, existing[0].data),
   );
   data.date = selectedDate;
-  if (!isSuperAdmin && slug === "driver-attendance" && existing[0].data.date_of_in_time) {
+  if (isSuperAdmin && slug === "driver-attendance") {
+    data.date_of_in_time = calendarDate(String(body.data?.date_of_in_time || selectedDate)) || selectedDate;
+  } else if (!isSuperAdmin && slug === "driver-attendance" && existing[0].data.date_of_in_time) {
     data.date_of_in_time = existing[0].data.date_of_in_time;
   }
   if (isVehicleSlug) {
@@ -1800,7 +1815,7 @@ router.patch("/registers/:slug/records/:id", async (req: Request, res: Response)
   }
   const missing = validateRequiredFields(definition, selectedDate, data);
   if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.map((field) => field.label).join(", ")}` });
-  if (slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log") {
+  if (!isSuperAdmin && (slug === "outgoing-vehicles" || slug === "outgoing-vehicle-log")) {
     const driverName = String(data.driver_name ?? "").trim().toLowerCase();
     const existingDriver = String(existing[0].data?.driver_name ?? "").trim().toLowerCase();
     // Only block if changing driver to another driver who is currently out, or if this record itself had no driver

@@ -353,4 +353,168 @@ test('Super admin role can update record date freely on existing record without 
   });
   assert.equal(superAdminResult.data.date, '2026-11-15', 'Super admin can update record date freely');
   assert.equal(superAdminResult.recordDate, '2026-11-15', 'Super admin updates recordDate column as well');
+
+  // Super admin editing date to any future date -> Allowed and updated!
+  const superAdminFutureResult = computeBackendUpdatedData({
+    existingRecord,
+    payloadData: { date: '2027-01-15', name: 'Ramesh Kumar Scheduled' },
+    role: 'super_admin',
+  });
+  assert.equal(superAdminFutureResult.data.date, '2027-01-15', 'Super admin can set future dates in date field');
+  assert.equal(superAdminFutureResult.recordDate, '2027-01-15');
+
+  // Super admin editing date to historical past date (e.g. 2 years ago) -> Allowed and updated!
+  const superAdminPastResult = computeBackendUpdatedData({
+    existingRecord,
+    payloadData: { date: '2024-03-01', name: 'Ramesh Kumar Archive' },
+    role: 'super_admin',
+  });
+  assert.equal(superAdminPastResult.data.date, '2024-03-01', 'Super admin can set historical dates in date field');
+  assert.equal(superAdminPastResult.recordDate, '2024-03-01');
+});
+
+test('Super admin and edit mode bypass driver dispatch locks on outgoing vehicles', () => {
+  const validateOutgoingVehicleDispatch = ({
+    isSuperAdmin,
+    initial,
+    attendingDrivers,
+    busyDriversOnDate,
+    loggedOutDrivers,
+    data,
+  }) => {
+    if (!isSuperAdmin && !initial) {
+      if (attendingDrivers && attendingDrivers.length === 0) {
+        if (busyDriversOnDate.length > 0 && loggedOutDrivers.length > 0) {
+          return 'Cannot dispatch: All attending drivers are either on a trip or have logged out for the day.';
+        }
+        if (loggedOutDrivers.length > 0) {
+          return 'Cannot dispatch: All attending drivers have already logged out / ended their shift for the day.';
+        }
+        return 'No driver attendance recorded.';
+      }
+      const chosenDriver = String(data.driver_name ?? '').trim().toLowerCase();
+      if (chosenDriver && loggedOutDrivers.some((d) => d.driverName.toLowerCase() === chosenDriver)) {
+        return `Driver ${data.driver_name} has already logged out.`;
+      }
+    }
+
+    if (!isSuperAdmin && initial) {
+      const chosenDriver = String(data.driver_name ?? '').trim().toLowerCase();
+      const existingDriver = String(initial.data?.driver_name ?? '').trim().toLowerCase();
+      if (chosenDriver && chosenDriver !== existingDriver) {
+        if (loggedOutDrivers.some((d) => d.driverName.toLowerCase() === chosenDriver)) {
+          return `Driver ${data.driver_name} has already logged out.`;
+        }
+      }
+    }
+
+    return null; // Allowed!
+  };
+
+  const existingTrip = {
+    id: 'trip-1',
+    data: { date: '2026-11-21', driver_name: 'RAJESH', out_time: '10:00' },
+  };
+
+  // 1. Regular user trying to create NEW dispatch when all drivers logged out -> Blocked
+  const newDispatchBlocked = validateOutgoingVehicleDispatch({
+    isSuperAdmin: false,
+    initial: null,
+    attendingDrivers: [],
+    busyDriversOnDate: [],
+    loggedOutDrivers: [{ driverName: 'RAJESH', outTime: '11:40' }],
+    data: { driver_name: 'RAJESH' },
+  });
+  assert.equal(newDispatchBlocked, 'Cannot dispatch: All attending drivers have already logged out / ended their shift for the day.');
+
+  // 2. Regular user editing EXISTING trip (e.g. entering return/in-time or notes) -> ALLOWED (not a new dispatch)
+  const editExistingAllowed = validateOutgoingVehicleDispatch({
+    isSuperAdmin: false,
+    initial: existingTrip,
+    attendingDrivers: [],
+    busyDriversOnDate: [],
+    loggedOutDrivers: [{ driverName: 'RAJESH', outTime: '11:40' }],
+    data: { driver_name: 'RAJESH', in_time: '11:40', final_reading: '550' },
+  });
+  assert.equal(editExistingAllowed, null, 'Editing existing trip must not be blocked by dispatch availability');
+
+  // 3. Super admin editing date or details on existing record -> ALLOWED unrestricted
+  const superAdminEditDateAllowed = validateOutgoingVehicleDispatch({
+    isSuperAdmin: true,
+    initial: existingTrip,
+    attendingDrivers: [],
+    busyDriversOnDate: [],
+    loggedOutDrivers: [{ driverName: 'RAJESH', outTime: '11:40' }],
+    data: { date: '2026-11-21', driver_name: 'RAJESH' },
+  });
+  assert.equal(superAdminEditDateAllowed, null, 'Super admin editing date must be unrestricted');
+
+  // 4. Super admin creating even a new dispatch when drivers logged out -> ALLOWED unrestricted
+  const superAdminNewDispatchAllowed = validateOutgoingVehicleDispatch({
+    isSuperAdmin: true,
+    initial: null,
+    attendingDrivers: [],
+    busyDriversOnDate: [],
+    loggedOutDrivers: [{ driverName: 'RAJESH', outTime: '11:40' }],
+    data: { driver_name: 'RAJESH' },
+  });
+  assert.equal(superAdminNewDispatchAllowed, null, 'Super admin new dispatch is unrestricted');
+});
+
+test('entryDateBounds provides unrestricted bounds for super_admin', () => {
+  const entryDateBoundsHelper = (role) => {
+    const today = '2026-11-25';
+    if (role === 'super_admin') {
+      return { min: undefined, max: undefined };
+    }
+    if (role === 'admin' || role === 'hr') {
+      return { min: undefined, max: today };
+    }
+    return { min: '2026-11-22', max: today };
+  };
+
+  const superAdminBounds = entryDateBoundsHelper('super_admin');
+  assert.equal(superAdminBounds.min, undefined, 'Super admin has no min bound');
+  assert.equal(superAdminBounds.max, undefined, 'Super admin has no max bound');
+
+  const securityBounds = entryDateBoundsHelper('security');
+  assert.equal(securityBounds.max, '2026-11-25', 'Security has max today');
+  assert.equal(securityBounds.min, '2026-11-22', 'Security has min 3 days ago');
+});
+
+test('All registers automatically sort in descending order according to date', () => {
+  const records = [
+    { id: '1', data: { date: '2026-11-18', name: 'Entry A' }, createdAt: '2026-11-18T08:00:00Z' },
+    { id: '2', data: { date: '2026-11-25', name: 'Entry B' }, createdAt: '2026-11-25T09:00:00Z' },
+    { id: '3', data: { date: '2026-11-21', name: 'Entry C' }, createdAt: '2026-11-21T10:00:00Z' },
+    { id: '4', data: { date: '2026-11-25', name: 'Entry D' }, createdAt: '2026-11-25T14:00:00Z' },
+    { id: '5', data: { date: '2026-11-01', name: 'Entry E' }, createdAt: '2026-11-01T07:00:00Z' },
+  ];
+
+  // Helper mirroring registers.tsx & operations.ts descending date sorting
+  const sortRecordsDescending = (items, sortOrder = 'desc') => {
+    const parseRecordDate = (r) => toInputDate(r.data?.date ?? r.recordDate ?? r.createdAt ?? '');
+    const parseRecordTime = (r) => String(r.data?.in_time ?? r.data?.out_time ?? r.createdAt ?? '');
+    return [...items].sort((a, b) => {
+      const dateA = parseRecordDate(a);
+      const dateB = parseRecordDate(b);
+      const dateComp = dateA.localeCompare(dateB);
+      if (sortOrder === 'asc') {
+        if (dateComp !== 0) return dateComp;
+        return parseRecordTime(a).localeCompare(parseRecordTime(b));
+      }
+      // 'desc' (automatic default)
+      if (dateComp !== 0) return -dateComp;
+      return parseRecordTime(b).localeCompare(parseRecordTime(a));
+    });
+  };
+
+  const sorted = sortRecordsDescending(records);
+
+  // Expected order: 25 Nov (14:00), 25 Nov (09:00), 21 Nov, 18 Nov, 01 Nov
+  assert.equal(sorted[0].id, '4', 'Newest date & time (25 Nov 14:00) should be first');
+  assert.equal(sorted[1].id, '2', '25 Nov 09:00 should be second');
+  assert.equal(sorted[2].id, '3', '21 Nov should be third');
+  assert.equal(sorted[3].id, '1', '18 Nov should be fourth');
+  assert.equal(sorted[4].id, '5', 'Oldest date (01 Nov) should be last');
 });

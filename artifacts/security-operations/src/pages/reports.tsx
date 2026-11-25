@@ -84,7 +84,7 @@ export default function ReportsPage() {
     const query = person.trim().toLowerCase();
     return (report?.details ?? [])
       .filter((detail) => !query || detail.name.toLowerCase().includes(query))
-      .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+      .sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
   }, [person, report]);
 
   const reportOption = reportOptions.find((option) => option.source === source)!;

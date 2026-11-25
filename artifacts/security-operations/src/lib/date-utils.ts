@@ -97,6 +97,9 @@ export const toInputDate = (value: unknown): string => {
 export const entryDateBounds = (role?: string) => {
   const today = indiaDateKey(new Date());
   const todayStart = new Date(`${today}T00:00:00Z`);
+  if (role === 'super_admin') {
+    return { min: undefined, max: undefined };
+  }
   if (role === 'admin' || role === 'hr') {
     return { min: undefined, max: today };
   }

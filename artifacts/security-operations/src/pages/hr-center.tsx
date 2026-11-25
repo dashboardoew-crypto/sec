@@ -202,7 +202,7 @@ export default function HrCenterPage() {
     return (report?.details ?? [])
       .filter((row) => (!query || row.name.toLowerCase().includes(query)) &&
         (statusFilter === 'all' || row.paymentStatus === statusFilter))
-      .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+      .sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
   }, [report, search, statusFilter]);
 
   const selected = useMemo(

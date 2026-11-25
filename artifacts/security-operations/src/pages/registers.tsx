@@ -191,8 +191,8 @@ function RegisterFilters({
   onToggleFilters: () => void;
   onClearFilters: () => void;
   onExport: () => void;
-  sortOrder: 'none' | 'asc' | 'desc';
-  onSortChange: (value: 'none' | 'asc' | 'desc') => void;
+  sortOrder: 'asc' | 'desc';
+  onSortChange: (value: 'asc' | 'desc') => void;
 }) {
   const activeFilters = [search ? `Name: ${search}` : '', from ? `From: ${from}` : '', to ? `To: ${to}` : ''].filter(Boolean);
   return <section className="mb-5 rounded-2xl border border-border bg-card p-3 shadow-sm" data-testid="register-filters">
@@ -207,7 +207,7 @@ function RegisterFilters({
         <button onClick={onToggleFilters} className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold ${showFilters || from || to ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`} data-testid="button-toggle-filters"><SlidersHorizontal size={15} /> Filters {activeFilters.length > 1 && <span className="grid size-5 place-items-center rounded-full bg-primary text-[10px] text-primary-foreground">{activeFilters.length}</span>}<ChevronDown size={14} className={showFilters ? 'rotate-180 transition-transform' : 'transition-transform'} /></button>
         {activeFilters.length > 0 && <button onClick={onClearFilters} className="rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:bg-muted" data-testid="button-clear-filters">Clear all</button>}
         <div className="flex items-center gap-1 rounded-xl border border-border p-1" aria-label="Sort records">
-          {([['asc', 'Ascending'], ['desc', 'Descending'], ['none', 'None']] as const).map(([value, label]) => <button key={value} onClick={() => onSortChange(value)} className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${sortOrder === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} data-testid={`button-sort-${value}`}>{label}</button>)}
+          {([['desc', 'Descending (Date)'], ['asc', 'Ascending (Date)']] as const).map(([value, label]) => <button key={value} onClick={() => onSortChange(value)} className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${sortOrder === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} data-testid={`button-sort-${value}`}>{label}</button>)}
         </div>
         <button onClick={onExport} className="flex items-center gap-2 rounded-xl border border-border px-3 py-2.5 text-xs font-semibold hover:bg-muted" data-testid="button-export-csv"><Download size={15} /> <span className="hidden sm:inline">Export</span></button>
       </div>
@@ -246,7 +246,7 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const [from, setFrom] = useState(() => editParams.get('from') ?? '');
   const [to, setTo] = useState(() => editParams.get('to') ?? '');
   const [showFilters, setShowFilters] = useState(false);
-  const [sortOrder, setSortOrder] = useState<'none' | 'asc' | 'desc'>('none');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [dialog, setDialog] = useState<'create' | RegisterRecord | null>(null);
   const [breakdownModalOpen, setBreakdownModalOpen] = useState(false);
   const [notice, setNotice] = useState('');
@@ -439,11 +439,29 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
   const remove = useDeleteRegisterRecord();
   const records = recordsQuery.data?.records ?? [];
   const sortedRecords = useMemo(() => {
-    if (sortOrder === 'none') return records;
-    const dateValue = (record: RegisterRecord) => String(record.data.date ?? record.createdAt ?? '');
+    const parseRecordDate = (record: RegisterRecord) => {
+      const raw = record.data?.date ?? (record as any)?.recordDate ?? record.createdAt ?? '';
+      return toInputDate(raw) || String(raw || '');
+    };
+    const parseRecordTime = (record: RegisterRecord) => {
+      const d = (record.data ?? {}) as Record<string, unknown>;
+      return String(d.in_time ?? d.out_time ?? d.time ?? d.morning_in ?? d.car_out_time_for_service ?? record.createdAt ?? '');
+    };
     return [...records].sort((a, b) => {
-      const comparison = dateValue(a).localeCompare(dateValue(b));
-      return sortOrder === 'asc' ? comparison : -comparison;
+      const dateA = parseRecordDate(a);
+      const dateB = parseRecordDate(b);
+      const dateComp = dateA.localeCompare(dateB);
+      if (sortOrder === 'asc') {
+        if (dateComp !== 0) return dateComp;
+        const timeComp = parseRecordTime(a).localeCompare(parseRecordTime(b));
+        if (timeComp !== 0) return timeComp;
+        return String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? ''));
+      }
+      // 'desc' (default automatic sort): descending order according to date
+      if (dateComp !== 0) return -dateComp;
+      const timeComp = parseRecordTime(b).localeCompare(parseRecordTime(a));
+      if (timeComp !== 0) return timeComp;
+      return String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''));
     });
   }, [records, sortOrder]);
   const dialogFields = useMemo(
@@ -605,7 +623,17 @@ function RegisterDetail({ definition }: { definition: RegisterDefinition }) {
       }
       update.mutate(
         { slug: definition.slug, id: editing.id, data },
-        { onSuccess: () => { invalidate(); setDialog(null); setNotice('Record updated'); }, onError: showMutationError },
+        {
+          onSuccess: () => {
+            invalidate();
+            setDialog(null);
+            const newDate = String(data.data.date ?? '');
+            if (from && newDate && newDate < from) setFrom(newDate);
+            if (to && newDate && newDate > to) setTo(newDate);
+            setNotice(`Record updated${newDate ? ` (Date: ${formatDate(newDate)})` : ''}`);
+          },
+          onError: showMutationError,
+        },
       );
     } else {
       create.mutate(
@@ -1746,7 +1774,7 @@ function RecordDialog({
 }) {
   const [, setLocation] = useLocation();
   const [blockingTripRecordId, setBlockingTripRecordId] = useState<string | null>(null);
-  const role = definition.slug === 'key-movement' ? undefined : userRole;
+  const role = userRole;
   const isSuperAdmin = userRole === 'super_admin';
   const queryClient = useQueryClient();
   const [addEmployeeModalOpen, setAddEmployeeModalOpen] = useState(false);
@@ -2243,7 +2271,7 @@ function RecordDialog({
       }
     }
 
-    if (isVehicleRegister && !overrideAttendance) {
+    if (!isSuperAdmin && !initial && isVehicleRegister && !overrideAttendance) {
       if (attendingDrivers && attendingDrivers.length === 0) {
         if (busyDriversOnDate.length > 0 && loggedOutDrivers.length > 0) {
           setError(`Cannot dispatch: All attending drivers for ${selectedDateDmy && selectedDateDmy !== '—' ? selectedDateDmy : selectedDateRaw} are either on a trip or have logged out for the day.`);
@@ -2258,18 +2286,37 @@ function RecordDialog({
       }
 
       const chosenDriver = String(data.driver_name ?? '').trim().toLowerCase();
-      if (!initial && chosenDriver && loggedOutDrivers.some((d) => d.driverName.toLowerCase() === chosenDriver)) {
+      if (chosenDriver && loggedOutDrivers.some((d) => d.driverName.toLowerCase() === chosenDriver)) {
         const lo = loggedOutDrivers.find((d) => d.driverName.toLowerCase() === chosenDriver);
         setError(`Driver ${data.driver_name} has already logged out / ended shift for today (Clocked Out: ${lo?.outTime}). Assign an active on-duty driver.`);
         return;
       }
 
-      if (!initial && chosenDriver && activeDriverTrips?.has(chosenDriver)) {
+      if (chosenDriver && activeDriverTrips?.has(chosenDriver)) {
         const trip = activeDriverTrips.get(chosenDriver)!;
         setError(`Driver ${data.driver_name} is currently out of office on an active trip (${trip.station}${trip.stationName ? ` - ${trip.stationName}` : ''}). Record their return (final reading) before dispatching a new vehicle.`);
         return;
       }
+    }
 
+    if (!isSuperAdmin && initial && isVehicleRegister && !overrideAttendance) {
+      const chosenDriver = String(data.driver_name ?? '').trim().toLowerCase();
+      const existingDriver = String(initial.data?.driver_name ?? '').trim().toLowerCase();
+      if (chosenDriver && chosenDriver !== existingDriver) {
+        if (loggedOutDrivers.some((d) => d.driverName.toLowerCase() === chosenDriver)) {
+          const lo = loggedOutDrivers.find((d) => d.driverName.toLowerCase() === chosenDriver);
+          setError(`Driver ${data.driver_name} has already logged out / ended shift for today (Clocked Out: ${lo?.outTime}). Assign an active on-duty driver.`);
+          return;
+        }
+        if (activeDriverTrips?.has(chosenDriver)) {
+          const trip = activeDriverTrips.get(chosenDriver)!;
+          setError(`Driver ${data.driver_name} is currently out of office on an active trip (${trip.station}${trip.stationName ? ` - ${trip.stationName}` : ''}). Record their return (final reading) before dispatching a new vehicle.`);
+          return;
+        }
+      }
+    }
+
+    if (isVehicleRegister) {
       const stationChoice = String(data.station ?? '').trim().toLowerCase();
       if (stationChoice === 'unit 2' || stationChoice === 'unit-2') {
         data.station = 'Unit 2';
@@ -2376,7 +2423,7 @@ function RecordDialog({
                 nameOptions={nameOptions}
                 editable={!isFieldLocked}
                 onChange={(v) => setValue(field.key, v)}
-                attendingDrivers={overrideAttendance ? driverNames : attendingDrivers}
+                attendingDrivers={isSuperAdmin || overrideAttendance ? driverNames : attendingDrivers}
                 allAttendingDrivers={allAttendingDrivers}
                 busyDriversOnDate={busyDriversOnDate}
                 loggedOutDrivers={loggedOutDrivers}
@@ -2614,7 +2661,7 @@ function FieldInput({
     : options;
 
   const rendersSelect = field.type === 'select' || field.key === 'labour_name' || (isOutgoingVehicleDriver && !field.derived);
-  const dateBounds = (field.key === 'date' || field.type === 'date') ? entryDateBounds(role) : undefined;
+  const dateBounds = isDateField ? (role === 'super_admin' ? undefined : entryDateBounds(role)) : undefined;
 
   return (
     <label className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
@@ -2624,6 +2671,7 @@ function FieldInput({
           {field.required && <span className="ml-1 text-destructive">*</span>}
           {field.derived && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Auto-filled</span>}
           {!editable && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Locked</span>}
+          {role === 'super_admin' && isDateField && <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">Unrestricted</span>}
         </span>
         {field.key === 'labour_name' && onOpenAddEmployee && editable && (
           <button
@@ -2834,7 +2882,7 @@ function FieldInput({
                         <RefreshCw size={11} /> Refresh attendance
                       </button>
                     )}
-                    {onToggleOverride && (
+                    {role !== 'super_admin' && onToggleOverride && (
                       <button
                         type="button"
                         onClick={onToggleOverride}
@@ -2847,7 +2895,11 @@ function FieldInput({
                 </div>
               ) : (
                 <div className="space-y-1.5">
-                  {overrideAttendance && (
+                  {role === 'super_admin' ? (
+                    <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-200 font-medium">
+                      <span>👑 Super Admin: Unrestricted mode (all registered drivers available)</span>
+                    </div>
+                  ) : overrideAttendance ? (
                     <div className="flex items-center justify-between rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] text-indigo-900 dark:text-indigo-200 font-medium">
                       <span>🔓 Showing all registered drivers (Attendance override active)</span>
                       {onToggleOverride && (
@@ -2860,25 +2912,27 @@ function FieldInput({
                         </button>
                       )}
                     </div>
-                  )}
-                  {attendingDrivers && attendingDrivers.length > 0 ? (
-                    <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 size={12} className="shrink-0" />
-                      <span>Showing {attendingDrivers.length} driver(s) available in office on {selectedDateFormatted}</span>
-                    </span>
-                  ) : (
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-900 dark:text-amber-200">
-                      <div className="flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-400">
-                        <AlertTriangle size={12} className="shrink-0" />
-                        <span>No drivers currently available for new dispatch</span>
+                  ) : null}
+                  {role !== 'super_admin' && (
+                    attendingDrivers && attendingDrivers.length > 0 ? (
+                      <span className="flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 size={12} className="shrink-0" />
+                        <span>Showing {attendingDrivers.length} driver(s) available in office on {selectedDateFormatted}</span>
+                      </span>
+                    ) : (
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-900 dark:text-amber-200">
+                        <div className="flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-400">
+                          <AlertTriangle size={12} className="shrink-0" />
+                          <span>No drivers currently available for new dispatch</span>
+                        </div>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          All attending drivers for this date are either currently out on a trip or have already logged out.
+                        </p>
                       </div>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">
-                        All attending drivers for this date are either currently out on a trip or have already logged out.
-                      </p>
-                    </div>
+                    )
                   )}
 
-                  {busyDriversOnDate.length > 0 && (
+                  {role !== 'super_admin' && busyDriversOnDate.length > 0 && (
                     <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-2 text-[11px]">
                       <span className="font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1">
                         🚗 On trip / Out of office (excluded):
@@ -2896,7 +2950,7 @@ function FieldInput({
                     </div>
                   )}
 
-                  {loggedOutDrivers && loggedOutDrivers.length > 0 && (
+                  {role !== 'super_admin' && loggedOutDrivers && loggedOutDrivers.length > 0 && (
                     <div className="rounded-lg border border-slate-500/20 bg-slate-500/5 p-2 text-[11px]">
                       <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
                         🚪 Shift ended / Logged out (excluded):
